@@ -39,8 +39,8 @@ FALLBACK_REPLIES = (
     'ето всё или ещо концерт будет',
     'да сколько можно одно и то же',
     'ну ти и устроил базар конечно',
-    'бля опять начинаешь со своей хернёй',
-    'шо ти от меня то хочешь',
+    'бля опять начинаеш со своей хернёй',
+    'шо ти от меня то хочеш',
     'ну давай конкретнее без етих выкрутасов',
     'ти ещо громче напиши может поможет',
     'ето у тебя вопрос или просто шум',
@@ -51,22 +51,22 @@ FALLBACK_REPLIES = (
     'шо за привычка меня дёргать постоянно',
     'бля ну объясни нормально чего надо',
     'ну начинай уже чего хотел то',
-    'ето ты сейчас серьёзно спрашиваешь',
+    'ето ти сечас серьёзно спрашиваеш',
     'шо за допрос с порога опять',
     'да тише ти весь чат разбудил',
     'ну давай без етих загадок бля',
-    'и долго ти так будешь заводиться',
+    'и долго ти так будеш заводиться',
     'я тут чего шум поднял',
     'шо опять зацепиться больше не за что',
     'бля у тебя талант устраивать суету',
     'ну хоть суть скажи для начала',
     'ето уже третья серия твоего выступления',
-    'ти можешь по делу хоть немного',
+    'ти можеш по делу хоть немного',
     'шо опять надо объяснять на пальцах',
     'ну и чего ти добился етим криком',
     'бля дай хоть мысль закончить',
     'да вижу я тебя не кипятись',
-    'опять ты со своим представлением пришёл',
+    'опять ти со своим представлением пришёл',
     'ну спрашивай уже раз позвал',
 )
 CYBORG_PATTERN = re.compile(r'\b(?:киборг[а-яё]*|cyborg[a-z]*)\b', re.I)
@@ -78,11 +78,11 @@ FALLBACK_TOPICS = (
     (re.compile(r'(?i)\b(?:украина|война|киев|рахиня|крым|крим|даг)\b'), (
         'опять политоту притащил бля сколько можно',
         'шо опять диванный эксперт проснулся',
-        'ти без етих споров хоть вечер можешь',
-        'ну всё опять спорить до утра будешь',
+        'ти без етих споров хоть вечер можеш',
+        'ну всё опять спорить до утра будеш',
     )),
     (re.compile(r'(?i)\b(?:бубуська|володька|цаца|цацик|бубус|цацыг|хряк|свинья|сосатка)\b'), (
-        'шо опять бубуса дёргаешь делать нечего',
+        'шо опять бубуса дёргаеш делать нечего',
         'цацик бля у тебя других слов нет',
         'ти меня позвал или просто орёшь',
         'да тут я бля хватит звать',
@@ -94,7 +94,7 @@ FALLBACK_TOPICS = (
         'ето интернет или ежедневный повод поорать',
     )),
     (re.compile(r'(?i)\b(?:пиво|пивас\w*|пивка|пивко)\b'), (
-        'ти кроме пива ещо о чём думаешь',
+        'ти кроме пива ещо о чём думаеш',
         'шо опять весь разговор к пиву свёл',
         'ну началось опять где пивас бля',
         'бля у тебя вечная повестка про пиво',
@@ -231,9 +231,29 @@ class Store:
         return row[0] or 0
 
 
+def surzhyk_text(text):
+    """Enforce recurrent archive spellings without removing every soft sign."""
+    spellings = {'ты': 'ти', 'это': 'ето', 'ещё': 'ещо', 'еще': 'ещо',
+                 'было': 'било', 'бы': 'би', 'сейчас': 'сечас'}
+
+    def replace(match):
+        original = match.group()
+        word = original.lower()
+        changed = spellings.get(word, word)
+        if changed.endswith(('ешь', 'ишь')):
+            changed = changed[:-1]
+        if changed == word:
+            return original
+        if original.isupper():
+            return changed.upper()
+        return changed.capitalize() if original[0].isupper() else changed
+
+    return re.sub(r'\b[а-яё]+\b', replace, text, flags=re.I)
+
+
 def answer_key(text):
     # Ignore capitalization, punctuation and spaces when detecting repeats.
-    return ' '.join(re.findall(r'\w+', text.casefold().replace('ё', 'е')))
+    return ' '.join(re.findall(r'\w+', surzhyk_text(text).casefold().replace('ё', 'е')))
 
 
 def repeat_words(text):
@@ -516,7 +536,7 @@ class Bot:
                         and answer == answer.lower() and not re.search(r'\d|@|\[|\]', answer)
                         and ANGRY_QUOTE_PATTERN.search(answer)
                         and not response_problem(answer, previous)):
-                    return answer
+                    return surzhyk_text(answer)
             LOG.warning('Случайная реплика не найдена: причина=no_random_quote')
             return None
         # Own previous output must not become the subject of an unrelated request.
@@ -579,7 +599,7 @@ class Bot:
             if not reason and answer == '__SILENCE__' and not job['automatic']:
                 reason = 'silence_on_direct_request'
             if not reason:
-                return answer
+                return surzhyk_text(answer)
             # Log only a fixed reason code, never generated text or requests.
             LOG.warning('Ответ модели отклонён: причина=%s; попытка=%s/2', reason, attempt + 1)
         return None
@@ -637,7 +657,7 @@ class Bot:
                 self.record_skip(chat_id, 'send_cooldown')
             return
         try:
-            sent = self.telegram.send(chat_id, answer, job['reply_to'])
+            sent = self.telegram.send(chat_id, surzhyk_text(answer), job['reply_to'])
             self.store.add_message(sent, human=False)
             self.store.finish_send(send_id, 'sent')
             LOG.info('Реплика отправлена, режим=%s', kind)

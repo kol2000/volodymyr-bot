@@ -12,7 +12,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from bot import (Bot, COMMANDS, FALLBACK_REPLIES, FALLBACK_TOPICS, MOSCOW, Store,
                  TRIGGER_WORDS, WELCOME_TEXT, answer_key, repeated_answer,
-                 response_problem, valid_answer)
+                 response_problem, surzhyk_text, valid_answer)
 from common import APIError, MODEL, http_json
 import retrieval
 
@@ -172,7 +172,7 @@ class BotTests(unittest.TestCase):
 
     def test_bare_crimea_phrase_has_no_old_archive_context(self):
         with patch('bot.find_examples') as archive, patch('bot.http_json', return_value={'message': {'content': 'опять спорить начинаешь'}}) as model:
-            self.assertEqual(self.bot.generate(self.manual_job(text='КРЫМ   НАШ!')), 'опять спорить начинаешь')
+            self.assertEqual(self.bot.generate(self.manual_job(text='КРЫМ   НАШ!')), 'опять спорить начинаеш')
         archive.assert_not_called()
         data = json.loads(model.call_args.args[1]['messages'][1]['content'])
         self.assertEqual(data['live_context'], [])
@@ -185,6 +185,46 @@ class BotTests(unittest.TestCase):
             self.assertEqual(self.bot.generate(job), 'ти ещо громче поори')
         data = json.loads(model.call_args.args[1]['messages'][1]['content'])
         self.assertEqual(data['trigger_words'], ['бубус'])
+
+    def test_model_spelling_is_corrected_without_retry_or_changing_user_text(self):
+        raw = 'ты пишешь что это было бы ещё сейчас'
+        expected = 'ти пишеш что ето било би ещо сечас'
+        job = self.manual_job(text='ты знаешь что это?')
+        with patch('bot.find_examples', return_value=[]), patch('bot.http_json', return_value={'message': {'content': raw}}) as model:
+            self.assertEqual(self.bot.generate(job), expected)
+        self.assertEqual(model.call_count, 1)
+        data = json.loads(model.call_args.args[1]['messages'][1]['content'])
+        self.assertEqual(data['current_request'], 'ты знаешь что это?')
+
+    def test_archive_random_quote_uses_same_spelling(self):
+        with patch('bot.random_candidates', return_value=['ты бля знаешь что это было']), patch('bot.http_json') as model:
+            self.assertEqual(self.bot.generate(self.manual_job(random_quote=True)),
+                             'ти бля знаеш что ето било')
+        model.assert_not_called()
+
+    def test_spelling_changes_do_not_evade_repeat_history(self):
+        self.remember_answer('ти бля знаеш что ето било')
+        self.assertTrue(repeated_answer('ты бля знаешь что это было', self.store.recent_answers(-100)))
+        replies = [{'message': {'content': 'ты бля знаешь что это было'}},
+                   {'message': {'content': 'ты можешь помолчать хоть минуту'}}]
+        with patch('bot.find_examples', return_value=[]), patch('bot.http_json', side_effect=replies) as model:
+            self.assertEqual(self.bot.generate(self.manual_job()), 'ти можеш помолчать хоть минуту')
+        self.assertEqual(model.call_count, 2)
+
+    def test_sent_response_and_saved_history_match_screenshot_style(self):
+        self.bind()
+        with patch.object(self.bot, 'generate', return_value='ахуел, так и знал, что ты опять в пизде'):
+            self.bot.process_job(self.manual_job())
+        expected = 'ахуел, так и знал, что ти опять в пизде'
+        self.assertEqual(self.telegram.sent[-1][1], expected)
+        self.assertEqual(self.store.recent_answers(-100)[0], expected)
+
+    def test_spelling_preserves_archive_soft_signs_and_word_boundaries(self):
+        self.assertEqual(surzhyk_text('ТЫ ПИШЕШЬ, знаешь, говоришь; опять хоть делать есть фильм тысяча'),
+                         'ТИ ПИШЕШ, знаеш, говориш; опять хоть делать есть фильм тысяча')
+        self.assertEqual(surzhyk_text('__SILENCE__'), '__SILENCE__')
+        for text in FALLBACK_REPLIES + tuple(text for _, pool in FALLBACK_TOPICS for text in pool):
+            self.assertEqual(surzhyk_text(text), text)
 
     def test_addressed_command_and_other_bot_routing(self):
         self.bind()
