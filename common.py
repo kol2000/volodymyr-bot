@@ -13,6 +13,10 @@ CONFIG = STATE / 'config.json'
 MODEL = 'qwen3:30b-a3b-instruct-2507-q4_K_M'
 
 
+class HTMLMessage(str):
+    """Explicitly formatted text produced by a trusted local template."""
+
+
 class APIError(Exception):
     def __init__(self, message, code=0, retry_after=0):
         super().__init__(message)
@@ -63,6 +67,8 @@ class Telegram:
                 time.sleep(delay)
             payload = {'chat_id': chat_id, 'text': text,
                        'link_preview_options': {'is_disabled': True}}
+            if isinstance(text, HTMLMessage):
+                payload['parse_mode'] = 'HTML'
             if reply_to:
                 payload['reply_parameters'] = {'message_id': reply_to,
                                                'allow_sending_without_reply': True}

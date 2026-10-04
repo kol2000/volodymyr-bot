@@ -11,9 +11,9 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from bot import (Bot, COMMANDS, FALLBACK_REPLIES, FALLBACK_TOPICS, MOSCOW, Store,
-                 TRIGGER_WORDS, WELCOME_TEXT, answer_key, repeated_answer,
+                 TRIGGER_FORMS, TRIGGER_WORDS, WELCOME_TEXT, answer_key, repeated_answer,
                  response_problem, surzhyk_text, valid_answer)
-from common import APIError, MODEL, http_json
+from common import APIError, HTMLMessage, MODEL, Telegram, http_json
 from chat_services import ServiceError
 import retrieval
 
@@ -147,6 +147,26 @@ class BotTests(unittest.TestCase):
             self.bot.handle(self.update('/say@other_bot бубус', user=7, number=3))
         self.assertEqual(self.bot.jobs.qsize(), 0)
 
+    def test_name_inflections_are_canonical_direct_triggers(self):
+        self.bind()
+        for number, (form, name) in enumerate(TRIGGER_FORMS.items(), 2):
+            if form == name:
+                continue
+            with self.subTest(form=form):
+                self.store.set('request:-100', 0)
+                self.bot.handle(self.update(f'делаем {form.upper()} вумним!', user=7, number=number))
+                self.assertEqual(self.bot.jobs.get_nowait()['trigger_words'], [name])
+
+    def test_screenshot_phrase_at_midnight_queues_one_direct_response(self):
+        self.bind()
+        midnight = datetime(2026, 10, 5, 0, 1, tzinfo=MOSCOW).timestamp()
+        with patch('time.time', return_value=midnight):
+            self.bot.handle(self.update('делаем Володьку Бубуса вумним!', user=7, number=2))
+        self.assertEqual(self.bot.jobs.qsize(), 1)
+        job = self.bot.jobs.get_nowait()
+        self.assertEqual(job['trigger_words'], ['володька', 'бубус'])
+        self.assertFalse(job['automatic'])
+
     def test_multiple_trigger_words_one_job_and_cooldown(self):
         self.bind()
         self.bot.handle(self.update('бубус цаца БУБУС', user=7, number=2))
@@ -241,10 +261,11 @@ class BotTests(unittest.TestCase):
         self.bind()
         self.bot.handle(self.update('100 USDT', user=7, number=2))
         job = self.bot.utility_jobs.get_nowait()
-        report = '100 USDT ≈ 99,90 USD ≈ 8 441,55 RUB\n\nкурс ЦБ на 03.10.2026'
+        report = HTMLMessage('💱 <b>100 USDT</b>\n💵 <b>≈ 99,90 USD</b>\n💰 <b>≈ 8 441,55 RUB</b>')
         with patch.object(self.bot.services, 'answer', return_value=report), patch.object(self.bot, 'generate') as model, patch.object(self.bot, 'fallback_answer') as fallback:
             self.bot.process_job(job)
         self.assertEqual(self.telegram.sent[-1], (-100, report, 2))
+        self.assertIsInstance(self.telegram.sent[-1][1], HTMLMessage)
         model.assert_not_called()
         fallback.assert_not_called()
 
@@ -711,14 +732,14 @@ class BotTests(unittest.TestCase):
         self.assertFalse(self.bot.allowed(-100))
         self.assertTrue(self.bot.allowed(-200))
 
-    def test_quiet_hours_and_fresh_context(self):
+    def test_automatic_mode_runs_all_hours_with_fresh_context(self):
         self.bind()
         self.store.set('automatic', True)
-        night = datetime(2026, 10, 4, 3, 0, tzinfo=MOSCOW).timestamp()
-        day = datetime(2026, 10, 4, 15, 0, tzinfo=MOSCOW).timestamp()
-        with patch.object(self.store, 'latest_human', return_value=day - 60):
-            self.assertFalse(self.bot.auto_eligible(-100, now=night))
-            self.assertTrue(self.bot.auto_eligible(-100, now=day))
+        for hour in (0, 3, 9, 10, 15, 23):
+            now = datetime(2026, 10, 5, hour, 1, tzinfo=MOSCOW).timestamp()
+            with patch.object(self.store, 'latest_human', return_value=now - 60):
+                self.assertTrue(self.bot.auto_eligible(-100, now=now))
+        day = datetime(2026, 10, 5, 15, 0, tzinfo=MOSCOW).timestamp()
         with patch.object(self.store, 'latest_human', return_value=day - 7201):
             self.assertFalse(self.bot.auto_eligible(-100, now=day))
 
@@ -804,6 +825,19 @@ class RetrievalTests(unittest.TestCase):
 
 
 class HTTPTests(unittest.TestCase):
+    def test_telegram_html_is_enabled_only_for_trusted_template(self):
+        telegram = Telegram('test-token')
+        for message in (HTMLMessage('<b>100 USD</b>'), '<b>ordinary model text</b>'):
+            with self.subTest(message=message), patch.object(telegram, 'call', return_value={}) as call, patch('common.time.sleep'):
+                telegram.send(-100, message, reply_to=5)
+            payload = call.call_args.kwargs
+            self.assertEqual(payload['text'], message)
+            self.assertEqual(payload['reply_parameters']['message_id'], 5)
+            if isinstance(message, HTMLMessage):
+                self.assertEqual(payload['parse_mode'], 'HTML')
+            else:
+                self.assertNotIn('parse_mode', payload)
+
     def test_model_inventory_uses_get(self):
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):

@@ -1,5 +1,6 @@
 """Currency amounts and current weather from public APIs, never from the LLM."""
 import json
+from html import escape
 import re
 import time
 import urllib.error
@@ -9,6 +10,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from zoneinfo import ZoneInfo
+from common import HTMLMessage
 
 MOSCOW = ZoneInfo('Europe/Moscow')
 COINS = {'USDT': 'tether', 'USDC': 'usd-coin', 'BTC': 'bitcoin',
@@ -33,6 +35,30 @@ CONDITIONS = {0: 'ясно', 1: 'преимущественно ясно', 2: '�
               80: 'слабые ливни', 81: 'ливни', 82: 'сильные ливни',
               85: 'слабые снежные заряды', 86: 'сильные снежные заряды',
               95: 'гроза', 96: 'гроза с градом', 99: 'сильная гроза с градом'}
+
+
+def weather_icon(code):
+    if code in (0, 1, 2, 3):
+        return ('☀️', '🌤️', '⛅', '☁️')[code]
+    if code in (45, 48):
+        return '🌫️'
+    if code in (95, 96, 99):
+        return '⛈️'
+    if code in (71, 73, 75, 77, 85, 86):
+        return '🌨️'
+    return '🌧️' if code in CONDITIONS else '🌡️'
+
+
+def sun_time(daily, field, day):
+    if daily['time'][0] != day.isoformat():
+        raise ServiceError('stale_sun_times')
+    value = daily[field][0]
+    if not value:
+        return 'данных нет'
+    event = datetime.fromisoformat(value)
+    if event.date() != day:
+        raise ServiceError('stale_sun_times')
+    return 'в ' + event.strftime('%H:%M')
 
 
 class ServiceError(Exception):
@@ -180,23 +206,28 @@ class ChatServices:
         rate, date = self.cbr()
         units = {row['unit'] for row in amounts if row['unit'] in COINS}
         coins = self.crypto(units) if units else {}
-        lines = []
+        blocks = []
         for row in amounts:
             amount, unit = decimal_value(row['amount'], positive=True), row['unit']
             if unit == 'RUB':
-                line = f'{money(amount)} RUB ≈ {money(amount / rate)} USD'
+                header = f'{money(amount)} RUB'
+                results = [f'💵 <b>≈ {money(amount / rate)} USD</b>']
             elif unit == 'USD':
-                line = f'{money(amount)} USD ≈ {money(amount * rate)} RUB'
+                header = f'{money(amount)} USD'
+                results = [f'💰 <b>≈ {money(amount * rate)} RUB</b>']
             else:
                 usd = amount * coins[unit][0]
                 source_amount = format(amount, 'f').rstrip('0').rstrip('.') if '.' in format(amount, 'f') else str(amount)
-                line = f'{source_amount.replace(".", ",")} {unit} ≈ {money(usd)} USD ≈ {money(usd * rate)} RUB'
-            lines.append(line)
+                whole, dot, fraction = source_amount.partition('.')
+                source_amount = f'{int(whole):,}'.replace(',', ' ') + (',' + fraction if dot else '')
+                header = f'{source_amount} {unit}'
+                results = [f'💵 <b>≈ {money(usd)} USD</b>', f'💰 <b>≈ {money(usd * rate)} RUB</b>']
+            blocks.append(f'💱 <b>{escape(header)}</b>\n' + '\n'.join(results))
         sources = f'RUB: курс ЦБ на {date}'
         if coins:
             stamp = min(row[1] for row in coins.values())
             sources = 'CoinGecko: ' + datetime.fromtimestamp(stamp, MOSCOW).strftime('%d.%m %H:%M МСК') + '\n' + sources
-        return '\n'.join(lines) + '\n\n' + sources
+        return HTMLMessage('\n\n'.join(blocks) + '\n\n<i>' + escape(sources) + '</i>')
 
     def location(self, city):
         def fetch():
@@ -215,16 +246,18 @@ class ChatServices:
 
     def weather(self, city):
         location = self.location(city)
+        local_day = datetime.now(ZoneInfo(location['timezone'])).date()
 
         def fetch():
             params = {'latitude': location['latitude'], 'longitude': location['longitude'],
-                      'current': 'temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,wind_speed_10m',
+                      'current': 'temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,wind_speed_10m,surface_pressure',
+                      'daily': 'sunrise,sunset', 'forecast_days': 1,
                       'wind_speed_unit': 'ms', 'timezone': 'auto'}
             return get_data('https://api.open-meteo.com/v1/forecast?' + urllib.parse.urlencode(params))
 
-        data = self.cached(('weather', location['id']), 300, fetch)
+        data = self.cached(('weather', location['id'], local_day), 300, fetch)
         current, units = data['current'], data['current_units']
-        if units['temperature_2m'] != '°C' or units['wind_speed_10m'] != 'm/s':
+        if units['temperature_2m'] != '°C' or units['wind_speed_10m'] != 'm/s' or units['surface_pressure'] != 'hPa':
             raise ServiceError('unexpected_weather_units')
         offset = int(data['utc_offset_seconds'])
         stamp = datetime.fromisoformat(current['time']).replace(tzinfo=timezone(timedelta(seconds=offset)))
@@ -235,17 +268,31 @@ class ChatServices:
         humidity = decimal_value(current['relative_humidity_2m'])
         wind = decimal_value(current['wind_speed_10m'])
         rain = decimal_value(current['precipitation'])
+        pressure = decimal_value(current['surface_pressure'], positive=True)
         interval = decimal_value(current['interval'], positive=True)
         if interval != int(interval) or not 60 <= interval <= 3600:
             raise ServiceError('invalid_weather_values')
-        if not (-100 <= temp <= 70 and -120 <= feels <= 90 and 0 <= humidity <= 100 and 0 <= wind <= 120 and 0 <= rain <= 1000):
+        if not (-100 <= temp <= 70 and -120 <= feels <= 90 and 0 <= humidity <= 100 and 0 <= wind <= 120 and 0 <= rain <= 1000 and 400 <= pressure <= 1150):
             raise ServiceError('invalid_weather_values')
         condition = CONDITIONS.get(current['weather_code'], 'состояние не указано')
-        title = ', '.join(str(location[k]) for k in ('name', 'admin1', 'country') if location.get(k))
-        return (f'{title}\n{temp:+.1f} °C, {condition}; ощущается {feels:+.1f} °C\n'
-                f'ветер {wind:.1f} м/с; влажность {humidity:.0f}%\n'
-                f'осадки {rain:.1f} мм за последние {int(interval) // 60} мин.\n\n'
-                f'Open-Meteo · {stamp.strftime("%d.%m.%Y %H:%M")} ({data["timezone"]})')
+        # 1 conventional mmHg = 133.3224 Pa; provider pressure is in hPa.
+        mmhg = (pressure / Decimal('1.333224')).quantize(Decimal('1'), rounding=ROUND_HALF_UP)
+        sunrise = sun_time(data['daily'], 'sunrise', local_day)
+        sunset = sun_time(data['daily'], 'sunset', local_day)
+        title = escape(str(location['name']))
+        region = ', '.join(str(location[k]) for k in ('admin1', 'country') if location.get(k))
+        return HTMLMessage(
+            f'Сечас в городе <b>{title}</b>:\n\n'
+            f'{weather_icon(current["weather_code"])} {escape(condition)}\n\n'
+            f'🌡️ <i>Температура воздуха</i> — {temp:+.1f} °C\n'
+            f'👀 <i>Чувствуется как</i> — {feels:+.1f} °C\n'
+            f'💦 <i>Влажность</i> — {humidity:.0f}%\n'
+            f'💨 <i>Ветер</i> — {wind:.1f} м/с\n'
+            f'📍 <i>Атмосферное давление</i> — {mmhg} мм рт. ст.\n'
+            f'🌧️ <i>Осадки</i> — {rain:.1f} мм за последние {int(interval) // 60} мин.\n\n'
+            f'🌅 <i>Рассвет</i> {sunrise}\n'
+            f'🌇 <i>Закат</i> {sunset}\n\n'
+            f'<i>{escape(region)}\nOpen-Meteo · {stamp.strftime("%d.%m.%Y %H:%M")} ({escape(str(data["timezone"]))})</i>')
 
     def answer(self, request):
         try:
@@ -255,7 +302,7 @@ class ChatServices:
             return self.weather(request['city']) if request['kind'] == 'weather' else self.convert(request['amounts'])
         except ServiceError:
             raise
-        except (KeyError, TypeError, ValueError, AttributeError, InvalidOperation, OverflowError):
+        except (KeyError, IndexError, TypeError, ValueError, AttributeError, InvalidOperation, OverflowError):
             raise ServiceError('malformed_data') from None
 
 

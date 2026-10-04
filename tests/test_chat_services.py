@@ -14,6 +14,7 @@ import xml.etree.ElementTree as ET
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from chat_services import (ChatServices, MOSCOW, ServiceError, amounts_in,
                            get_data, service_request)
+from common import HTMLMessage
 
 
 class ServiceTests(unittest.TestCase):
@@ -23,14 +24,18 @@ class ServiceTests(unittest.TestCase):
         self.today = datetime.now(MOSCOW).strftime('%d.%m.%Y')
         self.place = {'id': 515012, 'name': 'Орёл', 'latitude': 52.96879,
                       'longitude': 36.0791, 'country': 'Россия', 'country_code': 'RU',
-                      'feature_code': 'PPLA', 'admin1': 'Орловская область', 'population': 303696}
+                      'feature_code': 'PPLA', 'admin1': 'Орловская область', 'population': 303696,
+                      'timezone': 'Europe/Moscow'}
         self.current_time = datetime.now(MOSCOW).replace(second=0, microsecond=0).isoformat()[:16]
         self.weather_data = {'utc_offset_seconds': 10800, 'timezone': 'Europe/Moscow',
-                             'current_units': {'temperature_2m': '°C', 'wind_speed_10m': 'm/s'},
+                             'current_units': {'temperature_2m': '°C', 'wind_speed_10m': 'm/s', 'surface_pressure': 'hPa'},
                              'current': {'time': self.current_time, 'interval': 900,
                                          'temperature_2m': -2.5, 'apparent_temperature': -6.1,
                                          'relative_humidity_2m': 82, 'weather_code': 71,
-                                         'precipitation': 0.3, 'wind_speed_10m': 4.2}}
+                                         'precipitation': 0.3, 'wind_speed_10m': 4.2, 'surface_pressure': 1013.25},
+                             'daily': {'time': [datetime.now(MOSCOW).date().isoformat()],
+                                       'sunrise': [datetime.now(MOSCOW).strftime('%Y-%m-%dT07:05')],
+                                       'sunset': [datetime.now(MOSCOW).strftime('%Y-%m-%dT18:15')]}}
 
     def fetch(self, url, xml=False):
         self.calls.append(url)
@@ -75,8 +80,8 @@ class ServiceTests(unittest.TestCase):
     def test_usd_rub_both_directions_use_cbr_nominal_and_date(self):
         with patch('chat_services.get_data', side_effect=self.fetch):
             text = self.client.answer(service_request('100 USD и 8450 рублей'))
-        self.assertIn('100,00 USD ≈ 8 450,00 RUB', text)
-        self.assertIn('8 450,00 RUB ≈ 100,00 USD', text)
+        self.assertIn('💱 <b>100,00 USD</b>\n💰 <b>≈ 8 450,00 RUB</b>', text)
+        self.assertIn('💱 <b>8 450,00 RUB</b>\n💵 <b>≈ 100,00 USD</b>', text)
         self.assertIn('курс ЦБ на ' + self.today, text)
         self.assertEqual(len(self.calls), 1)
         self.assertIn('date_req=', self.calls[0])
@@ -84,7 +89,7 @@ class ServiceTests(unittest.TestCase):
     def test_usdt_is_not_assumed_equal_to_usd_and_sources_are_separate(self):
         with patch('chat_services.get_data', side_effect=self.fetch):
             text = self.client.answer(service_request('100 USDT'))
-        self.assertIn('100 USDT ≈ 99,90 USD ≈ 8 441,55 RUB', text)
+        self.assertIn('💱 <b>100 USDT</b>\n💵 <b>≈ 99,90 USD</b>\n💰 <b>≈ 8 441,55 RUB</b>', text)
         self.assertIn('CoinGecko:', text)
         self.assertIn('RUB: курс ЦБ на', text)
         crypto_url = next(u for u in self.calls if 'coingecko' in u)
@@ -94,7 +99,16 @@ class ServiceTests(unittest.TestCase):
     def test_small_crypto_amount_keeps_source_precision(self):
         with patch('chat_services.get_data', side_effect=self.fetch):
             text = self.client.answer(service_request('0.00000001 BTC'))
-        self.assertIn('0,00000001 BTC ≈ 0,00002000 USD', text)
+        self.assertIn('<b>0,00000001 BTC</b>', text)
+        self.assertIn('<b>≈ 0,00002000 USD</b>', text)
+
+    def test_conversion_groups_thousands_and_separates_amount_blocks(self):
+        with patch('chat_services.get_data', side_effect=self.fetch):
+            text = self.client.answer(service_request('1234,5 USDT и 100 USD'))
+        self.assertIsInstance(text, HTMLMessage)
+        self.assertIn('💱 <b>1 234,5 USDT</b>\n💵 <b>≈ 1 233,27 USD</b>', text)
+        self.assertIn('\n\n💱 <b>100,00 USD</b>\n', text)
+        self.assertIn('\n\n<i>CoinGecko:', text)
 
     def test_cache_limits_calls_and_refetches_after_expiration(self):
         now = time.time()
@@ -132,10 +146,17 @@ class ServiceTests(unittest.TestCase):
     def test_weather_correct_units_location_time_and_no_model_data(self):
         with patch('chat_services.get_data', side_effect=self.fetch):
             text = self.client.answer(service_request('Володька, какая погода в городе Орёл'))
-        self.assertIn('Орёл, Орловская область, Россия', text)
-        self.assertIn('-2.5 °C, слабый снег; ощущается -6.1 °C', text)
-        self.assertIn('ветер 4.2 м/с; влажность 82%', text)
-        self.assertIn('осадки 0.3 мм за последние 15 мин.', text)
+        self.assertIn('Сечас в городе <b>Орёл</b>:', text)
+        self.assertIn('Орловская область, Россия', text)
+        self.assertIn('🌨️ слабый снег', text)
+        self.assertIn('<i>Температура воздуха</i> — -2.5 °C', text)
+        self.assertIn('<i>Чувствуется как</i> — -6.1 °C', text)
+        self.assertIn('<i>Ветер</i> — 4.2 м/с', text)
+        self.assertIn('<i>Влажность</i> — 82%', text)
+        self.assertIn('<i>Атмосферное давление</i> — 760 мм рт. ст.', text)
+        self.assertIn('<i>Рассвет</i> в 07:05', text)
+        self.assertIn('<i>Закат</i> в 18:15', text)
+        self.assertIn('<i>Осадки</i> — 0.3 мм за последние 15 мин.', text)
         self.assertIn('Open-Meteo', text)
         self.assertIn('Europe/Moscow', text)
         geocode = parse_qs(urlparse(self.calls[0]).query)
@@ -143,6 +164,42 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(geocode['countryCode'], ['RU'])
         self.assertNotIn('Володька', self.calls[0])
         self.assertIn('wind_speed_unit=ms', self.calls[1])
+        self.assertIsInstance(text, HTMLMessage)
+
+    def test_weather_external_names_are_html_escaped(self):
+        self.place.update(name='Город <центр> & окрестности', admin1='Область <i>важно</i>')
+        with patch('chat_services.get_data', side_effect=self.fetch):
+            text = self.client.answer(service_request('погода Орёл'))
+        self.assertIn('<b>Город &lt;центр&gt; &amp; окрестности</b>', text)
+        self.assertIn('Область &lt;i&gt;важно&lt;/i&gt;', text)
+        self.assertNotIn('<центр>', text)
+
+    def test_sun_times_reject_wrong_day_and_do_not_invent_missing_events(self):
+        today = datetime.now(MOSCOW).date().isoformat()
+        previous = (datetime.now(MOSCOW).date() - timedelta(days=1)).isoformat()
+        for daily in ({'time': [previous], 'sunrise': [previous + 'T07:05'], 'sunset': [previous + 'T18:15']},
+                      {'time': [today], 'sunrise': [previous + 'T07:05'], 'sunset': [today + 'T18:15']},
+                      {'time': [], 'sunrise': [], 'sunset': []}):
+            with self.subTest(daily=daily), patch('chat_services.get_data', side_effect=self.fetch):
+                self.client.cache.clear()
+                self.weather_data['daily'] = daily
+                with self.assertRaises(ServiceError):
+                    self.client.answer(service_request('погода Орёл'))
+        self.client.cache.clear()
+        self.weather_data['daily'] = {'time': [today], 'sunrise': [None], 'sunset': [None]}
+        with patch('chat_services.get_data', side_effect=self.fetch):
+            text = self.client.answer(service_request('погода Орёл'))
+        self.assertIn('<i>Рассвет</i> данных нет', text)
+        self.assertIn('<i>Закат</i> данных нет', text)
+
+    def test_pressure_wrong_units_or_invalid_values_are_rejected(self):
+        for units, pressure in (('mmHg', 760), ('hPa', None), ('hPa', 1300)):
+            with self.subTest(units=units, pressure=pressure), patch('chat_services.get_data', side_effect=self.fetch):
+                self.client.cache.clear()
+                self.weather_data['current_units']['surface_pressure'] = units
+                self.weather_data['current']['surface_pressure'] = pressure
+                with self.assertRaises(ServiceError):
+                    self.client.answer(service_request('погода Орёл'))
 
     def test_stale_weather_bad_units_and_invalid_values_are_rejected(self):
         for change in ('stale', 'units', 'null', 'invalid'):

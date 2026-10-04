@@ -24,9 +24,16 @@ TRIGGER_WORDS = ('бубуська', 'володька', 'рахиня', 'укр
                  'цаца', 'цацик', 'бубус', 'цацыг', 'хряк', 'свинья', 'сосатка',
                  'крым', 'крим', 'даг')
 TRIGGER_PHRASES = ('крым наш',)
+TRIGGER_FORMS = {word: word for word in TRIGGER_WORDS}
+for name, forms in {
+    'володька': ('володьки', 'володьке', 'володьку', 'володькой', 'володькою', 'володько'),
+    'бубус': ('бубуса', 'бубусу', 'бубусом', 'бубусе'),
+    'бубуська': ('бубуськи', 'бубуське', 'бубуську', 'бубуськой', 'бубуською'),
+}.items():
+    TRIGGER_FORMS.update({form: name for form in forms})
 # Match phrases first so "крым наш" is one trigger, with flexible whitespace.
 TRIGGER_PATTERN = re.compile(r'(?<!\w)(?:' + '|'.join(
-    re.escape(term).replace(r'\ ', r'\s+') for term in (*TRIGGER_PHRASES, *TRIGGER_WORDS)) + r')(?!\w)', re.I)
+    re.escape(term).replace(r'\ ', r'\s+') for term in (*TRIGGER_PHRASES, *TRIGGER_FORMS)) + r')(?!\w)', re.I)
 ANGRY_QUOTE_PATTERN = re.compile(r'\b(?:бля\w*|сука\w*|заеб\w*|задолб\w*|пизд\w*|'
                                  r'ёб\w*|еба\w*|ебл\w*|охуе\w*|дурак\w*|идиот\w*|'
                                  r'туп\w*|нахуй|нахер|нахуя|завали|хер\w*)\b', re.I)
@@ -356,8 +363,6 @@ class Bot:
         now = now or time.time()
         if not chat_id or chat_id != self.store.get('chat_id') or not self.store.get('automatic', False):
             return False
-        if datetime.fromtimestamp(now, MOSCOW).hour < 10:
-            return False
         if now < self.store.get('blocked_until', 0):
             return False
         if now - self.store.latest_human(chat_id) > 7200:
@@ -481,7 +486,7 @@ class Bot:
             self.store.set('automatic', enabled)
             if enabled:
                 self.store.set('next_auto', time.time() + self.random.uniform(3600, 10800))
-            self.notify(chat_id, 'Периодические реплики включены: до 5 в сутки, интервал от часа, тихие часы 00:00–10:00 МСК.' if enabled else 'Периодические реплики выключены. Ответы по обращению работают.')
+            self.notify(chat_id, 'Периодические реплики включены круглосуточно: до 5 в сутки, интервал от часа.' if enabled else 'Периодические реплики выключены. Ответы по обращению работают круглосуточно.')
             return
         if owner and command == '/status':
             counts = self.store.counts()
@@ -513,8 +518,8 @@ class Bot:
         # A user replying here solely to summon another bot is not addressing us.
         if not command and not mentioned and re.fullmatch(r'(?:@[a-z0-9_]*bot\s*)+', text.strip(), re.I):
             return
-        triggers = list(dict.fromkeys(' '.join(match.group().casefold().split())
-                                     for match in TRIGGER_PATTERN.finditer(text)))
+        matches = (' '.join(match.group().casefold().split()) for match in TRIGGER_PATTERN.finditer(text))
+        triggers = list(dict.fromkeys(TRIGGER_FORMS.get(word, word) for word in matches))
         if command == '/bubus':
             parts = text.split(maxsplit=1)
             argument = parts[1] if len(parts) > 1 else ''
@@ -553,7 +558,7 @@ class Bot:
         context = [row for row in self.store.context(job['chat_id'], limit=20)
                    if row['human'] and not row['text'].startswith('/')][-6:]
         call_words = answer_key(job['text']).split()
-        nickname_call = bool(call_words) and (all(word in TRIGGER_WORDS for word in call_words)
+        nickname_call = bool(call_words) and (all(word in TRIGGER_FORMS for word in call_words)
                                              or ' '.join(call_words) in TRIGGER_PHRASES)
         if nickname_call:
             # A bare nickname is a fresh call, not a query about old conversations.
