@@ -14,6 +14,7 @@ from bot import (Bot, COMMANDS, FALLBACK_REPLIES, FALLBACK_TOPICS, MOSCOW, Store
                  TRIGGER_WORDS, WELCOME_TEXT, answer_key, repeated_answer,
                  response_problem, surzhyk_text, valid_answer)
 from common import APIError, MODEL, http_json
+from chat_services import ServiceError
 import retrieval
 
 
@@ -225,6 +226,87 @@ class BotTests(unittest.TestCase):
         self.assertEqual(surzhyk_text('__SILENCE__'), '__SILENCE__')
         for text in FALLBACK_REPLIES + tuple(text for _, pool in FALLBACK_TOPICS for text in pool):
             self.assertEqual(surzhyk_text(text), text)
+
+    def test_plain_amount_and_weather_use_separate_queue_without_llm_job(self):
+        self.bind()
+        for number, text in enumerate(('100 USDT', 'Володька, какая погода в городе Орёл', '/weather Орёл', '/convert 100 USD'), 2):
+            self.store.set('request:-100', 0)
+            self.bot.handle(self.update(text, user=7, number=number))
+            self.assertEqual(self.bot.jobs.qsize(), 0)
+            job = self.bot.utility_jobs.get_nowait()
+            self.assertFalse(job['automatic'])
+            self.assertIsNotNone(job['utility'])
+
+    def test_currency_and_weather_send_api_result_without_model_or_fallback(self):
+        self.bind()
+        self.bot.handle(self.update('100 USDT', user=7, number=2))
+        job = self.bot.utility_jobs.get_nowait()
+        report = '100 USDT ≈ 99,90 USD ≈ 8 441,55 RUB\n\nкурс ЦБ на 03.10.2026'
+        with patch.object(self.bot.services, 'answer', return_value=report), patch.object(self.bot, 'generate') as model, patch.object(self.bot, 'fallback_answer') as fallback:
+            self.bot.process_job(job)
+        self.assertEqual(self.telegram.sent[-1], (-100, report, 2))
+        model.assert_not_called()
+        fallback.assert_not_called()
+
+    def test_busy_full_llm_queue_does_not_block_utility_queue(self):
+        self.bind()
+        self.bot.active_job = True
+        for _ in range(4):
+            self.bot.jobs.put_nowait(self.manual_job())
+        self.bot.handle(self.update('100 USDT', user=7, number=2))
+        self.assertEqual(self.bot.jobs.qsize(), 4)
+        self.assertEqual(self.bot.utility_jobs.qsize(), 1)
+
+    def test_service_failure_does_not_fabricate_weather_or_use_parody_fallback(self):
+        self.bind()
+        self.bot.handle(self.update('погода Орёл', user=7, number=2))
+        with patch.object(self.bot.services, 'answer', side_effect=ServiceError('stale_weather')), patch.object(self.bot, 'generate') as model, patch.object(self.bot, 'fallback_answer') as fallback:
+            self.bot.process_job(self.bot.utility_jobs.get_nowait())
+        self.assertEqual(self.telegram.sent[-1][1], 'сечас свежую погоду не достал')
+        model.assert_not_called()
+        fallback.assert_not_called()
+
+    def test_utility_routing_obeys_group_bot_command_age_and_duplicate_guards(self):
+        self.bind()
+        message = self.update('100 USDT', user=7, number=2)
+        self.bot.handle(message)
+        self.bot.handle(message)
+        self.assertEqual(self.bot.utility_jobs.qsize(), 1)
+        self.bot.utility_jobs.get_nowait()
+        self.store.set('request:-100', 0)
+        self.bot.handle(self.update('100 USDT', chat=-200, user=7, number=3))
+        self.bot.handle(self.update('/weather@other_bot Орёл', user=7, number=4))
+        self.bot.handle(self.update('погода Орёл', user=7, number=5, age=121))
+        bot_message = self.update('100 USDT', number=6)
+        bot_message['message']['from']['is_bot'] = True
+        self.bot.handle(bot_message)
+        self.assertTrue(self.bot.utility_jobs.empty())
+
+    def test_utility_waits_for_send_pause_and_rechecks_binding_after_wait(self):
+        self.bind()
+        base = time.time()
+        clock = [base]
+        with patch('bot.time.time', side_effect=lambda: clock[0]):
+            self.store.claim_send('manual', -100)
+            job = self.manual_job(utility={'kind': 'currency', 'amounts': []})
+            def advance(seconds):
+                clock[0] += seconds
+            with patch('bot.time.sleep', side_effect=advance) as wait, patch.object(self.bot.services, 'answer', return_value='100 USD ≈ 8450 RUB'):
+                self.bot.process_job(job)
+            wait.assert_called_once_with(15)
+        self.assertEqual(len(self.telegram.sent), 1)
+        self.assertEqual(self.store.counts()['manual'], 2)
+
+    def test_utility_wait_cancels_if_group_changes(self):
+        self.bind()
+        base = time.time()
+        with patch('bot.time.time', return_value=base):
+            self.store.claim_send('manual', -100)
+            job = self.manual_job(utility={'kind': 'currency', 'amounts': []})
+            with patch('bot.time.sleep', side_effect=lambda _: self.store.set('chat_id', -200)), patch.object(self.bot.services, 'answer', return_value='100 USD ≈ 8450 RUB'):
+                self.bot.process_job(job)
+        self.assertEqual(self.telegram.sent, [])
+        self.assertEqual(self.store.get('last_skip:-100')['reason'], 'chat_changed')
 
     def test_addressed_command_and_other_bot_routing(self):
         self.bind()

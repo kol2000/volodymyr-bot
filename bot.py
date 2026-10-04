@@ -13,6 +13,7 @@ from difflib import SequenceMatcher
 from zoneinfo import ZoneInfo
 
 from common import APIError, ROOT, STATE, Telegram, clean_text, http_json, load_config
+from chat_services import ChatServices, ServiceError, service_error_reply, service_request
 from retrieval import build_index, find_examples, random_candidates
 
 LOG = logging.getLogger('volodymyr')
@@ -101,6 +102,8 @@ FALLBACK_TOPICS = (
     )),
 )
 COMMANDS = [('/bubus', 'случайная фраза; с текстом — ответ по теме'),
+            ('/weather', 'погода сейчас: /weather Орёл'),
+            ('/convert', 'пересчитать сумму: /convert 100 USDT'),
             ('/auto_on', 'включить периодические реплики'),
             ('/auto_off', 'выключить периодические реплики'),
             ('/status', 'показать состояние'), ('/whoami', 'показать мой Telegram ID')]
@@ -335,9 +338,12 @@ class Bot:
         self.telegram = telegram or Telegram(config['token'])
         self.store = store or Store(STATE / 'bot.sqlite3')
         self.jobs = queue.Queue(maxsize=4)
+        self.utility_jobs = queue.Queue(maxsize=4)
+        self.services = ChatServices()
         self.lock = threading.Lock()
         self.auto_pending = False
         self.active_job = False
+        self.active_utility = False
         self.bot_id = 0
         self.username = ''
         self.prompt = (ROOT / 'prompt.txt').read_text(encoding='utf-8')
@@ -359,7 +365,7 @@ class Bot:
         return self.store.counts().get('automatic', 0) < 5 and now - self.store.last_send(chat_id) >= 3600
 
     def enqueue(self, chat_id, text='', reply_to=None, automatic=False, random_quote=False,
-                trigger_words=None):
+                trigger_words=None, utility=None):
         if not self.allowed(chat_id):
             return False
         with self.lock:
@@ -370,10 +376,12 @@ class Bot:
                     self.record_skip(chat_id, 'request_cooldown')
                     return False
             try:
-                self.jobs.put_nowait({'chat_id': chat_id, 'text': clean_text(text)[:1000],
+                target_queue = self.utility_jobs if utility else self.jobs
+                target_queue.put_nowait({'chat_id': chat_id, 'text': clean_text(text)[:1000],
                                      'reply_to': reply_to, 'automatic': automatic,
                                      'random_quote': random_quote,
                                      'trigger_words': trigger_words or [],
+                                     'utility': utility,
                                      'queued_at': time.time()})
             except queue.Full:
                 if not automatic:
@@ -489,11 +497,12 @@ class Bot:
                         f'Автоматически: {"включено" if self.store.get("automatic", False) else "выключено"}\n'
                         f'Попыток сегодня: автоматически {counts.get("automatic", 0)}/5; по обращению {counts.get("manual", 0)} (без дневного лимита)\n'
                         f'В очереди: {self.jobs.qsize()}; обработка: {"идёт" if self.active_job else "нет"}\n'
+                        f'Курсы/погода: в очереди {self.utility_jobs.qsize()}; обработка: {"идёт" if self.active_utility else "нет"}\n'
                         f'Пауза между обращениями: {pause} сек.\n'
                         f'Последнее обращение в группе: {seen_text}\nПоследний пропуск: {skip_text}\n'
                         f'Модель: {self.config["model"]}')
             return
-        if command and command != '/bubus':
+        if command and command not in ('/bubus', '/weather', '/convert'):
             return
         # Never react to a backlog of old updates after VPN downtime.
         if time.time() - message.get('date', 0) > 120:
@@ -511,17 +520,18 @@ class Bot:
             argument = parts[1] if len(parts) > 1 else ''
         else:
             argument = re.sub(r'@' + re.escape(self.username) + r'\b', '', text, flags=re.I).strip() if mentioned else text
+        utility = service_request(argument, command)
         if not self.store.add_message(dict(message, text=argument)):
             # An empty /bubus or bare mention still uses duplicate detection,
             # while generation receives an empty request to use live context.
             if argument.strip() or not self.store.add_message(message):
                 return
-        if private or command == '/bubus' or mentioned or reply_to_bot or triggers:
+        if private or command == '/bubus' or mentioned or reply_to_bot or triggers or utility:
             self.store.set(f'last_direct:{chat_id}', time.time())
             LOG.info('Получено прямое обращение; ключевых совпадений=%s', len(triggers))
             if not self.enqueue(chat_id, argument, message['message_id'],
                                 random_quote=(command == '/bubus' and not argument.strip()),
-                                trigger_words=triggers):
+                                trigger_words=triggers, utility=utility):
                 if owner and private:
                     self.notify(chat_id, 'Подожди немного: действует пауза или очередь заполнена.')
         elif not private and self.random.random() < 0.03:
@@ -625,12 +635,20 @@ class Bot:
             return
         if job['automatic'] and not self.auto_eligible(chat_id):
             return
-        try:
-            answer = self.generate(job)
-        except (APIError, sqlite3.Error, OSError) as error:
-            LOG.warning('Генерация не выполнена: причина=local_generation_error; тип=%s',
-                        type(error).__name__)
-            answer = None
+        utility = job.get('utility')
+        if utility:
+            try:
+                answer = self.services.answer(utility)
+            except ServiceError as error:
+                LOG.warning('Справочный ответ недоступен: сервис=%s; причина=%s', utility['kind'], error)
+                answer = service_error_reply(utility['kind'], str(error))
+        else:
+            try:
+                answer = self.generate(job)
+            except (APIError, sqlite3.Error, OSError) as error:
+                LOG.warning('Генерация не выполнена: причина=local_generation_error; тип=%s',
+                            type(error).__name__)
+                answer = None
         if answer == '__SILENCE__':
             return
         if not answer:
@@ -651,13 +669,13 @@ class Bot:
                 self.record_skip(chat_id, 'telegram_retry_after')
             return
         kind = 'automatic' if job['automatic'] else 'manual'
-        send_id = self.store.claim_send(kind, chat_id)
+        send_id = self.reserve_utility_send(job) if utility else self.store.claim_send(kind, chat_id)
         if send_id is None:
-            if not job['automatic']:
+            if not job['automatic'] and not utility:
                 self.record_skip(chat_id, 'send_cooldown')
             return
         try:
-            sent = self.telegram.send(chat_id, surzhyk_text(answer), job['reply_to'])
+            sent = self.telegram.send(chat_id, answer if utility else surzhyk_text(answer), job['reply_to'])
             self.store.add_message(sent, human=False)
             self.store.finish_send(send_id, 'sent')
             LOG.info('Реплика отправлена, режим=%s', kind)
@@ -668,6 +686,42 @@ class Bot:
             if error.code == 403:
                 self.store.set('automatic', False)
             LOG.warning('Отправка не подтверждена, повтор не выполняется: %s', error)
+
+    def reserve_utility_send(self, job):
+        # Fast API calls must not lose their answer to a simultaneous LLM reply.
+        chat_id = job['chat_id']
+        while True:
+            now = time.time()
+            if not self.allowed(chat_id):
+                self.record_skip(chat_id, 'chat_changed')
+                return None
+            if now < self.store.get('blocked_until', 0):
+                self.record_skip(chat_id, 'telegram_retry_after')
+                return None
+            delay = max(0, 15 - (now - self.store.last_send(chat_id)))
+            if now + delay - job['queued_at'] > 180:
+                self.record_skip(chat_id, 'job_expired')
+                return None
+            if delay:
+                time.sleep(delay)
+                continue
+            send_id = self.store.claim_send('manual', chat_id)
+            if send_id is not None:
+                return send_id
+            time.sleep(0.1)
+
+    def utility_worker(self):
+        while True:
+            job = self.utility_jobs.get()
+            try:
+                self.active_utility = True
+                LOG.info('Начата обработка справочного запроса; сервис=%s', job['utility']['kind'])
+                self.process_job(job)
+            except Exception as error:
+                LOG.error('Справочное задание не выполнено: %s', type(error).__name__)
+            finally:
+                self.active_utility = False
+                self.utility_jobs.task_done()
 
     def worker(self):
         try:
@@ -715,6 +769,7 @@ class Bot:
             raise APIError('У этого токена уже настроен webhook; нужен отдельный бот')
         self.telegram.call('setMyCommands', commands=[{'command': cmd[1:], 'description': desc} for cmd, desc in COMMANDS])
         threading.Thread(target=self.worker, daemon=True).start()
+        threading.Thread(target=self.utility_worker, daemon=True).start()
         threading.Thread(target=self.scheduler, daemon=True).start()
         offset = self.store.get('offset', self.config.get('initial_offset', 0))
         LOG.info('Бот @%s запущен; периодический режим=%s', self.username, self.store.get('automatic', False))
