@@ -408,17 +408,62 @@ class BotTests(unittest.TestCase):
             self.assertEqual(self.bot.generate(self.manual_job(text='где пивас')), 'пиво ищи сам чего пристал')
         self.assertEqual(model.call_count, 2)
 
-    def test_group_cooldown_and_quota_do_not_send_technical_notices(self):
+    def test_group_cooldown_is_logged_without_technical_notice(self):
         self.bind()
         self.bot.handle(self.update('цацыг', number=2))
         self.bot.handle(self.update('хряк', number=3))
         self.assertEqual(self.bot.jobs.qsize(), 1)
         self.assertEqual(self.telegram.sent, [])
+        self.assertEqual(self.store.get('last_skip:-100')['reason'], 'request_cooldown')
         self.store.set('request:-100', 0)
         with patch.object(self.store, 'counts', return_value={'manual': 30}):
             self.bot.handle(self.update('сосатка', number=4))
-        self.assertEqual(self.bot.jobs.qsize(), 1)
+        self.assertEqual(self.bot.jobs.qsize(), 2)
         self.assertEqual(self.telegram.sent, [])
+
+    def test_manual_triggers_still_send_after_thirty_attempts_and_restart(self):
+        self.bind()
+        base = time.time()
+        day = datetime.now(MOSCOW).strftime('%Y-%m-%d')
+        with self.store.db() as db:
+            for i in range(30):
+                db.execute('INSERT INTO sends(timestamp,day,kind,chat_id,status) VALUES (?,?,?,?,?)',
+                           (base - 60 - i * 16, day, 'manual', -100, 'sent'))
+        self.bot.store = Store(self.database)
+        with patch.object(self.bot, 'generate', return_value='шо опять надо то'):
+            for number, text in enumerate(('володька', 'где бубуська?', 'крым наш'), 2):
+                with patch('bot.time.time', return_value=base + number * 16):
+                    self.bot.handle(self.update(text, user=7, number=number))
+                    self.assertEqual(self.bot.jobs.qsize(), 1)
+                    self.bot.process_job(self.bot.jobs.get_nowait())
+        self.assertEqual(len(self.telegram.sent), 3)
+        self.assertEqual(self.store.counts()['manual'], 33)
+
+    def test_queue_full_reason_and_received_time_are_visible_in_status(self):
+        self.bind()
+        for number in range(2, 7):
+            self.store.set('request:-100', 0)
+            self.bot.handle(self.update('бубус', user=7, number=number))
+        self.assertEqual(self.bot.jobs.qsize(), 4)
+        self.assertEqual(self.store.get('last_skip:-100')['reason'], 'queue_full')
+        self.bot.active_job = True
+        self.bot.handle(self.update('/status', number=7))
+        status = self.telegram.sent[-1][1]
+        self.assertIn('без дневного лимита', status)
+        self.assertIn('обработка: идёт', status)
+        self.assertIn('queue_full', status)
+        self.assertNotIn('ещё не получено', status)
+
+    def test_send_cooldown_and_telegram_wait_record_distinct_reasons(self):
+        self.bind()
+        with patch.object(self.bot, 'generate', return_value='шо опять надо то'):
+            self.bot.process_job(self.manual_job())
+            self.bot.process_job(self.manual_job())
+            self.assertEqual(self.store.get('last_skip:-100')['reason'], 'send_cooldown')
+            self.store.set('blocked_until', time.time() + 60)
+            self.bot.process_job(self.manual_job())
+        self.assertEqual(self.store.get('last_skip:-100')['reason'], 'telegram_retry_after')
+        self.assertEqual(len(self.telegram.sent), 1)
 
     def test_private_owner_can_still_see_cooldown_notice(self):
         for number, text in enumerate(('цацыг', 'хряк'), 2):

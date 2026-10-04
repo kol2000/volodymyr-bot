@@ -190,13 +190,15 @@ class Store:
         day = datetime.now(MOSCOW).strftime('%Y-%m-%d')
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
-            limit = 5 if kind == 'automatic' else 30
-            count = db.execute('SELECT count(*) FROM sends WHERE day=? AND kind=?', (day, kind)).fetchone()[0]
-            if count >= limit:
-                return None
+            if kind == 'automatic':
+                count = db.execute('SELECT count(*) FROM sends WHERE day=? AND kind=?', (day, kind)).fetchone()[0]
+                if count >= 5:
+                    LOG.info('Отправка пропущена: причина=automatic_daily_limit')
+                    return None
             row = db.execute('SELECT max(timestamp) FROM sends WHERE chat_id=?', (chat_id,)).fetchone()
             last = row[0] or 0
             if now - last < (3600 if kind == 'automatic' else 15):
+                LOG.info('Отправка пропущена: причина=send_cooldown; режим=%s', kind)
                 return None
             cursor = db.execute('INSERT INTO sends(timestamp,day,kind,chat_id,status) VALUES (?,?,?,?,?)',
                                 (now, day, kind, chat_id, 'attempt'))
@@ -315,6 +317,7 @@ class Bot:
         self.jobs = queue.Queue(maxsize=4)
         self.lock = threading.Lock()
         self.auto_pending = False
+        self.active_job = False
         self.bot_id = 0
         self.username = ''
         self.prompt = (ROOT / 'prompt.txt').read_text(encoding='utf-8')
@@ -344,8 +347,7 @@ class Bot:
                 return False
             if not automatic:
                 if time.time() - self.store.get(f'request:{chat_id}', 0) < 15:
-                    return False
-                if self.store.counts().get('manual', 0) >= 30:
+                    self.record_skip(chat_id, 'request_cooldown')
                     return False
             try:
                 self.jobs.put_nowait({'chat_id': chat_id, 'text': clean_text(text)[:1000],
@@ -354,12 +356,19 @@ class Bot:
                                      'trigger_words': trigger_words or [],
                                      'queued_at': time.time()})
             except queue.Full:
+                if not automatic:
+                    self.record_skip(chat_id, 'queue_full')
                 return False
             if automatic:
                 self.auto_pending = True
             else:
                 self.store.set(f'request:{chat_id}', time.time())
+                LOG.info('Обращение поставлено в очередь')
         return True
+
+    def record_skip(self, chat_id, reason):
+        self.store.set(f'last_skip:{chat_id}', {'reason': reason, 'time': time.time()})
+        LOG.info('Обращение пропущено: причина=%s', reason)
 
     def notify(self, chat_id, text, reply_to=None):
         try:
@@ -448,10 +457,21 @@ class Bot:
             return
         if owner and command == '/status':
             counts = self.store.counts()
+            target = self.store.get('chat_id', chat_id)
+            seen = self.store.get(f'last_direct:{target}', 0)
+            seen_text = datetime.fromtimestamp(seen, MOSCOW).strftime('%H:%M:%S МСК') if seen else 'ещё не получено'
+            skip = self.store.get(f'last_skip:{target}')
+            skip_text = (f'{skip["reason"]} ({datetime.fromtimestamp(skip["time"], MOSCOW).strftime("%H:%M:%S МСК")})'
+                         if skip else 'нет')
+            pause = max(0, int(15 - (time.time() - max(self.store.get(f'request:{target}', 0),
+                                                      self.store.last_send(target))) + 0.999))
             self.notify(chat_id, f'Группа: {self.store.get("chat_id", "не подключена")}\n'
                         f'Автоматически: {"включено" if self.store.get("automatic", False) else "выключено"}\n'
-                        f'Попыток сегодня: автоматически {counts.get("automatic", 0)}/5; по обращению {counts.get("manual", 0)}/30\n'
-                        f'В очереди: {self.jobs.qsize()}\nМодель: {self.config["model"]}')
+                        f'Попыток сегодня: автоматически {counts.get("automatic", 0)}/5; по обращению {counts.get("manual", 0)} (без дневного лимита)\n'
+                        f'В очереди: {self.jobs.qsize()}; обработка: {"идёт" if self.active_job else "нет"}\n'
+                        f'Пауза между обращениями: {pause} сек.\n'
+                        f'Последнее обращение в группе: {seen_text}\nПоследний пропуск: {skip_text}\n'
+                        f'Модель: {self.config["model"]}')
             return
         if command and command != '/bubus':
             return
@@ -477,13 +497,13 @@ class Bot:
             if argument.strip() or not self.store.add_message(message):
                 return
         if private or command == '/bubus' or mentioned or reply_to_bot or triggers:
+            self.store.set(f'last_direct:{chat_id}', time.time())
+            LOG.info('Получено прямое обращение; ключевых совпадений=%s', len(triggers))
             if not self.enqueue(chat_id, argument, message['message_id'],
                                 random_quote=(command == '/bubus' and not argument.strip()),
                                 trigger_words=triggers):
                 if owner and private:
-                    self.notify(chat_id, 'Подожди немного: бот занят или достигнут лимит ответов.')
-                else:
-                    LOG.info('Обращение пропущено: пауза, очередь или суточный лимит')
+                    self.notify(chat_id, 'Подожди немного: действует пауза или очередь заполнена.')
         elif not private and self.random.random() < 0.03:
             self.enqueue(chat_id, text, message['message_id'], automatic=True)
 
@@ -580,6 +600,8 @@ class Bot:
     def process_job(self, job):
         chat_id = job['chat_id']
         if not self.allowed(chat_id) or time.time() - job['queued_at'] > 180:
+            if not job['automatic']:
+                self.record_skip(chat_id, 'chat_changed' if not self.allowed(chat_id) else 'job_expired')
             return
         if job['automatic'] and not self.auto_eligible(chat_id):
             return
@@ -601,12 +623,18 @@ class Bot:
         # Recheck after generation: /auto_off and rebinding can arrive meanwhile.
         if (not self.allowed(chat_id) or time.time() - job['queued_at'] > 180
                 or (job['automatic'] and not self.auto_eligible(chat_id))):
+            if not job['automatic']:
+                self.record_skip(chat_id, 'chat_changed' if not self.allowed(chat_id) else 'job_expired')
             return
         if time.time() < self.store.get('blocked_until', 0):
+            if not job['automatic']:
+                self.record_skip(chat_id, 'telegram_retry_after')
             return
         kind = 'automatic' if job['automatic'] else 'manual'
         send_id = self.store.claim_send(kind, chat_id)
         if send_id is None:
+            if not job['automatic']:
+                self.record_skip(chat_id, 'send_cooldown')
             return
         try:
             sent = self.telegram.send(chat_id, answer, job['reply_to'])
@@ -632,11 +660,14 @@ class Bot:
         while True:
             job = self.jobs.get()
             try:
+                self.active_job = True
+                LOG.info('Начата обработка обращения; режим=%s', 'automatic' if job['automatic'] else 'manual')
                 self.process_job(job)
             except Exception as error:
                 # Do not log prompt text, Telegram token, or the complete response.
                 LOG.error('Задание не выполнено: %s', type(error).__name__)
             finally:
+                self.active_job = False
                 if job['automatic']:
                     with self.lock:
                         self.auto_pending = False
