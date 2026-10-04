@@ -11,7 +11,8 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from bot import (Bot, COMMANDS, FALLBACK_REPLIES, FALLBACK_TOPICS, MOSCOW, Store,
-                 TRIGGER_WORDS, WELCOME_TEXT, answer_key, valid_answer)
+                 TRIGGER_WORDS, WELCOME_TEXT, answer_key, repeated_answer,
+                 response_problem, valid_answer)
 from common import APIError, MODEL, http_json
 import retrieval
 
@@ -141,7 +142,7 @@ class BotTests(unittest.TestCase):
     def test_trigger_substrings_and_other_bot_commands_do_not_activate(self):
         self.bind()
         with patch.object(self.bot.random, 'random', return_value=1):
-            self.bot.handle(self.update('киевский цацапка бубусик цацыга хрякать свиньями', user=7, number=2))
+            self.bot.handle(self.update('киевский цацапка бубусик цацыга хрякать свиньями сосатками', user=7, number=2))
             self.bot.handle(self.update('/say@other_bot бубус', user=7, number=3))
         self.assertEqual(self.bot.jobs.qsize(), 0)
 
@@ -194,7 +195,8 @@ class BotTests(unittest.TestCase):
         self.assertEqual(data['current_request'], 'где пивас')
         self.assertEqual(data['style_examples'], [])
         self.assertEqual(data['live_context'], [])
-        self.assertEqual(data['recent_bot_responses_do_not_repeat'], ['а шо там хоть поменяли то'])
+        self.assertNotIn('recent_bot_responses_do_not_repeat', data)
+        self.assertNotIn('а шо там хоть поменяли то', json.dumps(data, ensure_ascii=False))
 
     def test_repeated_second_generation_uses_local_reply_and_normal_quota(self):
         self.bind()
@@ -245,7 +247,7 @@ class BotTests(unittest.TestCase):
     def test_temporary_http_error_can_recover_before_fallback(self):
         good = {'message': {'content': 'да тут я хватит орать'}}
         with patch('bot.find_examples', return_value=[]), patch('bot.http_json', side_effect=[APIError('private', 503), good]) as model:
-            self.assertEqual(self.bot.generate(self.manual_job()), good['message']['content'])
+            self.assertEqual(self.bot.generate(self.manual_job(text='цацик ты где')), good['message']['content'])
         self.assertEqual(model.call_count, 2)
 
     def test_retry_drops_style_examples_and_reports_reason_to_model(self):
@@ -254,23 +256,24 @@ class BotTests(unittest.TestCase):
         good = {'message': {'content': 'шо опять надо то'}}
         examples = [{'context': 'other topic', 'response': 'old style text'}]
         with patch('bot.find_examples', return_value=examples), patch('bot.http_json', side_effect=[bad, good]) as model:
-            self.assertEqual(self.bot.generate(self.manual_job()), good['message']['content'])
+            self.assertEqual(self.bot.generate(self.manual_job(text='цацик ты где')), good['message']['content'])
         first = json.loads(model.call_args_list[0].args[1]['messages'][1]['content'])
         retry = json.loads(model.call_args_list[1].args[1]['messages'][1]['content'])
         self.assertEqual(first['style_examples'], examples)
         self.assertEqual(retry['style_examples'], [])
         self.assertEqual(retry['previous_failure'], 'repeated_response')
-        self.assertEqual(retry['current_request'], 'цацик')
-        self.assertEqual(retry['recent_bot_responses_do_not_repeat'], ['да тут я хватит орать'])
+        self.assertEqual(retry['current_request'], 'цацик ты где')
+        self.assertNotIn('recent_bot_responses_do_not_repeat', retry)
+        self.assertNotIn('да тут я хватит орать', json.dumps(retry, ensure_ascii=False))
 
     def test_fallback_is_valid_varied_and_survives_recent_topic_exhaustion(self):
         for text in FALLBACK_REPLIES + tuple(text for _, pool in FALLBACK_TOPICS for text in pool):
             self.assertEqual(valid_answer(text), text)
             self.assertLessEqual(len(text.split()), 12)
-        for i, text in enumerate(FALLBACK_REPLIES[:10], 500):
+        for i, text in enumerate(FALLBACK_REPLIES[:30], 500):
             self.store.add_message(self.update(text, number=i)['message'], human=False)
         reply = self.bot.fallback_answer(self.manual_job(text='ordinary message'))
-        self.assertNotIn(reply, FALLBACK_REPLIES[:10])
+        self.assertNotIn(reply, FALLBACK_REPLIES[:30])
         _, topic = FALLBACK_TOPICS[0]
         with patch.object(self.store, 'recent_answers', return_value=list(topic)):
             self.assertIn(self.bot.fallback_answer(self.manual_job(text='война')), FALLBACK_REPLIES)
@@ -312,7 +315,7 @@ class BotTests(unittest.TestCase):
         import sqlite3
         self.bind()
         with patch('bot.find_examples', side_effect=sqlite3.OperationalError('private data')):
-            self.bot.process_job(self.manual_job())
+            self.bot.process_job(self.manual_job(text='интернет опять пропал'))
         self.assertEqual(len(self.telegram.sent), 1)
         self.assertIsNotNone(valid_answer(self.telegram.sent[-1][1]))
 
@@ -323,6 +326,83 @@ class BotTests(unittest.TestCase):
             self.bot.process_job(self.manual_job())
         self.assertEqual(len(self.telegram.sent), 1)
         self.assertEqual(self.store.counts()['manual'], 1)
+
+    def test_near_repetition_catches_changed_opening_and_spelling(self):
+        old = 'мира а ти чё уже и бубуську забыл'
+        self.assertTrue(repeated_answer('ето шо уже и бубуську забил?', [old]))
+        self.assertTrue(repeated_answer('ти холодильник хоть открывал))', ['ты холодильник хоть открывал']))
+        self.assertFalse(repeated_answer('ну ти шо пивас уже закончился', ['ну ти шо роутер не проверял']))
+        self.assertFalse(repeated_answer('шо опять надо то', ['да тут я хватит орать']))
+
+    def test_cyborg_and_forgotten_bubus_need_an_explicit_subject(self):
+        self.assertEqual(response_problem('цыц опять с киборгом?', subject='цацыг'), 'unrelated_topic')
+        self.assertEqual(response_problem('шо за киборги опять', subject='хряк'), 'unrelated_topic')
+        self.assertIsNone(response_problem('шо за киборг такой', subject='кто такой киборг'))
+        self.assertEqual(response_problem('а шо уже и бубуську забыл?', subject='где мой брат бубус'), 'stale_catchphrase')
+        self.assertIsNone(response_problem('да ти бубуську забыл', subject='я забыл бубуську'))
+
+    def test_bare_trigger_uses_fresh_call_without_archive_or_previous_output(self):
+        self.bind()
+        self.remember_answer('цыц опять с киборгом?')
+        self.store.add_message(self.update('вчера обсуждали старую тему', number=9)['message'])
+        with patch('bot.find_examples') as archive, patch('bot.http_json', return_value={'message': {'content': 'шо тебе надо то'}}) as model:
+            self.assertEqual(self.bot.generate(self.manual_job(text='СОСАТКА!')), 'шо тебе надо то')
+        archive.assert_not_called()
+        payload = json.loads(model.call_args.args[1]['messages'][1]['content'])
+        self.assertEqual(payload['live_context'], [])
+        self.assertEqual(payload['style_examples'], [])
+        self.assertNotIn('киборг', json.dumps(model.call_args.args[1], ensure_ascii=False))
+
+    def test_archive_catchphrases_are_not_inserted_in_an_unrelated_request(self):
+        rows = [{'context': '', 'response': 'цыц опять с киборгом?'},
+                {'context': '', 'response': 'а шо уже и бубуську забыл?'},
+                {'context': 'обычная беседа', 'response': 'да тут я чего надо'}]
+        with patch('bot.find_examples', return_value=rows), patch('bot.http_json', return_value={'message': {'content': 'да тут я чего надо'}}) as model:
+            self.assertEqual(self.bot.generate(self.manual_job(text='где мой брат бубус')), 'да тут я чего надо')
+        payload = json.loads(model.call_args.args[1]['messages'][1]['content'])
+        self.assertEqual(payload['style_examples'], [rows[-1]])
+
+    def test_unrelated_cyborg_twice_gets_a_local_reply(self):
+        self.bind()
+        with patch('bot.http_json', return_value={'message': {'content': 'цыц опять с киборгом?'}}) as model:
+            with self.assertLogs('volodymyr', level='INFO') as logs:
+                self.bot.process_job(self.manual_job(text='цацыг'))
+        self.assertEqual(model.call_count, 2)
+        self.assertEqual(len(self.telegram.sent), 1)
+        self.assertNotIn('киборг', self.telegram.sent[-1][1])
+        self.assertIn('unrelated_topic', '\n'.join(logs.output))
+        self.assertIn('резервная реплика', '\n'.join(logs.output))
+
+    def test_near_repeat_outside_previous_ten_is_rejected(self):
+        self.remember_answer('ти холодильник хоть открывал')
+        for number in range(200, 220):
+            self.store.add_message(self.update(f'другая реплика номер {number}', number=number)['message'], human=False)
+        replies = [{'message': {'content': 'ты холодильник хоть открывал?'}},
+                   {'message': {'content': 'пиво ищи сам чего пристал'}}]
+        with patch('bot.find_examples', return_value=[]), patch('bot.http_json', side_effect=replies) as model:
+            self.assertEqual(self.bot.generate(self.manual_job(text='где пивас')), 'пиво ищи сам чего пристал')
+        self.assertEqual(model.call_count, 2)
+
+    def test_group_cooldown_and_quota_do_not_send_technical_notices(self):
+        self.bind()
+        self.bot.handle(self.update('цацыг', number=2))
+        self.bot.handle(self.update('хряк', number=3))
+        self.assertEqual(self.bot.jobs.qsize(), 1)
+        self.assertEqual(self.telegram.sent, [])
+        self.store.set('request:-100', 0)
+        with patch.object(self.store, 'counts', return_value={'manual': 30}):
+            self.bot.handle(self.update('сосатка', number=4))
+        self.assertEqual(self.bot.jobs.qsize(), 1)
+        self.assertEqual(self.telegram.sent, [])
+
+    def test_private_owner_can_still_see_cooldown_notice(self):
+        for number, text in enumerate(('цацыг', 'хряк'), 2):
+            message = self.update(text, chat=42, number=number)
+            message['message']['chat']['type'] = 'private'
+            self.bot.handle(message)
+        self.assertEqual(self.bot.jobs.qsize(), 1)
+        self.assertEqual(len(self.telegram.sent), 1)
+        self.assertIn('Подожди', self.telegram.sent[-1][1])
 
     def test_invalid_model_responses_are_retried(self):
         job = {'chat_id': -100, 'text': 'хуй туды', 'automatic': False}

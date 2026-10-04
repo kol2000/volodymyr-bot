@@ -9,6 +9,7 @@ import sqlite3
 import threading
 import time
 from datetime import datetime
+from difflib import SequenceMatcher
 from zoneinfo import ZoneInfo
 
 from common import APIError, ROOT, STATE, Telegram, clean_text, http_json, load_config
@@ -19,13 +20,13 @@ MOSCOW = ZoneInfo('Europe/Moscow')
 WELCOME_USERNAME = 'leonadosasa'
 WELCOME_TEXT = 'оо алкаш епти ти де бил?'
 TRIGGER_WORDS = ('бубуська', 'володька', 'рахиня', 'украина', 'война', 'киев',
-                 'цаца', 'цацик', 'бубус', 'цацыг', 'хряк', 'свинья')
+                 'цаца', 'цацик', 'бубус', 'цацыг', 'хряк', 'свинья', 'сосатка')
 TRIGGER_PATTERN = re.compile(r'(?<!\w)(?:' + '|'.join(map(re.escape, TRIGGER_WORDS)) + r')(?!\w)', re.I)
 ANGRY_QUOTE_PATTERN = re.compile(r'\b(?:бля\w*|сука\w*|заеб\w*|задолб\w*|пизд\w*|'
                                  r'ёб\w*|еба\w*|ебл\w*|охуе\w*|дурак\w*|идиот\w*|'
                                  r'туп\w*|нахуй|нахер|нахуя|завали|хер\w*)\b', re.I)
 # Locally written replies: no model, private archive or user text is required.
-# More than ten distinct generic replies keep the recent-answer exclusion usable.
+# More than thirty distinct generic replies keep recent-answer exclusion usable.
 FALLBACK_REPLIES = (
     'ну и шо ти этим хотел сказать',
     'бля можно хоть раз нормально спросить',
@@ -45,7 +46,30 @@ FALLBACK_REPLIES = (
     'ти хоть сам понял шо написал',
     'шо за привычка меня дёргать постоянно',
     'бля ну объясни нормально чего надо',
+    'ну начинай уже чего хотел то',
+    'ето ты сейчас серьёзно спрашиваешь',
+    'шо за допрос с порога опять',
+    'да тише ти весь чат разбудил',
+    'ну давай без етих загадок бля',
+    'и долго ти так будешь заводиться',
+    'я тут чего шум поднял',
+    'шо опять зацепиться больше не за что',
+    'бля у тебя талант устраивать суету',
+    'ну хоть суть скажи для начала',
+    'ето уже третья серия твоего выступления',
+    'ти можешь по делу хоть немного',
+    'шо опять надо объяснять на пальцах',
+    'ну и чего ти добился етим криком',
+    'бля дай хоть мысль закончить',
+    'да вижу я тебя не кипятись',
+    'опять ты со своим представлением пришёл',
+    'ну спрашивай уже раз позвал',
 )
+CYBORG_PATTERN = re.compile(r'\b(?:киборг[а-яё]*|cyborg[a-z]*)\b', re.I)
+BUBUS_PATTERN = re.compile(r'\bбубус[а-яё]*\b', re.I)
+FORGET_PATTERN = re.compile(r'\b(?:забы[а-яё]*|заби[а-яё]*)\b', re.I)
+REPEAT_FILLER = set('а и в на не но ну по с то это ты я он она они мы вы мне меня тебе тебя '
+                    'тут там так вот уже еще что как да бля блять'.split())
 FALLBACK_TOPICS = (
     (re.compile(r'(?i)\b(?:украина|война|киев|рахиня)\b'), (
         'опять политоту притащил бля сколько можно',
@@ -53,7 +77,7 @@ FALLBACK_TOPICS = (
         'ти без етих споров хоть вечер можешь',
         'ну всё опять спорить до утра будешь',
     )),
-    (re.compile(r'(?i)\b(?:бубуська|володька|цаца|цацик|бубус|цацыг|хряк|свинья)\b'), (
+    (re.compile(r'(?i)\b(?:бубуська|володька|цаца|цацик|бубус|цацыг|хряк|свинья|сосатка)\b'), (
         'шо опять бубуса дёргаешь делать нечего',
         'цацик бля у тебя других слов нет',
         'ти меня позвал или просто орёшь',
@@ -204,6 +228,50 @@ class Store:
 def answer_key(text):
     # Ignore capitalization, punctuation and spaces when detecting repeats.
     return ' '.join(re.findall(r'\w+', text.casefold().replace('ё', 'е')))
+
+
+def repeat_words(text):
+    aliases = {'ето': 'это', 'ти': 'ты', 'шо': 'что', 'че': 'что', 'ещо': 'еще'}
+    words = []
+    for word in answer_key(text).split():
+        word = aliases.get(word, word)
+        if word.startswith('бубус'):
+            word = 'бубус'
+        elif word.startswith(('забы', 'заби')):
+            word = 'забыл'
+        words.append(word)
+    return words
+
+
+def repeated_answer(text, previous):
+    words = repeat_words(text)
+    for old in previous:
+        old_words = repeat_words(old)
+        if words == old_words:
+            return True
+        match = SequenceMatcher(None, words, old_words, autojunk=False)
+        if min(len(words), len(old_words)) >= 3 and match.ratio() >= 0.8:
+            return True
+        # Catch the same punchline with a different short opening, while allowing
+        # ordinary style particles such as "ну ти шо" in otherwise fresh replies.
+        block = match.find_longest_match()
+        if block.size >= 3 and any(len(word) >= 5 and word not in REPEAT_FILLER
+                                   for word in words[block.a:block.a + block.size]):
+            return True
+    return False
+
+
+def response_problem(text, previous=(), subject=''):
+    reason = answer_problem(text)
+    if reason or text.strip() == '__SILENCE__':
+        return reason
+    if CYBORG_PATTERN.search(text) and not CYBORG_PATTERN.search(subject):
+        return 'unrelated_topic'
+    if BUBUS_PATTERN.search(text) and FORGET_PATTERN.search(text) and not FORGET_PATTERN.search(subject):
+        return 'stale_catchphrase'
+    if repeated_answer(text, previous):
+        return 'repeated_response'
+    return None
 
 
 def answer_problem(text):
@@ -407,33 +475,41 @@ class Bot:
             if not self.enqueue(chat_id, argument, message['message_id'],
                                 random_quote=(command == '/bubus' and not argument.strip()),
                                 trigger_words=triggers):
-                if owner:
+                if owner and private:
                     self.notify(chat_id, 'Подожди немного: бот занят или достигнут лимит ответов.')
+                else:
+                    LOG.info('Обращение пропущено: пауза, очередь или суточный лимит')
         elif not private and self.random.random() < 0.03:
             self.enqueue(chat_id, text, message['message_id'], automatic=True)
 
     def generate(self, job):
-        previous = self.store.recent_answers(job['chat_id'])
-        previous_keys = {answer_key(text) for text in previous}
+        previous = self.store.recent_answers(job['chat_id'], limit=30)
         if job.get('random_quote'):
             for text in random_candidates(limit=500):
                 answer = valid_answer(text)
                 if (answer and answer != '__SILENCE__' and len(answer.split()) <= 12
                         and answer == answer.lower() and not re.search(r'\d|@|\[|\]', answer)
                         and ANGRY_QUOTE_PATTERN.search(answer)
-                        and answer_key(answer) not in previous_keys):
+                        and not response_problem(answer, previous)):
                     return answer
             LOG.warning('Случайная реплика не найдена: причина=no_random_quote')
             return None
         # Own previous output must not become the subject of an unrelated request.
         context = [row for row in self.store.context(job['chat_id'], limit=20)
                    if row['human'] and not row['text'].startswith('/')][-6:]
-        query = job['text'] or ' '.join(row['text'] for row in context[-3:])
-        examples = find_examples(query)
-        examples = [row for row in examples if answer_key(row['response']) not in previous_keys]
+        call_words = answer_key(job['text']).split()
+        nickname_call = bool(call_words) and all(word in TRIGGER_WORDS for word in call_words)
+        if nickname_call:
+            # A bare nickname is a fresh call, not a query about old conversations.
+            context = []
+        subject = job['text'] or ' '.join(row['text'] for row in context[-2:])
+        examples = [] if nickname_call else find_examples(subject)
+        examples = [row for row in examples
+                    if not response_problem(row['response'], previous, subject)
+                    and (not CYBORG_PATTERN.search(row.get('context', ''))
+                         or CYBORG_PATTERN.search(subject))]
         data = {'mode': 'automatic' if job['automatic'] else 'manual',
                 'style_examples': examples, 'live_context': context,
-                'recent_bot_responses_do_not_repeat': previous,
                 'trigger_words': job.get('trigger_words', []),
                 'current_request': job['text']}
         reason = None
@@ -472,12 +548,10 @@ class Bot:
             elif result.get('done_reason') == 'length':
                 reason = 'length_limit'
             else:
-                reason = answer_problem(answer)
+                reason = response_problem(answer, previous, subject)
             answer = answer.strip() if isinstance(answer, str) else ''
             if not reason and answer == '__SILENCE__' and not job['automatic']:
                 reason = 'silence_on_direct_request'
-            if not reason and answer != '__SILENCE__' and answer_key(answer) in previous_keys:
-                reason = 'repeated_response'
             if not reason:
                 return answer
             # Log only a fixed reason code, never generated text or requests.
@@ -485,14 +559,16 @@ class Bot:
         return None
 
     def fallback_answer(self, job):
-        previous_keys = {answer_key(text) for text in self.store.recent_answers(job['chat_id'])}
+        previous = self.store.recent_answers(job['chat_id'], limit=30)
+        previous_keys = {answer_key(text) for text in previous}
         pools = [replies for pattern, replies in FALLBACK_TOPICS if pattern.search(job.get('text', ''))]
         pools.append(FALLBACK_REPLIES)
         for pool in pools:
             available = [text for text in pool
                          if valid_answer(text) and answer_key(text) not in previous_keys]
             if available:
-                return self.random.choice(available)
+                varied = [text for text in available if not repeated_answer(text, previous)]
+                return self.random.choice(varied or available)
         return None
 
     def process_job(self, job):
