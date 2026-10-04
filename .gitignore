@@ -1,0 +1,9 @@
+state/
+data/examples.jsonl
+__pycache__/
+*.py[cod]
+.venv/
+.env
+*.log
+*.sqlite3*
+*.zip

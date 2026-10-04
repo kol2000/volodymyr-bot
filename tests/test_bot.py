@@ -1,0 +1,432 @@
+import json
+import sys
+import tempfile
+import threading
+import time
+import unittest
+from datetime import datetime
+from pathlib import Path
+from unittest.mock import patch
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from bot import Bot, COMMANDS, MOSCOW, Store, TRIGGER_WORDS, WELCOME_TEXT, valid_answer
+from common import APIError, MODEL, http_json
+import retrieval
+
+
+class FakeTelegram:
+    def __init__(self):
+        self.sent = []
+        self.fail = False
+
+    def send(self, chat_id, text, reply_to=None):
+        self.sent.append((chat_id, text, reply_to))
+        if self.fail:
+            raise APIError('Сетевая ошибка или тайм-аут')
+        return {'chat': {'id': chat_id}, 'message_id': 10000 + len(self.sent),
+                'date': time.time(), 'text': text}
+
+
+class BotTests(unittest.TestCase):
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.database = Path(self.folder.name) / 'bot.sqlite3'
+        self.store = Store(self.database)
+        self.telegram = FakeTelegram()
+        self.bot = Bot({'owner_id': 42, 'model': MODEL, 'ollama_url': 'http://127.0.0.1:11434'},
+                       telegram=self.telegram, store=self.store)
+        self.bot.bot_id = 99
+        self.bot.username = 'parody_bot'
+
+    def tearDown(self):
+        self.folder.cleanup()
+
+    def update(self, text, user=42, chat=-100, number=1, age=0):
+        return {'update_id': number, 'message': {'chat': {'id': chat, 'type': 'supergroup'},
+                'from': {'id': user, 'first_name': 'Tester', 'is_bot': False},
+                'message_id': number, 'date': time.time() - age, 'text': text}}
+
+    def bind(self):
+        self.bot.handle(self.update('/bubus'))
+        self.bot.jobs.get_nowait()
+        self.store.set('request:-100', 0)
+
+    def test_group_binding_is_owner_only_and_auto_off(self):
+        self.bot.handle(self.update('/bubus', user=7))
+        self.assertIsNone(self.store.get('chat_id'))
+        self.bind()
+        self.assertEqual(self.store.get('chat_id'), -100)
+        self.assertFalse(self.store.get('automatic'))
+        self.bot.handle(self.update('/auto_on', user=7, number=2))
+        self.assertFalse(self.store.get('automatic'))
+        self.bot.handle(self.update('/auto_on', number=3))
+        self.assertTrue(self.store.get('automatic'))
+
+    def test_wrong_group_and_duplicate_update_do_not_queue(self):
+        self.bind()
+        self.bot.handle(self.update('/bubus привет', chat=-200, user=7, number=2))
+        self.assertEqual(self.bot.jobs.qsize(), 0)
+        message = self.update('/bubus интернет опять отвалился', user=7, number=3)
+        self.bot.handle(message)
+        self.bot.handle(message)
+        self.assertEqual(self.bot.jobs.qsize(), 1)
+
+    def test_old_messages_are_not_replayed(self):
+        self.bind()
+        self.bot.handle(self.update('/bubus старый текст', number=2, age=3600))
+        self.assertEqual(self.bot.jobs.qsize(), 0)
+
+    def test_old_say_command_is_ignored_even_as_reply(self):
+        self.bind()
+        message = self.update('/say где пивас', number=2)
+        message['message']['reply_to_message'] = {'from': {'id': self.bot.bot_id}}
+        self.bot.handle(message)
+        self.assertEqual(self.bot.jobs.qsize(), 0)
+
+    def test_removed_bind_does_not_connect_or_appear_in_menu(self):
+        self.bot.handle(self.update('/bind'))
+        self.assertIsNone(self.store.get('chat_id'))
+        self.assertNotIn('/bind', [command for command, _ in COMMANDS])
+
+    def test_first_bubus_connects_and_queues_random_phrase(self):
+        self.bot.handle(self.update('/bubus'))
+        self.assertEqual(self.store.get('chat_id'), -100)
+        job = self.bot.jobs.get_nowait()
+        self.assertTrue(job['random_quote'])
+        self.assertFalse(job['automatic'])
+
+    def test_bare_bubus_by_member_does_not_disable_automatic_mode(self):
+        self.bind()
+        self.store.set('automatic', True)
+        self.bot.handle(self.update('/bubus@parody_bot', user=7, number=2))
+        self.assertTrue(self.bot.jobs.get_nowait()['random_quote'])
+        self.assertTrue(self.store.get('automatic'))
+
+    def test_old_bubus_does_not_rebind_group(self):
+        self.bind()
+        self.bot.handle(self.update('/bubus', chat=-200, age=3600, number=2))
+        self.assertEqual(self.store.get('chat_id'), -100)
+
+    def test_random_phrase_skips_recent_and_invalid_without_model_call(self):
+        self.remember_answer('а шо там хоть поменяли то')
+        job = {'chat_id': -100, 'text': '', 'random_quote': True, 'automatic': False}
+        candidates = ['А шо там хоть поменяли то!', '<think>analysis</think>',
+                      'номер 12345678', 'ну ето уже смешно))', 'ти заебал уже))']
+        with patch('bot.random_candidates', return_value=candidates), patch('bot.http_json') as model:
+            self.assertEqual(self.bot.generate(job), 'ти заебал уже))')
+        model.assert_not_called()
+
+    def test_plain_reply_queues_current_text(self):
+        self.bind()
+        message = self.update('где пивас', user=7, number=2)
+        message['message']['reply_to_message'] = {'from': {'id': self.bot.bot_id}}
+        self.bot.handle(message)
+        self.assertEqual(self.bot.jobs.get_nowait()['text'], 'где пивас')
+
+    def test_all_trigger_words_queue_direct_response_with_auto_off(self):
+        self.bind()
+        for i, word in enumerate(TRIGGER_WORDS, 2):
+            with self.subTest(word=word):
+                self.store.set('request:-100', 0)
+                text = f'ну {word.upper()}! опять обсуждаем'
+                self.bot.handle(self.update(text, user=7, number=i))
+                job = self.bot.jobs.get_nowait()
+                self.assertEqual(job['text'], text)
+                self.assertEqual(job['trigger_words'], [word])
+                self.assertFalse(job['automatic'])
+                self.assertFalse(job['random_quote'])
+
+    def test_trigger_substrings_and_other_bot_commands_do_not_activate(self):
+        self.bind()
+        with patch.object(self.bot.random, 'random', return_value=1):
+            self.bot.handle(self.update('киевский цацапка бубусик', user=7, number=2))
+            self.bot.handle(self.update('/say@other_bot бубус', user=7, number=3))
+        self.assertEqual(self.bot.jobs.qsize(), 0)
+
+    def test_multiple_trigger_words_one_job_and_cooldown(self):
+        self.bind()
+        self.bot.handle(self.update('бубус цаца БУБУС', user=7, number=2))
+        self.bot.handle(self.update('война', user=7, number=3))
+        self.assertEqual(self.bot.jobs.qsize(), 1)
+        self.assertEqual(self.bot.jobs.get_nowait()['trigger_words'], ['бубус', 'цаца'])
+
+    def test_trigger_context_is_supplied_to_model(self):
+        job = {'chat_id': -100, 'text': 'бубус ты где', 'automatic': False,
+               'trigger_words': ['бубус']}
+        with patch('bot.find_examples', return_value=[]), patch('bot.http_json', return_value={'message': {'content': 'ти ещо громче поори'}}) as model:
+            self.assertEqual(self.bot.generate(job), 'ти ещо громче поори')
+        data = json.loads(model.call_args.args[1]['messages'][1]['content'])
+        self.assertEqual(data['trigger_words'], ['бубус'])
+
+    def test_addressed_command_and_other_bot_routing(self):
+        self.bind()
+        self.bot.handle(self.update('/bubus@other_bot где пивас', number=2))
+        self.assertEqual(self.bot.jobs.qsize(), 0)
+        self.bot.handle(self.update('/bubus@parody_bot где пивас', number=3))
+        self.assertEqual(self.bot.jobs.get_nowait()['text'], 'где пивас')
+        self.assertEqual(self.store.context(-100)[-1]['text'], 'где пивас')
+
+    def remember_answer(self, text):
+        self.store.add_message(self.update(text, number=100)['message'], human=False)
+
+    def test_repeat_is_regenerated_and_old_answer_is_not_live_context(self):
+        self.remember_answer('а шо там хоть поменяли то')
+        job = {'chat_id': -100, 'text': 'где пивас', 'automatic': False}
+        replies = [{'message': {'content': 'А шо там хоть поменяли то))'}},
+                   {'message': {'content': 'ти холодильник хоть открывал))'}}]
+        with patch('bot.find_examples', return_value=[{'context': '', 'response': 'а шо там хоть поменяли то'}]):
+            with patch('bot.http_json', side_effect=replies) as request:
+                self.assertEqual(self.bot.generate(job), 'ти холодильник хоть открывал))')
+        self.assertEqual(request.call_count, 2)
+        data = json.loads(request.call_args_list[0].args[1]['messages'][1]['content'])
+        self.assertEqual(data['current_request'], 'где пивас')
+        self.assertEqual(data['style_examples'], [])
+        self.assertEqual(data['live_context'], [])
+        self.assertEqual(data['recent_bot_responses_do_not_repeat'], ['а шо там хоть поменяли то'])
+
+    def test_repeated_second_generation_is_not_sent(self):
+        self.bind()
+        self.remember_answer('а шо там хоть поменяли то')
+        job = {'chat_id': -100, 'text': 'мастер опять не пришел ремонтировать',
+               'reply_to': 2, 'automatic': False, 'queued_at': time.time()}
+        duplicate = {'message': {'content': 'А ШО ТАМ ХОТЬ ПОМЕНЯЛИ ТО!'}}
+        with patch('bot.find_examples', return_value=[]), patch('bot.http_json', return_value=duplicate) as request:
+            self.bot.process_job(job)
+        self.assertEqual(request.call_count, 2)
+        self.assertEqual(self.telegram.sent[-1][1], 'Не получилось ответить. Попробуй позже.')
+        self.assertEqual(self.store.counts().get('manual', 0), 0)
+
+    def test_invalid_model_responses_are_retried(self):
+        job = {'chat_id': -100, 'text': 'хуй туды', 'automatic': False}
+        bad_results = [
+            {'message': {'content': ''}},
+            {'message': {'content': 'первая строка\nвторая строка'}},
+            {'message': {'content': 'Хорошо, пользователь пишет грубо'}},
+            {'message': {'content': 'x' * 221}},
+            {'message': {'content': '__SILENCE__'}},
+            {'message': {'content': 'оборванный ответ'}, 'done_reason': 'length'},
+            {'error': 'unused sensitive diagnostic'},
+        ]
+        for bad in bad_results:
+            with self.subTest(bad=bad):
+                good = {'message': {'content': 'ну ти и разговорчивый))'}}
+                with patch('bot.find_examples', return_value=[]), patch('bot.http_json', side_effect=[bad, good]) as model:
+                    with self.assertLogs('volodymyr', level='WARNING') as logs:
+                        self.assertEqual(self.bot.generate(job), 'ну ти и разговорчивый))')
+                self.assertEqual(model.call_count, 2)
+                self.assertNotIn('хуй туды', '\n'.join(logs.output))
+                self.assertNotIn('unused sensitive diagnostic', '\n'.join(logs.output))
+                if bad.get('done_reason') == 'length':
+                    self.assertEqual(model.call_args.args[1]['options']['num_predict'], 160)
+
+    def test_rejected_response_reason_logged_without_its_text(self):
+        job = {'chat_id': -100, 'text': 'обращение', 'automatic': False}
+        bad = {'message': {'content': 'private-first-line\nprivate-second-line'}}
+        with patch('bot.find_examples', return_value=[]), patch('bot.http_json', return_value=bad) as model:
+            with self.assertLogs('volodymyr', level='WARNING') as logs:
+                self.assertIsNone(self.bot.generate(job))
+        self.assertEqual(model.call_count, 2)
+        self.assertTrue(all('multiline_response' in line for line in logs.output))
+        self.assertNotIn('private-first-line', '\n'.join(logs.output))
+
+    def test_automatic_silence_is_not_retried(self):
+        job = {'chat_id': -100, 'text': 'обсуждение', 'automatic': True}
+        with patch('bot.find_examples', return_value=[]), patch('bot.http_json', return_value={'message': {'content': '__SILENCE__'}}) as model:
+            self.assertEqual(self.bot.generate(job), '__SILENCE__')
+        self.assertEqual(model.call_count, 1)
+
+    def join_update(self, username='leonadosasa', number=10, **kwargs):
+        update = self.update('', number=number, **kwargs)
+        update['message']['new_chat_members'] = [
+            {'id': 77, 'username': username, 'first_name': 'Member', 'is_bot': False}]
+        return update
+
+    def test_target_join_gets_exact_greeting_with_automation_off_and_no_model(self):
+        self.bind()
+        self.store.set('automatic', False)
+        with patch.object(self.bot, 'generate') as model:
+            self.bot.handle(self.join_update(username='LeoNadoSasa'))
+        model.assert_not_called()
+        self.assertEqual(self.telegram.sent[-1], (-100, 'оо алкаш епти ти де бил?', 10))
+        self.assertEqual(self.store.counts(), {'greeting': 1})
+
+    def test_other_user_sender_and_wrong_group_do_not_get_greeting(self):
+        self.bind()
+        sender = self.join_update(username='someone_else')
+        sender['message']['from']['username'] = 'leonadosasa'
+        self.bot.handle(sender)
+        self.bot.handle(self.join_update(username='leonardosasa', number=11))
+        self.bot.handle(self.join_update(chat=-200, number=12))
+        self.bot.handle(self.join_update(age=3600, number=13))
+        self.assertEqual(self.telegram.sent, [])
+
+    def test_join_matching_member_not_inviting_bot(self):
+        self.bind()
+        update = self.join_update()
+        update['message']['from']['is_bot'] = True
+        self.bot.handle(update)
+        self.assertEqual(self.telegram.sent[-1][1], WELCOME_TEXT)
+
+    def test_greeting_duplicate_event_stays_suppressed_after_restart(self):
+        self.bind()
+        update = self.join_update()
+        self.bot.handle(update)
+        restarted = Bot(self.bot.config, telegram=self.telegram, store=Store(self.database))
+        restarted.handle(update)
+        self.assertEqual(len(self.telegram.sent), 1)
+        restarted.handle(self.join_update(number=11))
+        self.assertEqual(len(self.telegram.sent), 2)
+
+    def test_uncertain_greeting_is_not_retried(self):
+        self.bind()
+        self.telegram.fail = True
+        update = self.join_update()
+        self.bot.handle(update)
+        self.bot.handle(update)
+        self.assertEqual(len(self.telegram.sent), 1)
+        self.assertEqual(self.store.counts(), {'greeting': 1})
+
+    def test_greeting_bypasses_manual_quota_and_cooldown(self):
+        self.bind()
+        with self.store.db() as db:
+            day = datetime.now(MOSCOW).strftime('%Y-%m-%d')
+            for _ in range(30):
+                db.execute('INSERT INTO sends(timestamp,day,kind,chat_id,status) VALUES (?,?,?,?,?)',
+                           (time.time(), day, 'manual', -100, 'sent'))
+        self.bot.handle(self.join_update())
+        self.assertEqual(self.telegram.sent[-1][1], WELCOME_TEXT)
+        self.assertEqual(self.store.counts(), {'manual': 30, 'greeting': 1})
+
+    def test_repeat_history_survives_restart(self):
+        self.remember_answer('а шо там хоть поменяли то')
+        restarted = Store(self.database)
+        self.assertEqual(restarted.recent_answers(-100), ['а шо там хоть поменяли то'])
+        self.assertEqual(restarted.recent_answers(-200), [])
+
+    def test_rebind_stops_old_group_and_turns_off_auto(self):
+        self.bind()
+        self.store.set('automatic', True)
+        self.bot.handle(self.update('/bubus', chat=-200, number=2))
+        self.assertFalse(self.store.get('automatic'))
+        self.assertFalse(self.bot.allowed(-100))
+        self.assertTrue(self.bot.allowed(-200))
+
+    def test_quiet_hours_and_fresh_context(self):
+        self.bind()
+        self.store.set('automatic', True)
+        night = datetime(2026, 10, 4, 3, 0, tzinfo=MOSCOW).timestamp()
+        day = datetime(2026, 10, 4, 15, 0, tzinfo=MOSCOW).timestamp()
+        with patch.object(self.store, 'latest_human', return_value=day - 60):
+            self.assertFalse(self.bot.auto_eligible(-100, now=night))
+            self.assertTrue(self.bot.auto_eligible(-100, now=day))
+        with patch.object(self.store, 'latest_human', return_value=day - 7201):
+            self.assertFalse(self.bot.auto_eligible(-100, now=day))
+
+    def test_daily_limit_and_cooldown_survive_restart(self):
+        base = time.time()
+        with patch('bot.time.time', return_value=base):
+            first = self.store.claim_send('automatic', -100)
+            self.assertIsNotNone(first)
+            self.assertIsNone(self.store.claim_send('automatic', -100))
+        for i in range(1, 5):
+            with patch('bot.time.time', return_value=base + i * 3601):
+                self.assertIsNotNone(self.store.claim_send('automatic', -100))
+        restarted = Store(self.database)
+        with patch('bot.time.time', return_value=base + 6 * 3601):
+            self.assertIsNone(restarted.claim_send('automatic', -100))
+
+    def test_auto_off_during_generation_cancels_send(self):
+        self.bind()
+        self.store.set('automatic', True)
+        job = {'chat_id': -100, 'text': 'интернет', 'reply_to': 2,
+               'automatic': True, 'queued_at': time.time()}
+        def generation(_):
+            self.store.set('automatic', False)
+            return 'а шо там опять сломалось'
+        with patch.object(self.bot, 'auto_eligible', side_effect=lambda *a: self.store.get('automatic')):
+            with patch.object(self.bot, 'generate', side_effect=generation):
+                before = len(self.telegram.sent)
+                self.bot.process_job(job)
+                self.assertEqual(len(self.telegram.sent), before)
+
+    def test_uncertain_send_is_not_retried(self):
+        self.bind()
+        self.telegram.fail = True
+        job = {'chat_id': -100, 'text': 'интернет', 'reply_to': 2,
+               'automatic': False, 'queued_at': time.time()}
+        with patch.object(self.bot, 'generate', return_value='шо там опять случилось'):
+            before = len(self.telegram.sent)
+            self.bot.process_job(job)
+            self.assertEqual(len(self.telegram.sent), before + 1)
+        self.assertEqual(self.store.counts().get('manual'), 1)
+
+    def test_output_guard_rejects_analysis_and_long_answers(self):
+        self.assertIsNone(valid_answer('Хорошо, пользователь пишет про интернет'))
+        self.assertIsNone(valid_answer('x' * 221))
+        self.assertIsNone(valid_answer('<think>reason</think>ответ'))
+        self.assertIsNone(valid_answer('токен 123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef'))
+        self.assertEqual(valid_answer('а шо там опять случилось))'), 'а шо там опять случилось))')
+        self.assertEqual(valid_answer('я бот-пародия, ти шо))'), 'я бот-пародия, ти шо))')
+
+    def test_history_is_bounded(self):
+        for i in range(230):
+            self.store.add_message(self.update('сообщение', number=i)['message'])
+        with self.store.db() as db:
+            count = db.execute('SELECT count(*) FROM messages').fetchone()[0]
+        self.assertEqual(count, 200)
+
+    def test_telegram_token_not_in_network_error(self):
+        import urllib.error
+        with patch('urllib.request.urlopen', side_effect=urllib.error.URLError('secret-token-url')):
+            with self.assertRaises(APIError) as caught:
+                http_json('https://api.telegram.org/botSECRET/getMe', {})
+        self.assertNotIn('SECRET', str(caught.exception))
+        self.assertNotIn('secret-token-url', str(caught.exception))
+
+
+class RetrievalTests(unittest.TestCase):
+    def test_no_constant_examples_without_search_terms(self):
+        self.assertEqual(retrieval.find_examples('а шо ти ето'), [])
+
+    @unittest.skipUnless(retrieval.SOURCE.is_file(), 'Private corpus is kept on the VM')
+    def test_real_corpus_lookup(self):
+        with tempfile.TemporaryDirectory() as folder:
+            with patch.object(retrieval, 'STATE', Path(folder)), patch.object(retrieval, 'INDEX', Path(folder) / 'index.sqlite3'):
+                count = retrieval.build_index()
+                self.assertGreater(count, 20000)
+                examples = retrieval.find_examples('интернет роутер ремонт')
+                self.assertGreater(len(examples), 2)
+                self.assertTrue(any(row['context'] for row in examples))
+                self.assertTrue(all(row['response'] for row in examples))
+                candidates = retrieval.random_candidates(10)
+                self.assertEqual(len(candidates), 10)
+                self.assertTrue(all(candidates))
+
+
+class HTTPTests(unittest.TestCase):
+    def test_model_inventory_uses_get(self):
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'models': [{'name': MODEL}]}).encode())
+
+            def log_message(self, *args):
+                pass
+
+        server = HTTPServer(('127.0.0.1', 0), Handler)
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        try:
+            result = http_json(f'http://127.0.0.1:{server.server_port}/api/tags', None)
+            self.assertEqual(result['models'][0]['name'], MODEL)
+        finally:
+            server.shutdown()
+            server.server_close()
+            worker.join()
+
+
+if __name__ == '__main__':
+    unittest.main()
