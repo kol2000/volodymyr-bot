@@ -20,8 +20,12 @@ MOSCOW = ZoneInfo('Europe/Moscow')
 WELCOME_USERNAME = 'leonadosasa'
 WELCOME_TEXT = 'оо алкаш епти ти де бил?'
 TRIGGER_WORDS = ('бубуська', 'володька', 'рахиня', 'украина', 'война', 'киев',
-                 'цаца', 'цацик', 'бубус', 'цацыг', 'хряк', 'свинья', 'сосатка')
-TRIGGER_PATTERN = re.compile(r'(?<!\w)(?:' + '|'.join(map(re.escape, TRIGGER_WORDS)) + r')(?!\w)', re.I)
+                 'цаца', 'цацик', 'бубус', 'цацыг', 'хряк', 'свинья', 'сосатка',
+                 'крым', 'крим', 'даг')
+TRIGGER_PHRASES = ('крым наш',)
+# Match phrases first so "крым наш" is one trigger, with flexible whitespace.
+TRIGGER_PATTERN = re.compile(r'(?<!\w)(?:' + '|'.join(
+    re.escape(term).replace(r'\ ', r'\s+') for term in (*TRIGGER_PHRASES, *TRIGGER_WORDS)) + r')(?!\w)', re.I)
 ANGRY_QUOTE_PATTERN = re.compile(r'\b(?:бля\w*|сука\w*|заеб\w*|задолб\w*|пизд\w*|'
                                  r'ёб\w*|еба\w*|ебл\w*|охуе\w*|дурак\w*|идиот\w*|'
                                  r'туп\w*|нахуй|нахер|нахуя|завали|хер\w*)\b', re.I)
@@ -71,7 +75,7 @@ FORGET_PATTERN = re.compile(r'\b(?:забы[а-яё]*|заби[а-яё]*)\b', re
 REPEAT_FILLER = set('а и в на не но ну по с то это ты я он она они мы вы мне меня тебе тебя '
                     'тут там так вот уже еще что как да бля блять'.split())
 FALLBACK_TOPICS = (
-    (re.compile(r'(?i)\b(?:украина|война|киев|рахиня)\b'), (
+    (re.compile(r'(?i)\b(?:украина|война|киев|рахиня|крым|крим|даг)\b'), (
         'опять политоту притащил бля сколько можно',
         'шо опять диванный эксперт проснулся',
         'ти без етих споров хоть вечер можешь',
@@ -460,7 +464,8 @@ class Bot:
         # A user replying here solely to summon another bot is not addressing us.
         if not command and not mentioned and re.fullmatch(r'(?:@[a-z0-9_]*bot\s*)+', text.strip(), re.I):
             return
-        triggers = list(dict.fromkeys(match.group().casefold() for match in TRIGGER_PATTERN.finditer(text)))
+        triggers = list(dict.fromkeys(' '.join(match.group().casefold().split())
+                                     for match in TRIGGER_PATTERN.finditer(text)))
         if command == '/bubus':
             parts = text.split(maxsplit=1)
             argument = parts[1] if len(parts) > 1 else ''
@@ -498,7 +503,8 @@ class Bot:
         context = [row for row in self.store.context(job['chat_id'], limit=20)
                    if row['human'] and not row['text'].startswith('/')][-6:]
         call_words = answer_key(job['text']).split()
-        nickname_call = bool(call_words) and all(word in TRIGGER_WORDS for word in call_words)
+        nickname_call = bool(call_words) and (all(word in TRIGGER_WORDS for word in call_words)
+                                             or ' '.join(call_words) in TRIGGER_PHRASES)
         if nickname_call:
             # A bare nickname is a fresh call, not a query about old conversations.
             context = []

@@ -142,7 +142,7 @@ class BotTests(unittest.TestCase):
     def test_trigger_substrings_and_other_bot_commands_do_not_activate(self):
         self.bind()
         with patch.object(self.bot.random, 'random', return_value=1):
-            self.bot.handle(self.update('киевский цацапка бубусик цацыга хрякать свиньями сосатками', user=7, number=2))
+            self.bot.handle(self.update('киевский цацапка бубусик цацыга хрякать свиньями сосатками крымский криминал дагестан', user=7, number=2))
             self.bot.handle(self.update('/say@other_bot бубус', user=7, number=3))
         self.assertEqual(self.bot.jobs.qsize(), 0)
 
@@ -152,6 +152,31 @@ class BotTests(unittest.TestCase):
         self.bot.handle(self.update('война', user=7, number=3))
         self.assertEqual(self.bot.jobs.qsize(), 1)
         self.assertEqual(self.bot.jobs.get_nowait()['trigger_words'], ['бубус', 'цаца'])
+
+    def test_crimea_phrase_case_whitespace_and_single_match(self):
+        self.bind()
+        for number, text in enumerate(('КРЫМ НАШ!', 'крым   наш', 'крым\tнаш', 'крым\u00a0наш'), 2):
+            with self.subTest(text=text):
+                self.store.set('request:-100', 0)
+                self.bot.handle(self.update(text, user=7, number=number))
+                self.assertEqual(self.bot.jobs.qsize(), 1)
+                job = self.bot.jobs.get_nowait()
+                self.assertEqual(job['trigger_words'], ['крым наш'])
+                self.assertFalse(job['automatic'])
+
+    def test_phrase_and_new_words_make_only_one_response(self):
+        self.bind()
+        self.bot.handle(self.update('крым наш, крим и ДАГ', user=7, number=2))
+        self.assertEqual(self.bot.jobs.qsize(), 1)
+        self.assertEqual(self.bot.jobs.get_nowait()['trigger_words'], ['крым наш', 'крим', 'даг'])
+
+    def test_bare_crimea_phrase_has_no_old_archive_context(self):
+        with patch('bot.find_examples') as archive, patch('bot.http_json', return_value={'message': {'content': 'опять спорить начинаешь'}}) as model:
+            self.assertEqual(self.bot.generate(self.manual_job(text='КРЫМ   НАШ!')), 'опять спорить начинаешь')
+        archive.assert_not_called()
+        data = json.loads(model.call_args.args[1]['messages'][1]['content'])
+        self.assertEqual(data['live_context'], [])
+        self.assertEqual(data['style_examples'], [])
 
     def test_trigger_context_is_supplied_to_model(self):
         job = {'chat_id': -100, 'text': 'бубус ты где', 'automatic': False,
