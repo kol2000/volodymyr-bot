@@ -10,7 +10,8 @@ from unittest.mock import patch
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from bot import Bot, COMMANDS, MOSCOW, Store, TRIGGER_WORDS, WELCOME_TEXT, valid_answer
+from bot import (Bot, COMMANDS, FALLBACK_REPLIES, FALLBACK_TOPICS, MOSCOW, Store,
+                 TRIGGER_WORDS, WELCOME_TEXT, answer_key, valid_answer)
 from common import APIError, MODEL, http_json
 import retrieval
 
@@ -140,7 +141,7 @@ class BotTests(unittest.TestCase):
     def test_trigger_substrings_and_other_bot_commands_do_not_activate(self):
         self.bind()
         with patch.object(self.bot.random, 'random', return_value=1):
-            self.bot.handle(self.update('киевский цацапка бубусик', user=7, number=2))
+            self.bot.handle(self.update('киевский цацапка бубусик цацыга хрякать свиньями', user=7, number=2))
             self.bot.handle(self.update('/say@other_bot бубус', user=7, number=3))
         self.assertEqual(self.bot.jobs.qsize(), 0)
 
@@ -167,6 +168,16 @@ class BotTests(unittest.TestCase):
         self.assertEqual(self.bot.jobs.get_nowait()['text'], 'где пивас')
         self.assertEqual(self.store.context(-100)[-1]['text'], 'где пивас')
 
+    def test_reply_summoning_other_bot_is_ignored(self):
+        self.bind()
+        message = self.update('@friedrich_bot', number=2)
+        message['message']['reply_to_message'] = {'from': {'id': self.bot.bot_id}}
+        with patch.object(self.bot.random, 'random', return_value=0):
+            self.bot.handle(message)
+        self.assertEqual(self.bot.jobs.qsize(), 0)
+        self.bot.handle(self.update('@parody_bot', number=3))
+        self.assertEqual(self.bot.jobs.qsize(), 1)
+
     def remember_answer(self, text):
         self.store.add_message(self.update(text, number=100)['message'], human=False)
 
@@ -185,7 +196,7 @@ class BotTests(unittest.TestCase):
         self.assertEqual(data['live_context'], [])
         self.assertEqual(data['recent_bot_responses_do_not_repeat'], ['а шо там хоть поменяли то'])
 
-    def test_repeated_second_generation_is_not_sent(self):
+    def test_repeated_second_generation_uses_local_reply_and_normal_quota(self):
         self.bind()
         self.remember_answer('а шо там хоть поменяли то')
         job = {'chat_id': -100, 'text': 'мастер опять не пришел ремонтировать',
@@ -194,8 +205,124 @@ class BotTests(unittest.TestCase):
         with patch('bot.find_examples', return_value=[]), patch('bot.http_json', return_value=duplicate) as request:
             self.bot.process_job(job)
         self.assertEqual(request.call_count, 2)
-        self.assertEqual(self.telegram.sent[-1][1], 'Не получилось ответить. Попробуй позже.')
-        self.assertEqual(self.store.counts().get('manual', 0), 0)
+        reply = self.telegram.sent[-1][1]
+        self.assertIn(reply, FALLBACK_REPLIES)
+        self.assertNotEqual(answer_key(reply), answer_key('а шо там хоть поменяли то'))
+        self.assertEqual(self.store.counts().get('manual', 0), 1)
+        self.assertEqual(self.store.recent_answers(-100)[-1], 'а шо там хоть поменяли то')
+        self.assertIn(reply, self.store.recent_answers(-100))
+
+    def manual_job(self, **overrides):
+        return dict({'chat_id': -100, 'text': 'цацик', 'reply_to': 2,
+                     'automatic': False, 'queued_at': time.time()}, **overrides)
+
+    def test_invalid_output_types_use_a_local_reply(self):
+        self.bind()
+        for result in ([], {'message': 'bad'}, {'message': {'content': ['bad']}}, {},
+                       {'message': {'content': '<think>bad</think>'}},
+                       {'message': {'content': ''}}, {'message': {'content': '__SILENCE__'}}):
+            with self.subTest(result=result):
+                self.store.set('request:-100', 0)
+                with patch.object(self.store, 'claim_send', return_value=1):
+                    with patch('bot.find_examples', return_value=[]), patch('bot.http_json', return_value=result):
+                        before = len(self.telegram.sent)
+                        self.bot.process_job(self.manual_job())
+                self.assertEqual(len(self.telegram.sent), before + 1)
+                self.assertIsNotNone(valid_answer(self.telegram.sent[-1][1]))
+                self.assertNotIn('Не получилось', self.telegram.sent[-1][1])
+
+    def test_timeout_has_no_second_model_request_and_no_diagnostic_leak(self):
+        self.bind()
+        with patch('bot.find_examples', return_value=[]), patch('bot.http_json', side_effect=APIError('private-url-token')) as model:
+            with self.assertLogs('volodymyr', level='INFO') as logs:
+                self.bot.process_job(self.manual_job())
+        self.assertEqual(model.call_count, 1)
+        self.assertEqual(len(self.telegram.sent), 1)
+        self.assertIn('model_unavailable', '\n'.join(logs.output))
+        self.assertNotIn('private-url-token', '\n'.join(logs.output))
+        self.assertEqual(self.store.counts()['manual'], 1)
+
+    def test_temporary_http_error_can_recover_before_fallback(self):
+        good = {'message': {'content': 'да тут я хватит орать'}}
+        with patch('bot.find_examples', return_value=[]), patch('bot.http_json', side_effect=[APIError('private', 503), good]) as model:
+            self.assertEqual(self.bot.generate(self.manual_job()), good['message']['content'])
+        self.assertEqual(model.call_count, 2)
+
+    def test_retry_drops_style_examples_and_reports_reason_to_model(self):
+        self.remember_answer('да тут я хватит орать')
+        bad = {'message': {'content': 'да тут я хватит орать'}}
+        good = {'message': {'content': 'шо опять надо то'}}
+        examples = [{'context': 'other topic', 'response': 'old style text'}]
+        with patch('bot.find_examples', return_value=examples), patch('bot.http_json', side_effect=[bad, good]) as model:
+            self.assertEqual(self.bot.generate(self.manual_job()), good['message']['content'])
+        first = json.loads(model.call_args_list[0].args[1]['messages'][1]['content'])
+        retry = json.loads(model.call_args_list[1].args[1]['messages'][1]['content'])
+        self.assertEqual(first['style_examples'], examples)
+        self.assertEqual(retry['style_examples'], [])
+        self.assertEqual(retry['previous_failure'], 'repeated_response')
+        self.assertEqual(retry['current_request'], 'цацик')
+        self.assertEqual(retry['recent_bot_responses_do_not_repeat'], ['да тут я хватит орать'])
+
+    def test_fallback_is_valid_varied_and_survives_recent_topic_exhaustion(self):
+        for text in FALLBACK_REPLIES + tuple(text for _, pool in FALLBACK_TOPICS for text in pool):
+            self.assertEqual(valid_answer(text), text)
+            self.assertLessEqual(len(text.split()), 12)
+        for i, text in enumerate(FALLBACK_REPLIES[:10], 500):
+            self.store.add_message(self.update(text, number=i)['message'], human=False)
+        reply = self.bot.fallback_answer(self.manual_job(text='ordinary message'))
+        self.assertNotIn(reply, FALLBACK_REPLIES[:10])
+        _, topic = FALLBACK_TOPICS[0]
+        with patch.object(self.store, 'recent_answers', return_value=list(topic)):
+            self.assertIn(self.bot.fallback_answer(self.manual_job(text='война')), FALLBACK_REPLIES)
+        with patch.object(self.store, 'recent_answers', return_value=[]):
+            self.assertIn(self.bot.fallback_answer(self.manual_job(text='война')), topic)
+
+    def test_fallback_obeys_quota_cooldown_rebinding_and_age(self):
+        self.bind()
+        with patch.object(self.bot, 'generate', return_value=None):
+            with patch.object(self.store, 'claim_send', return_value=None):
+                self.bot.process_job(self.manual_job())
+            self.bot.process_job(self.manual_job(chat_id=-200))
+            self.bot.process_job(self.manual_job(queued_at=time.time() - 181))
+        self.assertEqual(self.telegram.sent, [])
+        with patch.object(self.bot, 'generate', return_value=None):
+            self.bot.process_job(self.manual_job())
+            self.bot.process_job(self.manual_job())
+        self.assertEqual(len(self.telegram.sent), 1)
+        self.assertEqual(self.store.counts()['manual'], 1)
+        def move(_):
+            self.store.set('chat_id', -200)
+            return None
+        with patch.object(self.bot, 'generate', side_effect=move):
+            self.bot.process_job(self.manual_job())
+        self.assertEqual(len(self.telegram.sent), 1)
+
+    def test_fallback_does_not_reply_to_automatic_failure_or_silence(self):
+        self.bind()
+        with patch.object(self.bot, 'auto_eligible', return_value=True):
+            with patch.object(self.bot, 'generate', return_value=None), patch.object(self.bot, 'fallback_answer') as fallback:
+                self.bot.process_job(self.manual_job(automatic=True))
+                fallback.assert_not_called()
+        with patch.object(self.bot, 'generate', return_value='__SILENCE__'), patch.object(self.bot, 'fallback_answer') as fallback:
+            self.bot.process_job(self.manual_job(automatic=True))
+            fallback.assert_not_called()
+        self.assertEqual(self.telegram.sent, [])
+
+    def test_fallback_recovers_from_local_retrieval_failure(self):
+        import sqlite3
+        self.bind()
+        with patch('bot.find_examples', side_effect=sqlite3.OperationalError('private data')):
+            self.bot.process_job(self.manual_job())
+        self.assertEqual(len(self.telegram.sent), 1)
+        self.assertIsNotNone(valid_answer(self.telegram.sent[-1][1]))
+
+    def test_uncertain_fallback_send_is_not_retried(self):
+        self.bind()
+        self.telegram.fail = True
+        with patch.object(self.bot, 'generate', return_value=None):
+            self.bot.process_job(self.manual_job())
+        self.assertEqual(len(self.telegram.sent), 1)
+        self.assertEqual(self.store.counts()['manual'], 1)
 
     def test_invalid_model_responses_are_retried(self):
         job = {'chat_id': -100, 'text': 'хуй туды', 'automatic': False}

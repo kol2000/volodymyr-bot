@@ -19,11 +19,59 @@ MOSCOW = ZoneInfo('Europe/Moscow')
 WELCOME_USERNAME = 'leonadosasa'
 WELCOME_TEXT = 'оо алкаш епти ти де бил?'
 TRIGGER_WORDS = ('бубуська', 'володька', 'рахиня', 'украина', 'война', 'киев',
-                 'цаца', 'цацик', 'бубус')
+                 'цаца', 'цацик', 'бубус', 'цацыг', 'хряк', 'свинья')
 TRIGGER_PATTERN = re.compile(r'(?<!\w)(?:' + '|'.join(map(re.escape, TRIGGER_WORDS)) + r')(?!\w)', re.I)
 ANGRY_QUOTE_PATTERN = re.compile(r'\b(?:бля\w*|сука\w*|заеб\w*|задолб\w*|пизд\w*|'
                                  r'ёб\w*|еба\w*|ебл\w*|охуе\w*|дурак\w*|идиот\w*|'
                                  r'туп\w*|нахуй|нахер|нахуя|завали|хер\w*)\b', re.I)
+# Locally written replies: no model, private archive or user text is required.
+# More than ten distinct generic replies keep the recent-answer exclusion usable.
+FALLBACK_REPLIES = (
+    'ну и шо ти этим хотел сказать',
+    'бля можно хоть раз нормально спросить',
+    'шо за шум опять без повода',
+    'ти сначала мысль собери потом пиши',
+    'ето всё или ещо концерт будет',
+    'да сколько можно одно и то же',
+    'ну ти и устроил базар конечно',
+    'бля опять начинаешь со своей хернёй',
+    'шо ти от меня то хочешь',
+    'ну давай конкретнее без етих выкрутасов',
+    'ти ещо громче напиши может поможет',
+    'ето у тебя вопрос или просто шум',
+    'да поняв я поняв хватит орать',
+    'опять мне ето разгребать шо ли',
+    'ну всё началось бля по новой',
+    'ти хоть сам понял шо написал',
+    'шо за привычка меня дёргать постоянно',
+    'бля ну объясни нормально чего надо',
+)
+FALLBACK_TOPICS = (
+    (re.compile(r'(?i)\b(?:украина|война|киев|рахиня)\b'), (
+        'опять политоту притащил бля сколько можно',
+        'шо опять диванный эксперт проснулся',
+        'ти без етих споров хоть вечер можешь',
+        'ну всё опять спорить до утра будешь',
+    )),
+    (re.compile(r'(?i)\b(?:бубуська|володька|цаца|цацик|бубус|цацыг|хряк|свинья)\b'), (
+        'шо опять бубуса дёргаешь делать нечего',
+        'цацик бля у тебя других слов нет',
+        'ти меня позвал или просто орёшь',
+        'да тут я бля хватит звать',
+    )),
+    (re.compile(r'(?i)\b(?:интернет\w*|роутер\w*|вайфай\w*)\b'), (
+        'бля опять роутер тебе вечер испортил',
+        'шо интернет опять решил отдохнуть',
+        'ну перезапусти роутер хватит его уговаривать',
+        'ето интернет или ежедневный повод поорать',
+    )),
+    (re.compile(r'(?i)\b(?:пиво|пивас\w*|пивка|пивко)\b'), (
+        'ти кроме пива ещо о чём думаешь',
+        'шо опять весь разговор к пиву свёл',
+        'ну началось опять где пивас бля',
+        'бля у тебя вечная повестка про пиво',
+    )),
+)
 COMMANDS = [('/bubus', 'случайная фраза; с текстом — ответ по теме'),
             ('/auto_on', 'включить периодические реплики'),
             ('/auto_off', 'выключить периодические реплики'),
@@ -341,6 +389,9 @@ class Bot:
         reply = message.get('reply_to_message', {})
         reply_to_bot = reply.get('from', {}).get('id') == self.bot_id
         mentioned = bool(self.username and re.search(r'@' + re.escape(self.username) + r'\b', text, re.I))
+        # A user replying here solely to summon another bot is not addressing us.
+        if not command and not mentioned and re.fullmatch(r'(?:@[a-z0-9_]*bot\s*)+', text.strip(), re.I):
+            return
         triggers = list(dict.fromkeys(match.group().casefold() for match in TRIGGER_PATTERN.finditer(text)))
         if command == '/bubus':
             parts = text.split(maxsplit=1)
@@ -390,22 +441,39 @@ class Bot:
             prompt = self.prompt
             if attempt:
                 prompt += '\nПредыдущий вариант не подошёл. Дай новую готовую реплику на 3–12 слов одной строкой по теме current_request. Без анализа, пояснений и оскорблений защищённых групп. Не повторяй уже сказанные реплики, даже с другой пунктуацией.'
-            result = http_json(self.config['ollama_url'] + '/api/chat', {
-                'model': self.config['model'], 'stream': False, 'keep_alive': '24h',
-                'messages': [{'role': 'system', 'content': prompt},
-                             {'role': 'user', 'content': json.dumps(data, ensure_ascii=False)}],
-                'options': {'num_ctx': 4096, 'num_thread': 16,
-                            'num_predict': 160 if attempt and reason == 'length_limit' else 100,
-                            'temperature': 0.75, 'repeat_penalty': 1.08},
-            }, timeout=180)
-            answer = (result.get('message') or {}).get('content') or ''
+            retry_data = dict(data, style_examples=[], live_context=context[-2:],
+                              previous_failure=reason) if attempt else data
+            try:
+                result = http_json(self.config['ollama_url'] + '/api/chat', {
+                    'model': self.config['model'], 'stream': False, 'keep_alive': '24h',
+                    'messages': [{'role': 'system', 'content': prompt},
+                                 {'role': 'user', 'content': json.dumps(retry_data, ensure_ascii=False)}],
+                    'options': {'num_ctx': 4096, 'num_thread': 16,
+                                'num_predict': 160 if attempt and reason == 'length_limit' else 100,
+                                'temperature': 0.75, 'repeat_penalty': 1.08},
+                }, timeout=90)
+            except APIError as error:
+                # A timed-out local generation may still be running. Do not pile
+                # another request onto it; use the local fallback for direct calls.
+                reason = 'model_unavailable'
+                LOG.warning('Генерация недоступна: причина=%s; HTTP=%s; попытка=%s/2',
+                            reason, error.code, attempt + 1)
+                if error.code not in (429, 500, 502, 503, 504) or attempt:
+                    return None
+                continue
+            if not isinstance(result, dict):
+                result = {}
+            message = result.get('message')
+            answer = message.get('content') if isinstance(message, dict) else None
             if result.get('error'):
                 reason = 'model_error'
+            elif not isinstance(answer, str):
+                reason = 'malformed_response'
             elif result.get('done_reason') == 'length':
                 reason = 'length_limit'
             else:
                 reason = answer_problem(answer)
-            answer = answer.strip()
+            answer = answer.strip() if isinstance(answer, str) else ''
             if not reason and answer == '__SILENCE__' and not job['automatic']:
                 reason = 'silence_on_direct_request'
             if not reason and answer != '__SILENCE__' and answer_key(answer) in previous_keys:
@@ -416,21 +484,41 @@ class Bot:
             LOG.warning('Ответ модели отклонён: причина=%s; попытка=%s/2', reason, attempt + 1)
         return None
 
+    def fallback_answer(self, job):
+        previous_keys = {answer_key(text) for text in self.store.recent_answers(job['chat_id'])}
+        pools = [replies for pattern, replies in FALLBACK_TOPICS if pattern.search(job.get('text', ''))]
+        pools.append(FALLBACK_REPLIES)
+        for pool in pools:
+            available = [text for text in pool
+                         if valid_answer(text) and answer_key(text) not in previous_keys]
+            if available:
+                return self.random.choice(available)
+        return None
+
     def process_job(self, job):
         chat_id = job['chat_id']
         if not self.allowed(chat_id) or time.time() - job['queued_at'] > 180:
             return
         if job['automatic'] and not self.auto_eligible(chat_id):
             return
-        answer = self.generate(job)
+        try:
+            answer = self.generate(job)
+        except (APIError, sqlite3.Error, OSError) as error:
+            LOG.warning('Генерация не выполнена: причина=local_generation_error; тип=%s',
+                        type(error).__name__)
+            answer = None
         if answer == '__SILENCE__':
             return
         if not answer:
-            if not job['automatic']:
-                self.notify(chat_id, 'Не получилось ответить. Попробуй позже.', job['reply_to'])
-            return
+            if job['automatic']:
+                return
+            answer = self.fallback_answer(job)
+            if not answer:
+                return
+            LOG.info('Использована резервная реплика, режим=manual')
         # Recheck after generation: /auto_off and rebinding can arrive meanwhile.
-        if not self.allowed(chat_id) or (job['automatic'] and not self.auto_eligible(chat_id)):
+        if (not self.allowed(chat_id) or time.time() - job['queued_at'] > 180
+                or (job['automatic'] and not self.auto_eligible(chat_id))):
             return
         if time.time() < self.store.get('blocked_until', 0):
             return
