@@ -18,6 +18,7 @@ from chat_services import ChatServices, ServiceError, service_error_reply, servi
 from community import (COMMUNITY_COMMANDS, GREETINGS, OWNER_FEATURES, community_request,
                        help_text, period_start, statistics_text, summary_excerpt, summary_text)
 from retrieval import build_index, find_examples, random_candidates
+from feedback import praise_signal, relevant_approved
 
 LOG = logging.getLogger('volodymyr')
 MOSCOW = ZoneInfo('Europe/Moscow')
@@ -152,9 +153,19 @@ class Store:
                     chat_id INTEGER, day TEXT, user_id INTEGER, speaker TEXT, count INTEGER,
                     PRIMARY KEY(chat_id,day,user_id));
                 CREATE INDEX IF NOT EXISTS activity_chat_day ON activity(chat_id,day);
+                CREATE TABLE IF NOT EXISTS approved_replies (
+                    chat_id INTEGER, response_key TEXT, response TEXT, context TEXT,
+                    score INTEGER, timestamp REAL, PRIMARY KEY(chat_id,response_key));
+                CREATE TABLE IF NOT EXISTS reply_feedback (
+                    chat_id INTEGER, response_key TEXT, user_id INTEGER, timestamp REAL,
+                    PRIMARY KEY(chat_id,response_key,user_id));
             ''')
             if 'user_id' not in {row[1] for row in db.execute('PRAGMA table_info(messages)')}:
                 db.execute('ALTER TABLE messages ADD COLUMN user_id INTEGER')
+            columns = {row[1] for row in db.execute('PRAGMA table_info(messages)')}
+            for name, kind in (('request_text', 'TEXT'), ('learnable', 'INTEGER')):
+                if name not in columns:
+                    db.execute(f'ALTER TABLE messages ADD COLUMN {name} {kind}')
 
     @contextlib.contextmanager
     def db(self):
@@ -174,7 +185,7 @@ class Store:
         with self.db() as db:
             db.execute('INSERT OR REPLACE INTO settings VALUES (?,?)', (key, json.dumps(value)))
 
-    def add_message(self, message, human=True):
+    def add_message(self, message, human=True, request_text='', learnable=False):
         chat_id = message['chat']['id']
         text = message.get('text') or message.get('caption') or ''
         if not text.strip():
@@ -186,9 +197,10 @@ class Store:
         now = time.time()
         with self.db() as db:
             inserted = db.execute('INSERT OR IGNORE INTO messages '
-                                  '(chat_id,message_id,timestamp,speaker,text,human,user_id) VALUES (?,?,?,?,?,?,?)',
+                                  '(chat_id,message_id,timestamp,speaker,text,human,user_id,request_text,learnable) VALUES (?,?,?,?,?,?,?,?,?)',
                                   (chat_id, message['message_id'], stamp,
-                                   speaker, clean_text(text)[:1000], int(human), user_id)).rowcount
+                                   speaker, clean_text(text)[:1000], int(human), user_id,
+                                   clean_text(request_text)[:240], int(learnable and not human))).rowcount
             if inserted and human and isinstance(user_id, int) and user_id > 0 and not (
                     message.get('_command') or text.startswith('/')):
                 day = datetime.fromtimestamp(stamp, MOSCOW).strftime('%Y-%m-%d')
@@ -256,6 +268,58 @@ class Store:
                               'ORDER BY timestamp DESC,message_id DESC LIMIT ?',
                               (chat_id, limit)).fetchall()
         return [row[0] for row in rows]
+
+    def approve_reply(self, chat_id, message_id, user_id, quoted_text):
+        """One vote per user and canonical phrase, including after a restart."""
+        if type(user_id) is not int or user_id <= 0:
+            return 'ignored', False
+        now = time.time()
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT text,human,request_text,learnable FROM messages '
+                             'WHERE chat_id=? AND message_id=?', (chat_id, message_id)).fetchone()
+            if not row or row[1] or row[0] != clean_text(quoted_text)[:1000]:
+                return 'ignored', False
+            answer, _, context, learnable = row
+            # Old rows lack metadata: only plain, short lowercase phrases qualify.
+            legacy = learnable is None and answer == answer.lower() and not re.search(r'\d|[<>\[\]]', answer)
+            eligible = ((bool(learnable) or legacy) and answer != '__SILENCE__' and valid_answer(answer)
+                        and len(answer.split()) <= 25 and bool(answer_key(answer)))
+            if eligible:
+                key = answer_key(answer)
+                inserted = db.execute('INSERT OR IGNORE INTO reply_feedback VALUES (?,?,?,?)',
+                                      (chat_id, key, user_id, now)).rowcount
+                if not inserted:
+                    return 'duplicate', False
+                db.execute('INSERT INTO approved_replies VALUES (?,?,?,?,1,?) '
+                           'ON CONFLICT(chat_id,response_key) DO UPDATE SET score=score+1,timestamp=excluded.timestamp',
+                           (chat_id, key, surzhyk_text(answer), context or '', now))
+                db.execute('DELETE FROM approved_replies WHERE chat_id=? AND response_key NOT IN '
+                           '(SELECT response_key FROM approved_replies WHERE chat_id=? '
+                           'ORDER BY timestamp DESC LIMIT 500)', (chat_id, chat_id))
+                db.execute('DELETE FROM reply_feedback WHERE chat_id=? AND response_key NOT IN '
+                           '(SELECT response_key FROM approved_replies WHERE chat_id=?)', (chat_id, chat_id))
+            else:
+                # Reference answers can be praised but do not teach changing facts.
+                key = f'feedback_seen:{chat_id}:{message_id}:{user_id}'
+                if db.execute('SELECT 1 FROM settings WHERE key=?', (key,)).fetchone():
+                    return 'duplicate', False
+                db.execute('INSERT INTO settings VALUES (?,?)', (key, json.dumps(now)))
+                db.execute("DELETE FROM settings WHERE key LIKE 'feedback_seen:%' AND cast(value AS REAL)<?",
+                           (now - 30 * 86400,))
+            ack_key = f'feedback_ack:{chat_id}'
+            last = db.execute('SELECT value FROM settings WHERE key=?', (ack_key,)).fetchone()
+            acknowledge = not last or now - json.loads(last[0]) >= 15
+            if acknowledge:
+                db.execute('INSERT OR REPLACE INTO settings VALUES (?,?)', (ack_key, json.dumps(now)))
+            return 'learned' if eligible else 'appreciated', acknowledge
+
+    def approved_examples(self, chat_id, text):
+        with self.db() as db:
+            rows = db.execute('SELECT response,context,score,timestamp FROM approved_replies WHERE chat_id=?',
+                              (chat_id,)).fetchall()
+        return relevant_approved([dict(response=row[0], context=row[1], score=row[2], timestamp=row[3])
+                                  for row in rows], text)
 
     def counts(self):
         day = datetime.now(MOSCOW).strftime('%Y-%m-%d')
@@ -607,6 +671,16 @@ class Bot:
             return
         if command and command not in COMMUNITY_COMMANDS | {'/bubus', '/weather', '/convert', '/start', '/auto_on', '/auto_off', '/status'}:
             return
+        reply = message.get('reply_to_message', {})
+        if (self.bot_id and reply.get('from', {}).get('id') == self.bot_id
+                and praise_signal(text)):
+            result, acknowledge = self.store.approve_reply(chat_id, reply.get('message_id'), user_id,
+                                                          reply.get('text') or reply.get('caption') or '')
+            if acknowledge and time.time() >= self.store.get('blocked_until', 0):
+                self.notify(chat_id, 'поняв ету фразу запомнив спасибо за науку' if result == 'learned'
+                            else 'поняв спасибо за оценку', message['message_id'])
+            LOG.info('Получена оценка ответа; результат=%s', result)
+            return
         mentioned = bool(self.username and re.search(r'@' + re.escape(self.username) + r'\b', text, re.I))
         if command == '/bubus':
             parts = text.split(maxsplit=1)
@@ -710,6 +784,13 @@ class Bot:
                     if not response_problem(row['response'], previous, subject)
                     and (not CYBORG_PATTERN.search(row.get('context', ''))
                          or CYBORG_PATTERN.search(subject))]
+        approved = [] if nickname_call else self.store.approved_examples(job['chat_id'], subject)
+        approved = [row for row in approved if not response_problem(row['response'], subject=subject)
+                    and (not CYBORG_PATTERN.search(row['context']) or CYBORG_PATTERN.search(subject))]
+        if approved:
+            keys = {answer_key(row['response']) for row in approved}
+            examples = approved + [row for row in examples if answer_key(row['response']) not in keys]
+            examples = examples[:6]
         data = {'mode': 'automatic' if job['automatic'] else 'manual',
                 'style_examples': examples, 'live_context': context,
                 'trigger_words': job.get('trigger_words', []),
@@ -827,7 +908,7 @@ class Bot:
             return
         try:
             sent = self.telegram.send(chat_id, answer if utility else surzhyk_text(answer), job['reply_to'])
-            self.store.add_message(sent, human=False)
+            self.store.add_message(sent, human=False, request_text=job['text'], learnable=not utility)
             self.store.finish_send(send_id, 'sent')
             LOG.info('Реплика отправлена, режим=%s', kind)
         except APIError as error:
