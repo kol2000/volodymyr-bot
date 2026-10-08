@@ -251,7 +251,8 @@ class BotTests(unittest.TestCase):
         self.bind()
         for number, text in enumerate(('100 USDT', 'Володька, какая погода в городе Орёл', '/weather Орёл', '/convert 100 USD',
                                        '80 гривен', '80 грн', '80 UAH', '100 byn', '100 белорусских рублей',
-                                       'володька какая погода в махачкале?'), 2):
+                                       'володька какая погода в махачкале?',
+                                       'володька какая погода в рахине?'), 2):
             self.store.set('request:-100', 0)
             self.bot.handle(self.update(text, user=7, number=number))
             self.assertEqual(self.bot.jobs.qsize(), 0)

@@ -28,7 +28,13 @@ CITY_ALIASES = {'орле': 'Орёл', 'орел': 'Орёл', 'орёл': 'О�
                 'санкт-петербурге': 'Санкт-Петербург', 'киеве': 'Киев',
                 'казани': 'Казань', 'сочи': 'Сочи', 'калуге': 'Калуга',
                 'лондоне': 'Лондон', 'париже': 'Париж', 'минске': 'Минск',
-                'махачкале': 'Махачкала', 'махачкалу': 'Махачкала'}
+                'махачкале': 'Махачкала', 'махачкалу': 'Махачкала',
+                'рахине': 'Рахиня', 'рахини': 'Рахиня', 'рахиню': 'Рахиня',
+                'рахині': 'Рахиня', 'rakhynia': 'Рахиня'}
+# Rakhynia in Ivano-Frankivsk oblast: GeoNames ID 695869 (Wikidata Q4391110).
+# Open-Meteo indexes its Latin name but does not find the Cyrillic one.
+CITY_LOOKUPS = {'рахиня': {'query': 'Rakhynia', 'country': 'UA', 'id': 695869,
+                          'label': 'Рахиня', 'settlement': 'селе'}}
 CONDITIONS = {0: 'ясно', 1: 'преимущественно ясно', 2: 'переменная облачность',
               3: 'пасмурно', 45: 'туман', 48: 'туман с изморозью',
               51: 'слабая морось', 53: 'морось', 55: 'сильная морось',
@@ -112,7 +118,7 @@ def service_request(text, command=''):
         rest = re.sub(r'^/weather(?:@\w+)?\s*', '', text, flags=re.I) if command == '/weather' else re.split(r'\bпогод[ауеы]\b', text, maxsplit=1, flags=re.I)[-1]
         rest = re.sub(r'\b(?:сейчас|сечас|сегодня|пожалуйста)\b', '', rest, flags=re.I).strip(' ,.!?')
         city = re.sub(r'^(?:в|во)\s+', '', rest, flags=re.I)
-        city = re.sub(r'^(?:городе?|г\.)\s+', '', city, flags=re.I).strip(' ,.!?')
+        city = re.sub(r'^(?:городе?|г\.|селе|село|деревне|деревня)\s+', '', city, flags=re.I).strip(' ,.!?')
         # Normalize the city separately from an optional country/region qualifier.
         # Otherwise "в Махачкале, Россия" would bypass the same alias as "в Махачкале".
         parts = [' '.join(part.split()) for part in city.split(',')]
@@ -257,16 +263,23 @@ class ChatServices:
     def location(self, city):
         def fetch():
             params = {'name': city, 'count': 10, 'language': 'ru'}
+            name, separator, qualifier = city.partition(',')
+            known = CITY_LOOKUPS.get(name.strip().casefold())
+            if known:
+                params.update(name=known['query'] + separator + qualifier, countryCode=known['country'])
             if city == 'Орёл':
                 params['countryCode'] = 'RU'
             data = get_data('https://geocoding-api.open-meteo.com/v1/search?' + urllib.parse.urlencode(params))
             rows = [row for row in data.get('results', []) if row.get('feature_code', '').startswith('PPL')]
+            if known:
+                rows = [row for row in rows if row.get('id') == known['id']
+                        and row.get('country_code') == known['country']]
             if not rows:
                 raise ServiceError('city_not_found')
             rows.sort(key=lambda row: row.get('population', 0), reverse=True)
             if len(rows) > 1 and rows[0].get('population', 0) < max(100000, 5 * rows[1].get('population', 0)):
                 raise ServiceError('ambiguous_city')
-            return rows[0]
+            return dict(rows[0], name=known['label'], settlement=known['settlement']) if known else rows[0]
         return self.cached(('city', city.casefold()), 86400, fetch)
 
     def weather(self, city):
@@ -305,9 +318,10 @@ class ChatServices:
         sunrise = sun_time(data['daily'], 'sunrise', local_day)
         sunset = sun_time(data['daily'], 'sunset', local_day)
         title = escape(str(location['name']))
+        settlement = escape(str(location.get('settlement', 'городе')))
         region = ', '.join(str(location[k]) for k in ('admin1', 'country') if location.get(k))
         return HTMLMessage(
-            f'Сечас в городе <b>{title}</b>:\n\n'
+            f'Сечас в {settlement} <b>{title}</b>:\n\n'
             f'{weather_icon(current["weather_code"])} {escape(condition)}\n\n'
             f'🌡️ <i>Температура воздуха</i> — {temp:+.1f} °C\n'
             f'👀 <i>Чувствуется как</i> — {feels:+.1f} °C\n'

@@ -9,6 +9,7 @@ from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
+from zoneinfo import ZoneInfo
 import xml.etree.ElementTree as ET
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -127,6 +128,63 @@ class ServiceTests(unittest.TestCase):
         forecast = parse_qs(urlparse(self.calls[1]).query)
         self.assertEqual(forecast['latitude'], ['42.97638'])
         self.assertEqual(forecast['longitude'], ['47.50236'])
+
+    def use_rakhynia_fixture(self):
+        self.place.update(id=695869, name='Rakhynia', admin1='Ивано-Франковская область',
+                          latitude=49.00334, longitude=24.03513, country='Украина',
+                          country_code='UA', timezone='Europe/Kyiv', feature_code='PPL')
+        self.place.pop('population')
+        local = datetime.now(ZoneInfo('Europe/Kyiv'))
+        self.weather_data.update(timezone='Europe/Kyiv', utc_offset_seconds=int(local.utcoffset().total_seconds()))
+        self.weather_data['current']['time'] = local.strftime('%Y-%m-%dT%H:%M')
+        self.weather_data['daily'] = {'time': [local.date().isoformat()],
+                                      'sunrise': [local.strftime('%Y-%m-%dT07:05')],
+                                      'sunset': [local.strftime('%Y-%m-%dT18:15')]}
+
+    def test_rakhynia_weather_request_forms_and_village_prefix(self):
+        for text in ('володька какая погода в рахине?', 'погода в Рахини',
+                     'погода в Рахині', 'погода в селе Рахиня',
+                     'погода в деревне Рахиня', 'погода Rakhynia'):
+            with self.subTest(text=text):
+                self.assertEqual(service_request(text), {'kind': 'weather', 'city': 'Рахиня'})
+        self.assertEqual(service_request('погода в Рахине, Украина')['city'], 'Рахиня, Украина')
+
+    def test_rakhynia_screenshot_request_uses_verified_village_and_local_time(self):
+        self.use_rakhynia_fixture()
+
+        def fetch(url, xml=False):
+            if 'geocoding-api.' in url:
+                params = parse_qs(urlparse(url).query)
+                if params['name'] != ['Rakhynia'] or params.get('countryCode') != ['UA']:
+                    return {'results': []}
+            return self.fetch(url, xml)
+
+        with patch('chat_services.get_data', side_effect=fetch):
+            text = self.client.answer(service_request('володька какая погода в рахине?'))
+        self.assertIn('Сечас в селе <b>Рахиня</b>:', text)
+        self.assertIn('Ивано-Франковская область, Украина', text)
+        self.assertIn('Europe/Kyiv', text)
+        forecast = parse_qs(urlparse(self.calls[1]).query)
+        self.assertEqual(forecast['latitude'], ['49.00334'])
+        self.assertEqual(forecast['longitude'], ['24.03513'])
+        self.assertEqual(forecast['timezone'], ['auto'])
+
+    def test_rakhynia_country_region_qualifiers_reach_geocoder(self):
+        self.use_rakhynia_fixture()
+        for qualifier in ('Украина', 'Ивано-Франковская область'):
+            with self.subTest(qualifier=qualifier), patch('chat_services.get_data', side_effect=self.fetch):
+                self.client.location(service_request('погода в Рахине, ' + qualifier)['city'])
+            params = parse_qs(urlparse(self.calls[-1]).query)
+            self.assertEqual(params['name'], ['Rakhynia, ' + qualifier])
+            self.assertEqual(params['countryCode'], ['UA'])
+
+    def test_rakhynia_does_not_use_a_different_place_if_expected_one_is_missing(self):
+        self.use_rakhynia_fixture()
+        for rows in ([], [dict(self.place, id=123)], [dict(self.place, country_code='RU')]):
+            with self.subTest(rows=rows), patch('chat_services.get_data', return_value={'results': rows}):
+                self.client.cache.clear()
+                with self.assertRaisesRegex(ServiceError, 'city_not_found'):
+                    self.client.location('Рахиня')
 
     def test_usd_rub_both_directions_use_cbr_nominal_and_date(self):
         with patch('chat_services.get_data', side_effect=self.fetch):
