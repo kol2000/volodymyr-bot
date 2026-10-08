@@ -13,7 +13,7 @@ LOG = logging.getLogger('volodymyr')
 
 MOSCOW = ZoneInfo('Europe/Moscow')
 OWNER_FEATURES = {'activity', 'adaptive', 'greetings', 'rules_set', 'settings'}
-COMMUNITY_COMMANDS = {'/summary', '/stats', '/top', '/choose', '/rules', '/rules_set',
+COMMUNITY_COMMANDS = {'/bank', '/summary', '/stats', '/top', '/choose', '/rules', '/rules_set',
                       '/activity', '/adaptive_on', '/adaptive_off', '/greetings_on',
                       '/greetings_off', '/settings', '/help'}
 NICKNAME = re.compile(r'^\s*(?:володька|володько|бубус|бубуська)[\s,:!]+', re.I)
@@ -58,6 +58,10 @@ def community_request(text, command='', addressed=False):
     lowered = body.casefold()
     if command == '/help' or re.fullmatch(r'(?:что (?:(?:ти|ты) )?(?:умееш[ь]?|умеет)|помощь|команды|справка)', lowered):
         return {'kind': 'help'}
+    if command == '/bank' or lowered in ('банк', 'баланс', 'зарплата', 'репутация',
+                                         'сколько заработал', 'сколько ти заработал', 'сколько ты заработал',
+                                         'сколько у тебя денег', 'сколько гривен в банке'):
+        return {'kind': 'bank'}
     if command == '/summary' or re.fullmatch(r'(?:что (?:было|било) в чате|перескажи(?: чат)?|суммаризируй)(?:\s+.*)?', lowered):
         return {'kind': 'summary', 'days': period_days(body)}
     if command in ('/stats', '/top') or re.fullmatch(r'(?:статистика|что с чатом|топ(?: болтунов)?|кто (?:больше всех|самый много) (?:пишет|пиздит|болтает))(?:\s+.*)?', lowered):
@@ -98,9 +102,12 @@ def help_text(owner=False):
             '• «Володька, кто больше всех пиздит?» или /top неделю\n'
             '• «Бубус, пицца или шаурма?» или /choose пицца | шаурма\n'
             '• «Володька, правила» или /rules\n'
-            '• /help — эта справка\n\n'
+            '• /help — эта справка\n'
+            '• /bank или «Володька, сколько заработал?» — виртуальная зарплата\n\n'
             'Удачную реплику можно похвалить: ответь на неё «+», «правильно», '
             '«молодец» или «хороший ответ». Бот запомнит её как пример для похожих тем.\n\n'
+            'Ответ «+» или «👍» даёт Володьке 80 ₴, «−» или «👎» снимает 80 ₴. '
+            'Одна оценка от участника на конкретный ответ.\n\n'
             'Между обращениями — 15 секунд. Пересказ может занять больше времени. '
             'Доступна только история, полученная ботом.')
     if owner:

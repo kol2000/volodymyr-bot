@@ -11,6 +11,16 @@ PRAISE = {'+', '++', '+1', 'плюс', 'правильно', 'верно', 'то
           'спасибо', 'спасибо за ответ', 'запомни эту фразу', 'запомни ету фразу'}
 
 
+def rating_signal(text):
+    body = NICKNAME.sub('', text.strip(), count=1)
+    body = ' '.join(body.casefold().strip(' \t\r\n.!?,').split())
+    if body in ('+', '++', '+1', 'плюс') or re.fullmatch(r'👍[🏻🏼🏽🏾🏿]?', body):
+        return 1
+    if body in ('-', '−', '–', '—', '-1', '−1', 'минус') or re.fullmatch(r'👎[🏻🏼🏽🏾🏿]?', body):
+        return -1
+    return 0
+
+
 def praise_signal(text):
     body = NICKNAME.sub('', text.strip(), count=1)
     body = ' '.join(body.casefold().strip(' \t\r\n.!?,').split())

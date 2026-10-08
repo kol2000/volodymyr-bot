@@ -18,7 +18,7 @@ from chat_services import ChatServices, ServiceError, service_error_reply, servi
 from community import (COMMUNITY_COMMANDS, GREETINGS, OWNER_FEATURES, community_request,
                        help_text, period_start, statistics_text, summary_excerpt, summary_text)
 from retrieval import build_index, find_examples, random_candidates
-from feedback import praise_signal, relevant_approved
+from feedback import praise_signal, rating_signal, relevant_approved
 
 LOG = logging.getLogger('volodymyr')
 MOSCOW = ZoneInfo('Europe/Moscow')
@@ -114,6 +114,7 @@ FALLBACK_TOPICS = (
     )),
 )
 COMMANDS = [('/bubus', 'случайная фраза; с текстом — ответ по теме'),
+            ('/bank', 'виртуальная зарплата Володьки в гривнах'),
             ('/weather', 'погода сейчас: /weather Орёл'),
             ('/convert', 'пересчитать сумму: /convert 100 USDT'),
             ('/summary', 'пересказ чата: сегодня, неделю, месяц'),
@@ -159,11 +160,16 @@ class Store:
                 CREATE TABLE IF NOT EXISTS reply_feedback (
                     chat_id INTEGER, response_key TEXT, user_id INTEGER, timestamp REAL,
                     PRIMARY KEY(chat_id,response_key,user_id));
+                CREATE TABLE IF NOT EXISTS salary_accounts (
+                    chat_id INTEGER PRIMARY KEY, balance INTEGER, plus INTEGER, minus INTEGER);
+                CREATE TABLE IF NOT EXISTS salary_votes (
+                    chat_id INTEGER, message_id INTEGER, user_id INTEGER, direction INTEGER, timestamp REAL,
+                    PRIMARY KEY(chat_id,message_id,user_id));
             ''')
             if 'user_id' not in {row[1] for row in db.execute('PRAGMA table_info(messages)')}:
                 db.execute('ALTER TABLE messages ADD COLUMN user_id INTEGER')
             columns = {row[1] for row in db.execute('PRAGMA table_info(messages)')}
-            for name, kind in (('request_text', 'TEXT'), ('learnable', 'INTEGER')):
+            for name, kind in (('request_text', 'TEXT'), ('learnable', 'INTEGER'), ('rateable', 'INTEGER')):
                 if name not in columns:
                     db.execute(f'ALTER TABLE messages ADD COLUMN {name} {kind}')
 
@@ -185,7 +191,7 @@ class Store:
         with self.db() as db:
             db.execute('INSERT OR REPLACE INTO settings VALUES (?,?)', (key, json.dumps(value)))
 
-    def add_message(self, message, human=True, request_text='', learnable=False):
+    def add_message(self, message, human=True, request_text='', learnable=False, rateable=None):
         chat_id = message['chat']['id']
         text = message.get('text') or message.get('caption') or ''
         if not text.strip():
@@ -197,10 +203,11 @@ class Store:
         now = time.time()
         with self.db() as db:
             inserted = db.execute('INSERT OR IGNORE INTO messages '
-                                  '(chat_id,message_id,timestamp,speaker,text,human,user_id,request_text,learnable) VALUES (?,?,?,?,?,?,?,?,?)',
+                                  '(chat_id,message_id,timestamp,speaker,text,human,user_id,request_text,learnable,rateable) VALUES (?,?,?,?,?,?,?,?,?,?)',
                                   (chat_id, message['message_id'], stamp,
                                    speaker, clean_text(text)[:1000], int(human), user_id,
-                                   clean_text(request_text)[:240], int(learnable and not human))).rowcount
+                                   clean_text(request_text)[:240], int(learnable and not human),
+                                   int(not human and (learnable if rateable is None else rateable)))).rowcount
             if inserted and human and isinstance(user_id, int) and user_id > 0 and not (
                     message.get('_command') or text.startswith('/')):
                 day = datetime.fromtimestamp(stamp, MOSCOW).strftime('%Y-%m-%d')
@@ -307,12 +314,47 @@ class Store:
                 db.execute('INSERT INTO settings VALUES (?,?)', (key, json.dumps(now)))
                 db.execute("DELETE FROM settings WHERE key LIKE 'feedback_seen:%' AND cast(value AS REAL)<?",
                            (now - 30 * 86400,))
-            ack_key = f'feedback_ack:{chat_id}'
-            last = db.execute('SELECT value FROM settings WHERE key=?', (ack_key,)).fetchone()
-            acknowledge = not last or now - json.loads(last[0]) >= 15
-            if acknowledge:
-                db.execute('INSERT OR REPLACE INTO settings VALUES (?,?)', (ack_key, json.dumps(now)))
+            acknowledge = self.feedback_ack(db, chat_id, now)
             return 'learned' if eligible else 'appreciated', acknowledge
+
+    @staticmethod
+    def feedback_ack(db, chat_id, now):
+        key = f'feedback_ack:{chat_id}'
+        last = db.execute('SELECT value FROM settings WHERE key=?', (key,)).fetchone()
+        allowed = not last or now - json.loads(last[0]) >= 15
+        if allowed:
+            db.execute('INSERT OR REPLACE INTO settings VALUES (?,?)', (key, json.dumps(now)))
+        return allowed
+
+    def rate_reply(self, chat_id, message_id, user_id, quoted_text, direction):
+        """Salary is an integer reputation counter, with one vote per answer/person."""
+        if type(user_id) is not int or user_id <= 0 or type(direction) is not int or direction not in (-1, 1):
+            return 'ignored', False, None
+        now = time.time()
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT text,human,rateable,timestamp FROM messages '
+                             'WHERE chat_id=? AND message_id=?', (chat_id, message_id)).fetchone()
+            if (not row or row[1] or row[2] == 0 or row[3] < now - 30 * 86400
+                    or row[0] != clean_text(quoted_text)[:1000]):
+                return 'ignored', False, None
+            inserted = db.execute('INSERT OR IGNORE INTO salary_votes VALUES (?,?,?,?,?)',
+                                  (chat_id, message_id, user_id, direction, now)).rowcount
+            if not inserted:
+                return 'duplicate', False, None
+            db.execute('INSERT INTO salary_accounts VALUES (?,?,?,?) '
+                       'ON CONFLICT(chat_id) DO UPDATE SET balance=balance+excluded.balance,'
+                       'plus=plus+excluded.plus,minus=minus+excluded.minus',
+                       (chat_id, 80 * direction, int(direction == 1), int(direction == -1)))
+            db.execute('DELETE FROM salary_votes WHERE timestamp<?', (now - 30 * 86400,))
+            balance, plus, minus = db.execute('SELECT balance,plus,minus FROM salary_accounts WHERE chat_id=?',
+                                             (chat_id,)).fetchone()
+            return 'rated', self.feedback_ack(db, chat_id, now), {'balance': balance, 'plus': plus, 'minus': minus}
+
+    def salary(self, chat_id):
+        with self.db() as db:
+            row = db.execute('SELECT balance,plus,minus FROM salary_accounts WHERE chat_id=?', (chat_id,)).fetchone()
+        return dict(zip(('balance', 'plus', 'minus'), row or (0, 0, 0)))
 
     def approved_examples(self, chat_id, text):
         with self.db() as db:
@@ -528,6 +570,13 @@ class Bot:
         target = self.store.get('chat_id', chat_id) if chat_id == self.config['owner_id'] else chat_id
         if kind == 'help':
             return help_text(request.get('owner', False))
+        if kind == 'bank':
+            salary = self.store.salary(target)
+            amount = f'{salary["balance"]:,}'.replace(',', ' ')
+            remark = 'ну шо наконец то зарплату дали' if salary['balance'] >= 0 else 'ну спасибо ещо и в долги загнали'
+            return HTMLMessage(f'<b>Виртуальний банк Володьки</b>\n💰 <b>{amount} ₴</b>\n'
+                               f'Плюсов: {salary["plus"]} · Минусов: {salary["minus"]}\n'
+                               f'<i>За оценку: +80 или −80 ₴. Ето репутация чата.</i>\n\n<i>{remark}</i>')
         if kind == 'stats':
             return statistics_text(self.store.statistics(target, request['days']), request['days'], request['top'])
         if kind == 'choose':
@@ -618,7 +667,7 @@ class Bot:
             return
         try:
             sent = self.telegram.send(chat_id, greeting, message['message_id'])
-            self.store.add_message(sent, human=False)
+            self.store.add_message(sent, human=False, rateable=True)
             self.store.finish_send(send_id, 'sent')
             LOG.info('Приветствие при входе отправлено')
         except APIError as error:
@@ -672,13 +721,27 @@ class Bot:
         if command and command not in COMMUNITY_COMMANDS | {'/bubus', '/weather', '/convert', '/start', '/auto_on', '/auto_off', '/status'}:
             return
         reply = message.get('reply_to_message', {})
+        direction = rating_signal(text)
         if (self.bot_id and reply.get('from', {}).get('id') == self.bot_id
-                and praise_signal(text)):
-            result, acknowledge = self.store.approve_reply(chat_id, reply.get('message_id'), user_id,
-                                                          reply.get('text') or reply.get('caption') or '')
+                and (praise_signal(text) or direction)):
+            quoted = reply.get('text') or reply.get('caption') or ''
+            salary, acknowledge = None, False
+            if direction and not private:
+                result, acknowledge, salary = self.store.rate_reply(chat_id, reply.get('message_id'), user_id,
+                                                                    quoted, direction)
+                if result == 'duplicate' or (result == 'ignored' and direction < 0):
+                    LOG.info('Получена оценка зарплаты; результат=%s', result)
+                    return
+            result, learned_ack = (self.store.approve_reply(chat_id, reply.get('message_id'), user_id, quoted)
+                                   if praise_signal(text) else ('negative', False))
+            acknowledge = acknowledge or learned_ack
             if acknowledge and time.time() >= self.store.get('blocked_until', 0):
-                self.notify(chat_id, 'поняв ету фразу запомнив спасибо за науку' if result == 'learned'
-                            else 'поняв спасибо за оценку', message['message_id'])
+                response = ('поняв ету фразу запомнив спасибо за науку' if result == 'learned'
+                            else 'минус 80 гривен ну ти и жмот' if direction < 0 else 'поняв спасибо за оценку')
+                if salary:
+                    amount = f'{salary["balance"]:,}'.replace(',', ' ')
+                    response += f'\n{"+80" if direction > 0 else "−80"} ₴ · банк: {amount} ₴'
+                self.notify(chat_id, response, message['message_id'])
             LOG.info('Получена оценка ответа; результат=%s', result)
             return
         mentioned = bool(self.username and re.search(r'@' + re.escape(self.username) + r'\b', text, re.I))
@@ -908,7 +971,8 @@ class Bot:
             return
         try:
             sent = self.telegram.send(chat_id, answer if utility else surzhyk_text(answer), job['reply_to'])
-            self.store.add_message(sent, human=False, request_text=job['text'], learnable=not utility)
+            self.store.add_message(sent, human=False, request_text=job['text'], learnable=not utility,
+                                   rateable=not utility or utility['kind'] != 'bank')
             self.store.finish_send(send_id, 'sent')
             LOG.info('Реплика отправлена, режим=%s', kind)
         except APIError as error:
