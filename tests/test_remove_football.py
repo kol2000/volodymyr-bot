@@ -27,7 +27,8 @@ class RemoveFootballTests(unittest.TestCase):
         store = Store(self.root / 'state/bot.sqlite3')
         for key, value in {'football_quota': {'used': 3}, 'football_seen:-100': {'1': 'FT'},
                            'football_enabled': True, 'chat_id': -100, 'automatic': True,
-                           'greetings_enabled': True, 'footballs': 'unrelated'}.items():
+                           'greetings_enabled': True, 'footballs': 'unrelated',
+                           'livefootball:enabled': True, 'livefootball:seen:-100': {'123': 'saved'}}.items():
             store.set(key, value)
         with store.db() as db:
             db.execute('INSERT INTO salary_accounts VALUES (?,?,?,?)', (-100, 80, 1, 0))
@@ -42,6 +43,8 @@ class RemoveFootballTests(unittest.TestCase):
         self.assertTrue(store.get('automatic'))
         self.assertEqual(store.get('footballs'), 'unrelated')
         self.assertIsNone(store.get('football_quota'))
+        self.assertTrue(store.get('livefootball:enabled'))
+        self.assertEqual(store.get('livefootball:seen:-100'), {'123': 'saved'})
         with store.db() as db:
             self.assertEqual(db.execute('SELECT balance FROM salary_accounts').fetchone()[0], 80)
             self.assertEqual(db.execute('SELECT text FROM messages').fetchone()[0], 'saved history')
@@ -69,10 +72,13 @@ class RemoveFootballTests(unittest.TestCase):
     def test_only_retired_compiled_modules_are_removed(self):
         folder = self.root / '__pycache__'
         folder.mkdir()
-        for name in ('football.cpython-312.pyc', 'setup_football.cpython-312.pyc', 'bot.cpython-312.pyc'):
+        for name in ('football.cpython-312.pyc', 'setup_football.cpython-312.pyc', 'bot.cpython-312.pyc', 'live_football.cpython-312.pyc'):
             (folder / name).write_bytes(b'test-only')
         self.assertEqual(cleanup(self.root), (False, 0, 2))
-        self.assertEqual([p.name for p in folder.iterdir()], ['bot.cpython-312.pyc'])
+        self.assertEqual(sorted(p.name for p in folder.iterdir()), ['bot.cpython-312.pyc', 'live_football.cpython-312.pyc'])
 
-    def test_retired_commands_not_advertised(self):
-        self.assertFalse(any(cmd.startswith('/football') for cmd, _ in COMMANDS))
+    def test_retired_api_integration_not_restored(self):
+        root = Path(__file__).resolve().parents[1]
+        self.assertFalse((root / 'football.py').exists())
+        self.assertFalse((root / 'setup_football.py').exists())
+        self.assertIn('/football', [cmd for cmd, _ in COMMANDS])
