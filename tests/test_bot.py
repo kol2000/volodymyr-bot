@@ -249,7 +249,8 @@ class BotTests(unittest.TestCase):
 
     def test_plain_amount_and_weather_use_separate_queue_without_llm_job(self):
         self.bind()
-        for number, text in enumerate(('100 USDT', 'Володька, какая погода в городе Орёл', '/weather Орёл', '/convert 100 USD'), 2):
+        for number, text in enumerate(('100 USDT', 'Володька, какая погода в городе Орёл', '/weather Орёл', '/convert 100 USD',
+                                       '80 гривен', '80 грн', '80 UAH', '100 byn', '100 белорусских рублей'), 2):
             self.store.set('request:-100', 0)
             self.bot.handle(self.update(text, user=7, number=number))
             self.assertEqual(self.bot.jobs.qsize(), 0)

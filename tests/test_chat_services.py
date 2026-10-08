@@ -40,7 +40,11 @@ class ServiceTests(unittest.TestCase):
     def fetch(self, url, xml=False):
         self.calls.append(url)
         if 'cbr.ru/' in url:
-            return ET.fromstring(f'<ValCurs Date="{self.today}"><Valute><CharCode>USD</CharCode><Nominal>10</Nominal><Value>845,0000</Value></Valute></ValCurs>')
+            return ET.fromstring(f'<ValCurs Date="{self.today}">'
+                                 '<Valute><CharCode>USD</CharCode><Nominal>10</Nominal><Value>845,0000</Value></Valute>'
+                                 '<Valute><CharCode>UAH</CharCode><Nominal>10</Nominal><Value>20,0000</Value></Valute>'
+                                 '<Valute><CharCode>BYN</CharCode><Nominal>3</Nominal><Value>84,0000</Value></Valute>'
+                                 '</ValCurs>')
         if 'coingecko.com/' in url:
             ids = parse_qs(urlparse(url).query)['ids'][0].split(',')
             return {coin: {'usd': 0.999 if coin == 'tether' else 2000,
@@ -59,10 +63,27 @@ class ServiceTests(unittest.TestCase):
                 self.assertEqual(amounts_in(text), [{'amount': amount, 'unit': unit}])
         self.assertEqual(len(amounts_in('100 USD, 100 USD, 1 BTC, 2 ETH, 3 BNB')), 3)
 
+    def test_hryvnia_and_belarusian_ruble_aliases_normalize_to_codes(self):
+        cases = {'80 гривен': ('80', 'UAH'), '80грн': ('80', 'UAH'),
+                 '80 ГРН.': ('80', 'UAH'), '80 uah': ('80', 'UAH'),
+                 '80 гривень': ('80', 'UAH'), '2 гривні': ('2', 'UAH'),
+                 '1 гривня': ('1', 'UAH'), '1 гривна': ('1', 'UAH'),
+                 '2 гривны': ('2', 'UAH'), '₴80,50': ('80.50', 'UAH'),
+                 '80 ₴': ('80', 'UAH'), '100 byn': ('100', 'BYN'),
+                 '100 белорусских рублей': ('100', 'BYN'),
+                 '2 белорусских рубля': ('2', 'BYN'), '1 белорусский рубль': ('1', 'BYN'),
+                 '1 234,50 бел. руб.': ('1234.50', 'BYN'), '100 белруб': ('100', 'BYN')}
+        for text, (amount, unit) in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(amounts_in(text), [{'amount': amount, 'unit': unit}])
+        self.assertEqual(amounts_in('80 UAH, 80 гривен, 80 грн'), [{'amount': '80', 'unit': 'UAH'}])
+
     def test_non_amounts_and_url_wallet_fragments_do_not_activate(self):
         for text in ('100 USDTABC', 'x100 USD', '-100 USD', '+100 USD', '0 USDT',
                      '999999999999999 USD', '100 USD_foo', '123.45.67 USD',
-                     'https://example.test/100USD', '@100USD', '0x100BTC'):
+                     'https://example.test/100USD', '@100USD', '0x100BTC',
+                     '80 UAHABC', '80 byn_foo', '80 гривенник', '-80 гривен',
+                     'https://example.test/80UAH', '@100BYN', '80 гр', '80 белорусских рублейных'):
             with self.subTest(text=text):
                 self.assertEqual(amounts_in(text), [])
 
@@ -95,6 +116,41 @@ class ServiceTests(unittest.TestCase):
         crypto_url = next(u for u in self.calls if 'coingecko' in u)
         self.assertNotIn('100', crypto_url)
         self.assertEqual(parse_qs(urlparse(crypto_url).query)['ids'], ['tether'])
+
+    def test_hryvnia_and_byn_convert_to_usd_rub_with_each_cbr_nominal(self):
+        with patch('chat_services.get_data', side_effect=self.fetch):
+            text = self.client.answer(service_request('80 гривен и 100 byn'))
+        self.assertIn('💱 <b>80,00 UAH</b>\n💵 <b>≈ 1,89 USD</b>\n💰 <b>≈ 160,00 RUB</b>', text)
+        self.assertIn('💱 <b>100,00 BYN</b>\n💵 <b>≈ 33,14 USD</b>\n💰 <b>≈ 2 800,00 RUB</b>', text)
+        self.assertIn('курс ЦБ на ' + self.today, text)
+        self.assertNotIn('CoinGecko', text)
+        self.assertEqual(len(self.calls), 1)
+
+    def test_missing_or_invalid_fiat_rates_are_not_replaced_with_invented_values(self):
+        for unit in ('UAH', 'BYN'):
+            for nominal, value in ((None, None), ('0', '20,00'), ('10', 'NaN'), ('10', '-20,00')):
+                root = ET.fromstring(f'<ValCurs Date="{self.today}">'
+                                     '<Valute><CharCode>USD</CharCode><Nominal>1</Nominal><Value>84,50</Value></Valute>'
+                                     '</ValCurs>')
+                if nominal is not None:
+                    row = ET.SubElement(root, 'Valute')
+                    for key, content in (('CharCode', unit), ('Nominal', nominal), ('Value', value)):
+                        ET.SubElement(row, key).text = content
+                with self.subTest(unit=unit, nominal=nominal, value=value), patch('chat_services.get_data', return_value=root):
+                    self.client.cache.clear()
+                    with self.assertRaises(ServiceError):
+                        self.client.answer(service_request('80 ' + unit))
+
+    def test_mixed_fiat_crypto_requests_share_cbr_cache_and_preserve_old_conversions(self):
+        with patch('chat_services.get_data', side_effect=self.fetch):
+            text = self.client.answer(service_request('80 грн, 100 BYN, 100 USDT'))
+            again = self.client.answer(service_request('100 USD'))
+        self.assertIn('<b>≈ 160,00 RUB</b>', text)
+        self.assertIn('<b>≈ 2 800,00 RUB</b>', text)
+        self.assertIn('<b>≈ 8 441,55 RUB</b>', text)
+        self.assertIn('<b>≈ 8 450,00 RUB</b>', again)
+        self.assertIn('CoinGecko:', text)
+        self.assertEqual(len(self.calls), 2)
 
     def test_small_crypto_amount_keeps_source_precision(self):
         with patch('chat_services.get_data', side_effect=self.fetch):

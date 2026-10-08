@@ -17,8 +17,11 @@ COINS = {'USDT': 'tether', 'USDC': 'usd-coin', 'BTC': 'bitcoin',
          'ETH': 'ethereum', 'BNB': 'binancecoin', 'SOL': 'solana',
          'TON': 'the-open-network', 'DOGE': 'dogecoin'}
 NUMBER = r'(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d+)(?:[.,]\d{1,8})?'
-UNIT = r'(?:USDT|USDC|USD|RUB|BTC|ETH|BNB|SOL|TON|DOGE|доллар(?:ов|а)?|бакс(?:ов|а)?|руб(?:лей|ля|ль)?|\$|₽)'
-AMOUNTS = re.compile(r'(?<![\w.,+\-])(?:(?P<prefix>\$|₽)\s*(?P<first>' + NUMBER +
+RUBLE_UNIT = r'руб(?:лей|ля|ль|ли)?'
+BYN_UNIT = r'(?:BYN|белруб(?:ов|а)?|(?:белорусск(?:ий|их|ие|ого|ому|им|ими|ом)|бел\.?)\s+' + RUBLE_UNIT + r'\.?)'
+UAH_UNIT = r'(?:UAH|грн\.?|₴|грив(?:на|ны|ну|не|ной|нами|нам|нах|ен|ня|ні|ню|нею|нями|ням|нях|ень))'
+UNIT = r'(?:' + BYN_UNIT + '|' + UAH_UNIT + r'|USDT|USDC|USD|RUB|BTC|ETH|BNB|SOL|TON|DOGE|доллар(?:ов|а)?|бакс(?:ов|а)?|' + RUBLE_UNIT + r'|\$|₽)'
+AMOUNTS = re.compile(r'(?<![\w.,+\-])(?:(?P<prefix>\$|₽|₴)\s*(?P<first>' + NUMBER +
                      r')|(?P<second>' + NUMBER + r')\s*(?P<unit>' + UNIT + r'))(?!\w)', re.I)
 CITY_ALIASES = {'орле': 'Орёл', 'орел': 'Орёл', 'орёл': 'Орёл',
                 'москве': 'Москва', 'петербурге': 'Санкт-Петербург',
@@ -87,6 +90,10 @@ def amounts_in(text):
         unit = (match['prefix'] or match['unit']).upper()
         if unit in ('$', 'USD') or unit.startswith(('ДОЛЛАР', 'БАКС')):
             unit = 'USD'
+        elif unit == 'BYN' or unit.startswith('БЕЛ'):
+            unit = 'BYN'
+        elif unit in ('UAH', '₴') or unit.startswith(('ГРИВ', 'ГРН')):
+            unit = 'UAH'
         elif unit in ('₽', 'RUB') or unit.startswith('РУБ'):
             unit = 'RUB'
         row = {'amount': str(amount), 'unit': unit}
@@ -171,12 +178,16 @@ class ChatServices:
             date = datetime.strptime(root.attrib['Date'], '%d.%m.%Y').date()
             if not 0 <= (today - date).days <= 14:
                 raise ServiceError('stale_rates')
+            rates = {}
             for row in root.findall('Valute'):
-                if row.findtext('CharCode') == 'USD':
+                unit = row.findtext('CharCode')
+                if unit in ('USD', 'BYN', 'UAH'):
                     rate = decimal_value(row.findtext('Value').replace(',', '.'), positive=True)
                     nominal = decimal_value(row.findtext('Nominal'), positive=True)
-                    return rate / nominal, date.strftime('%d.%m.%Y')
-            raise ServiceError('missing_usd_rate')
+                    rates[unit] = rate / nominal
+            if 'USD' not in rates:
+                raise ServiceError('missing_usd_rate')
+            return rates, date.strftime('%d.%m.%Y')
 
         return self.cached(('cbr', today), 3600, fetch)
 
@@ -203,7 +214,8 @@ class ChatServices:
     def convert(self, amounts):
         if not amounts:
             return 'напиши сумму например 100 USDT или 5000 рублей'
-        rate, date = self.cbr()
+        rates, date = self.cbr()
+        rate = rates['USD']
         units = {row['unit'] for row in amounts if row['unit'] in COINS}
         coins = self.crypto(units) if units else {}
         blocks = []
@@ -215,6 +227,12 @@ class ChatServices:
             elif unit == 'USD':
                 header = f'{money(amount)} USD'
                 results = [f'💰 <b>≈ {money(amount * rate)} RUB</b>']
+            elif unit in ('BYN', 'UAH'):
+                if unit not in rates:
+                    raise ServiceError('missing_fiat_rate')
+                rub = amount * rates[unit]
+                header = f'{money(amount)} {unit}'
+                results = [f'💵 <b>≈ {money(rub / rate)} USD</b>', f'💰 <b>≈ {money(rub)} RUB</b>']
             else:
                 usd = amount * coins[unit][0]
                 source_amount = format(amount, 'f').rstrip('0').rstrip('.') if '.' in format(amount, 'f') else str(amount)
@@ -224,6 +242,8 @@ class ChatServices:
                 results = [f'💵 <b>≈ {money(usd)} USD</b>', f'💰 <b>≈ {money(usd * rate)} RUB</b>']
             blocks.append(f'💱 <b>{escape(header)}</b>\n' + '\n'.join(results))
         sources = f'RUB: курс ЦБ на {date}'
+        if any(row['unit'] in ('BYN', 'UAH') for row in amounts):
+            sources = f'курс ЦБ на {date}'
         if coins:
             stamp = min(row[1] for row in coins.values())
             sources = 'CoinGecko: ' + datetime.fromtimestamp(stamp, MOSCOW).strftime('%d.%m %H:%M МСК') + '\n' + sources
