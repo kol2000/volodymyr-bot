@@ -10,14 +10,18 @@ import threading
 import time
 from datetime import datetime
 from difflib import SequenceMatcher
+from html import escape
 from zoneinfo import ZoneInfo
 
-from common import APIError, ROOT, STATE, Telegram, clean_text, http_json, load_config
+from common import APIError, HTMLMessage, ROOT, STATE, Telegram, clean_text, http_json, load_config
 from chat_services import ChatServices, ServiceError, service_error_reply, service_request
+from community import (COMMUNITY_COMMANDS, GREETINGS, OWNER_FEATURES, community_request,
+                       help_text, period_start, statistics_text, summary_excerpt, summary_text)
 from retrieval import build_index, find_examples, random_candidates
 
 LOG = logging.getLogger('volodymyr')
 MOSCOW = ZoneInfo('Europe/Moscow')
+HISTORY_LIMIT = 20000
 WELCOME_USERNAME = 'leonadosasa'
 WELCOME_TEXT = 'оо алкаш епти ти де бил?'
 TRIGGER_WORDS = ('бубуська', 'володька', 'рахиня', 'украина', 'война', 'киев',
@@ -111,6 +115,16 @@ FALLBACK_TOPICS = (
 COMMANDS = [('/bubus', 'случайная фраза; с текстом — ответ по теме'),
             ('/weather', 'погода сейчас: /weather Орёл'),
             ('/convert', 'пересчитать сумму: /convert 100 USDT'),
+            ('/summary', 'пересказ чата: сегодня, неделю, месяц'),
+            ('/stats', 'статистика чата'), ('/top', 'топ сообщений: /top неделю'),
+            ('/choose', 'выбор: /choose пицца | шаурма'), ('/rules', 'правила чата'),
+            ('/help', 'возможности и примеры'),
+            ('/activity', 'владельцу: вероятность самостоятельного ответа, 1–20%'),
+            ('/adaptive_on', 'владельцу: учитывать темп беседы'),
+            ('/adaptive_off', 'владельцу: отключить учёт темпа беседы'),
+            ('/greetings_on', 'владельцу: приветствовать новых участников'),
+            ('/greetings_off', 'владельцу: выключить общие приветствия'),
+            ('/rules_set', 'владельцу: задать правила'), ('/settings', 'владельцу: настройки'),
             ('/auto_on', 'включить периодические реплики'),
             ('/auto_off', 'выключить периодические реплики'),
             ('/status', 'показать состояние'), ('/whoami', 'показать мой Telegram ID')]
@@ -134,7 +148,13 @@ class Store:
                 CREATE TABLE IF NOT EXISTS greetings (
                     chat_id INTEGER, message_id INTEGER, timestamp REAL,
                     PRIMARY KEY(chat_id,message_id));
+                CREATE TABLE IF NOT EXISTS activity (
+                    chat_id INTEGER, day TEXT, user_id INTEGER, speaker TEXT, count INTEGER,
+                    PRIMARY KEY(chat_id,day,user_id));
+                CREATE INDEX IF NOT EXISTS activity_chat_day ON activity(chat_id,day);
             ''')
+            if 'user_id' not in {row[1] for row in db.execute('PRAGMA table_info(messages)')}:
+                db.execute('ALTER TABLE messages ADD COLUMN user_id INTEGER')
 
     @contextlib.contextmanager
     def db(self):
@@ -159,15 +179,63 @@ class Store:
         text = message.get('text') or message.get('caption') or ''
         if not text.strip():
             return False
-        speaker = 'бот' if not human else message.get('from', {}).get('first_name', 'участник')[:40]
+        speaker = 'бот' if not human else clean_text(' '.join(
+            message.get('from', {}).get(k, '') for k in ('first_name', 'last_name')).strip() or 'участник')[:80]
+        user_id = message.get('from', {}).get('id') if human else None
+        stamp = message.get('date', time.time())
+        now = time.time()
         with self.db() as db:
-            inserted = db.execute('INSERT OR IGNORE INTO messages VALUES (?,?,?,?,?,?)',
-                                  (chat_id, message['message_id'], message.get('date', time.time()),
-                                   speaker, clean_text(text)[:1000], int(human))).rowcount
+            inserted = db.execute('INSERT OR IGNORE INTO messages '
+                                  '(chat_id,message_id,timestamp,speaker,text,human,user_id) VALUES (?,?,?,?,?,?,?)',
+                                  (chat_id, message['message_id'], stamp,
+                                   speaker, clean_text(text)[:1000], int(human), user_id)).rowcount
+            if inserted and human and isinstance(user_id, int) and user_id > 0 and not (
+                    message.get('_command') or text.startswith('/')):
+                day = datetime.fromtimestamp(stamp, MOSCOW).strftime('%Y-%m-%d')
+                db.execute('INSERT INTO activity VALUES (?,?,?,?,1) '
+                           'ON CONFLICT(chat_id,day,user_id) DO UPDATE SET count=count+1,speaker=excluded.speaker',
+                           (chat_id, day, user_id, speaker))
+                db.execute('INSERT OR IGNORE INTO settings VALUES (?,?)',
+                           (f'activity_since:{chat_id}', json.dumps(now)))
+            db.execute('DELETE FROM messages WHERE timestamp<?', (now - 30 * 86400,))
             db.execute('DELETE FROM messages WHERE chat_id=? AND message_id NOT IN '
-                       '(SELECT message_id FROM messages WHERE chat_id=? ORDER BY timestamp DESC,message_id DESC LIMIT 200)',
-                       (chat_id, chat_id))
+                       '(SELECT message_id FROM messages WHERE chat_id=? ORDER BY timestamp DESC,message_id DESC LIMIT ?)',
+                       (chat_id, chat_id, HISTORY_LIMIT))
+            db.execute('DELETE FROM activity WHERE day<?',
+                       (datetime.fromtimestamp(now - 90 * 86400, MOSCOW).strftime('%Y-%m-%d'),))
         return bool(inserted)
+
+    def statistics(self, chat_id, days, before=None):
+        before = before or time.time()
+        first = datetime.fromtimestamp(period_start(days, before), MOSCOW).strftime('%Y-%m-%d')
+        last = datetime.fromtimestamp(before, MOSCOW).strftime('%Y-%m-%d')
+        with self.db() as db:
+            rows = db.execute('SELECT user_id,sum(count) FROM activity WHERE chat_id=? AND day BETWEEN ? AND ? '
+                              'GROUP BY user_id ORDER BY sum(count) DESC,user_id', (chat_id, first, last)).fetchall()
+            leaders = []
+            for user_id, count in rows[:10]:
+                name = db.execute('SELECT speaker FROM activity WHERE chat_id=? AND user_id=? '
+                                  'ORDER BY day DESC LIMIT 1', (chat_id, user_id)).fetchone()[0]
+                leaders.append((name, count))
+        return {'messages': sum(row[1] for row in rows), 'users': len(rows), 'leaders': leaders,
+                'since': self.get(f'activity_since:{chat_id}', 0)}
+
+    def summary_rows(self, chat_id, days, before, exclude_id=None):
+        args = (chat_id, period_start(days, before), before, exclude_id or -1)
+        where = "chat_id=? AND timestamp>=? AND timestamp<=? AND message_id!=? AND human=1 AND text NOT LIKE '/%'"
+        with self.db() as db:
+            total = db.execute('SELECT count(*) FROM messages WHERE ' + where, args).fetchone()[0]
+            rows = db.execute('SELECT speaker,text,timestamp FROM messages WHERE ' + where
+                              + ' ORDER BY timestamp DESC,message_id DESC LIMIT 120', args).fetchall()
+        return [{'speaker': row[0], 'text': row[1], 'timestamp': row[2]} for row in reversed(rows)], total
+
+    def busy_chat(self, chat_id, now=None):
+        now = now or time.time()
+        with self.db() as db:
+            count, users = db.execute('SELECT count(*),count(DISTINCT coalesce(user_id,speaker)) FROM messages '
+                                     'WHERE chat_id=? AND human=1 AND timestamp BETWEEN ? AND ?',
+                                     (chat_id, now - 60, now)).fetchone()
+        return count >= 8 and users >= 2
 
     def context(self, chat_id, limit=10):
         with self.db() as db:
@@ -367,6 +435,8 @@ class Bot:
             return False
         if now - self.store.latest_human(chat_id) > 7200:
             return False
+        if self.store.get('adaptive', True) and self.store.busy_chat(chat_id, now):
+            return False
         return self.store.counts().get('automatic', 0) < 5 and now - self.store.last_send(chat_id) >= 3600
 
     def enqueue(self, chat_id, text='', reply_to=None, automatic=False, random_quote=False,
@@ -381,7 +451,7 @@ class Bot:
                     self.record_skip(chat_id, 'request_cooldown')
                     return False
             try:
-                target_queue = self.utility_jobs if utility else self.jobs
+                target_queue = self.utility_jobs if utility and utility['kind'] != 'summary' else self.jobs
                 target_queue.put_nowait({'chat_id': chat_id, 'text': clean_text(text)[:1000],
                                      'reply_to': reply_to, 'automatic': automatic,
                                      'random_quote': random_quote,
@@ -409,6 +479,72 @@ class Bot:
         except APIError as error:
             LOG.warning('Не удалось отправить служебный ответ: %s', error)
 
+    def community_answer(self, request, chat_id):
+        kind = request['kind']
+        target = self.store.get('chat_id', chat_id) if chat_id == self.config['owner_id'] else chat_id
+        if kind == 'help':
+            return help_text(request.get('owner', False))
+        if kind == 'stats':
+            return statistics_text(self.store.statistics(target, request['days']), request['days'], request['top'])
+        if kind == 'choose':
+            choice = self.random.choice(request['options'])
+            return HTMLMessage(f'Случайный выбор: <b>{escape(choice)}</b>\n<i>ти сам попросил выбирать</i>')
+        if kind == 'rules':
+            rules = self.store.get('rules', '')
+            return HTMLMessage('<b>Правила чата</b>\n' + escape(rules)) if rules else (
+                'правила пока не заданы владелец может написать /rules_set текст правил')
+        return request['text']
+
+    def setting_reply(self, request, message):
+        kind = request['kind']
+        if kind == 'activity':
+            current = int(round(self.store.get('activity_probability', 0.03) * 100))
+            value = request['value']
+            if value in ('up', 'down'):
+                percent = max(1, min(20, current + (3 if value == 'up' else -3)))
+            else:
+                if not re.fullmatch(r'\d{1,2}%?', value):
+                    return 'напиши /activity число от 1 до 20 например /activity 6'
+                percent = int(value.rstrip('%'))
+                if not 1 <= percent <= 20:
+                    return 'активность должна быть от 1 до 20 процентов'
+            self.store.set('activity_probability', percent / 100)
+            enabled = self.store.get('automatic', False)
+            return (f'Вероятность самостоятельного ответа: {percent}%. До 5 в сутки, интервал от часа. '
+                    + ('Автоматический режим включён.' if enabled else 'Для включения: /auto_on.'))
+        if kind == 'adaptive':
+            self.store.set('adaptive', request['enabled'])
+            return 'Учёт темпа беседы ' + ('включён: при бурном обсуждении сам не вмешиваюсь.' if request['enabled'] else 'выключен.')
+        if kind == 'greetings':
+            self.store.set('greetings_enabled', request['enabled'])
+            return ('Общие приветствия ' + ('включены.' if request['enabled'] else 'выключены.')
+                    + ' Персональное приветствие @leonadosasa сохранено.')
+        if kind == 'rules_set':
+            value = request['value'] or message.get('reply_to_message', {}).get('text', '')
+            if not 2 <= len(value.strip()) <= 2800:
+                return 'дай текст правил от 2 до 2800 символов после /rules_set или ответом на сообщение'
+            self.store.set('rules', value.strip())
+            return 'Правила сохранены. Посмотреть: /rules.'
+        return (f'Самостоятельные реплики: {"включены" if self.store.get("automatic", False) else "выключены"}\n'
+                f'Вероятность: {self.store.get("activity_probability", 0.03) * 100:.0f}%\n'
+                f'Учёт темпа беседы: {"включён" if self.store.get("adaptive", True) else "выключен"}\n'
+                f'Общие приветствия: {"включены" if self.store.get("greetings_enabled", True) else "выключены"}\n'
+                f'Правила: {"заданы" if self.store.get("rules") else "пока не заданы"}\n'
+                'Работа круглосуточно; до 5 самостоятельных реплик в сутки, интервал от часа.')
+
+    def summarize(self, job):
+        target = self.store.get('chat_id', job['chat_id']) if job['chat_id'] == self.config['owner_id'] else job['chat_id']
+        days = job['utility']['days']
+        rows, total = self.store.summary_rows(target, days, job['queued_at'],
+                                               job['reply_to'] if target == job['chat_id'] else None)
+        if not rows:
+            return 'за этот период сообщений для пересказа пока нет'
+        try:
+            return summary_text(self.config, rows, total, days)
+        except (APIError, ValueError, TypeError) as error:
+            LOG.warning('Пересказ заменён выдержками: причина=summary_unavailable; тип=%s', type(error).__name__)
+            return summary_excerpt(rows, total, days)
+
     def greet_new_members(self, message):
         chat_id = message['chat']['id']
         if message['chat']['type'] not in ('group', 'supergroup'):
@@ -418,13 +554,23 @@ class Bot:
         target_joined = any(not member.get('is_bot')
                             and (member.get('username') or '').casefold() == WELCOME_USERNAME
                             for member in message.get('new_chat_members', []))
-        if not target_joined or time.time() < self.store.get('blocked_until', 0):
+        members = [member for member in message.get('new_chat_members', []) if not member.get('is_bot')]
+        if (not members or (not target_joined and not self.store.get('greetings_enabled', True))
+                or time.time() < self.store.get('blocked_until', 0)):
             return
+        if target_joined:
+            greeting = WELCOME_TEXT
+        else:
+            names = ', '.join('<b>' + escape(clean_text(member.get('first_name') or 'новенький')[:40]) + '</b>'
+                              for member in members[:10])
+            if len(members) > 10:
+                names += f' и ещо {len(members) - 10}'
+            greeting = HTMLMessage(self.random.choice(GREETINGS).format(name=names))
         send_id = self.store.claim_greeting(chat_id, message['message_id'])
         if send_id is None:
             return
         try:
-            sent = self.telegram.send(chat_id, WELCOME_TEXT, message['message_id'])
+            sent = self.telegram.send(chat_id, greeting, message['message_id'])
             self.store.add_message(sent, human=False)
             self.store.finish_send(send_id, 'sent')
             LOG.info('Приветствие при входе отправлено')
@@ -452,6 +598,8 @@ class Bot:
         owner = user_id == self.config['owner_id']
         private = message['chat']['type'] == 'private'
         text = message.get('text') or message.get('caption') or ''
+        if time.time() - message.get('date', 0) > 120:
+            return
         # On group migration require the owner to explicitly resume automation.
         if message.get('migrate_to_chat_id') and chat_id == self.store.get('chat_id'):
             self.store.set('chat_id', message['migrate_to_chat_id'])
@@ -474,8 +622,19 @@ class Bot:
             self.store.set('next_auto', time.time() + self.random.uniform(3600, 10800))
         if not self.allowed(chat_id):
             return
-        if owner and command in ('/start', '/help'):
-            self.notify(chat_id, 'Я бот-пародия. Первый /bubus от владельца подключает группу; периодические реплики остаются выключенными.\n' + '\n'.join(f'{cmd} — {description}' for cmd, description in COMMANDS))
+        if command and command not in COMMUNITY_COMMANDS | {'/bubus', '/weather', '/convert', '/start', '/auto_on', '/auto_off', '/status'}:
+            return
+        mentioned = bool(self.username and re.search(r'@' + re.escape(self.username) + r'\b', text, re.I))
+        if command == '/bubus':
+            parts = text.split(maxsplit=1)
+            argument = parts[1] if len(parts) > 1 else ''
+        else:
+            argument = re.sub(r'@' + re.escape(self.username) + r'\b', '', text, flags=re.I).strip() if mentioned else text
+        if not self.store.add_message(dict(message, text=argument, _command=bool(command))):
+            if argument.strip() or not self.store.add_message(dict(message, _command=bool(command))):
+                return
+        if owner and command == '/start':
+            self.notify(chat_id, help_text(True))
             return
         if owner and command in ('/auto_on', '/auto_off'):
             target = self.store.get('chat_id')
@@ -500,6 +659,7 @@ class Bot:
                                                       self.store.last_send(target))) + 0.999))
             self.notify(chat_id, f'Группа: {self.store.get("chat_id", "не подключена")}\n'
                         f'Автоматически: {"включено" if self.store.get("automatic", False) else "выключено"}\n'
+                        f'Вероятность: {self.store.get("activity_probability", 0.03) * 100:.0f}%; учёт темпа: {"включён" if self.store.get("adaptive", True) else "выключен"}\n'
                         f'Попыток сегодня: автоматически {counts.get("automatic", 0)}/5; по обращению {counts.get("manual", 0)} (без дневного лимита)\n'
                         f'В очереди: {self.jobs.qsize()}; обработка: {"идёт" if self.active_job else "нет"}\n'
                         f'Курсы/погода: в очереди {self.utility_jobs.qsize()}; обработка: {"идёт" if self.active_utility else "нет"}\n'
@@ -507,30 +667,28 @@ class Bot:
                         f'Последнее обращение в группе: {seen_text}\nПоследний пропуск: {skip_text}\n'
                         f'Модель: {self.config["model"]}')
             return
-        if command and command not in ('/bubus', '/weather', '/convert'):
+        if command in ('/auto_on', '/auto_off', '/status', '/start'):
             return
         # Never react to a backlog of old updates after VPN downtime.
         if time.time() - message.get('date', 0) > 120:
             return
         reply = message.get('reply_to_message', {})
         reply_to_bot = reply.get('from', {}).get('id') == self.bot_id
-        mentioned = bool(self.username and re.search(r'@' + re.escape(self.username) + r'\b', text, re.I))
         # A user replying here solely to summon another bot is not addressing us.
         if not command and not mentioned and re.fullmatch(r'(?:@[a-z0-9_]*bot\s*)+', text.strip(), re.I):
             return
         matches = (' '.join(match.group().casefold().split()) for match in TRIGGER_PATTERN.finditer(text))
         triggers = list(dict.fromkeys(TRIGGER_FORMS.get(word, word) for word in matches))
-        if command == '/bubus':
-            parts = text.split(maxsplit=1)
-            argument = parts[1] if len(parts) > 1 else ''
-        else:
-            argument = re.sub(r'@' + re.escape(self.username) + r'\b', '', text, flags=re.I).strip() if mentioned else text
-        utility = service_request(argument, command)
-        if not self.store.add_message(dict(message, text=argument)):
-            # An empty /bubus or bare mention still uses duplicate detection,
-            # while generation receives an empty request to use live context.
-            if argument.strip() or not self.store.add_message(message):
+        utility = community_request(argument, command, addressed=private or mentioned or reply_to_bot)
+        if utility and utility['kind'] in OWNER_FEATURES:
+            if owner:
+                self.notify(chat_id, self.setting_reply(utility, message), message['message_id'])
                 return
+            utility = {'kind': 'fixed', 'text': 'ети настройки меняет только владелец бота'}
+        if utility and utility['kind'] == 'help':
+            utility['owner'] = owner
+        if not utility:
+            utility = service_request(argument, command)
         if private or command == '/bubus' or mentioned or reply_to_bot or triggers or utility:
             self.store.set(f'last_direct:{chat_id}', time.time())
             LOG.info('Получено прямое обращение; ключевых совпадений=%s', len(triggers))
@@ -539,7 +697,7 @@ class Bot:
                                 trigger_words=triggers, utility=utility):
                 if owner and private:
                     self.notify(chat_id, 'Подожди немного: действует пауза или очередь заполнена.')
-        elif not private and self.random.random() < 0.03:
+        elif not private and self.random.random() < self.store.get('activity_probability', 0.03):
             self.enqueue(chat_id, text, message['message_id'], automatic=True)
 
     def generate(self, job):
@@ -643,7 +801,12 @@ class Bot:
         utility = job.get('utility')
         if utility:
             try:
-                answer = self.services.answer(utility)
+                if utility['kind'] == 'summary':
+                    answer = self.summarize(job)
+                elif utility['kind'] in ('weather', 'currency'):
+                    answer = self.services.answer(utility)
+                else:
+                    answer = self.community_answer(utility, chat_id)
             except ServiceError as error:
                 LOG.warning('Справочный ответ недоступен: сервис=%s; причина=%s', utility['kind'], error)
                 answer = service_error_reply(utility['kind'], str(error))

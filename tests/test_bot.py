@@ -676,6 +676,7 @@ class BotTests(unittest.TestCase):
 
     def test_other_user_sender_and_wrong_group_do_not_get_greeting(self):
         self.bind()
+        self.store.set('greetings_enabled', False)
         sender = self.join_update(username='someone_else')
         sender['message']['from']['username'] = 'leonadosasa'
         self.bot.handle(sender)
@@ -793,8 +794,9 @@ class BotTests(unittest.TestCase):
         self.assertEqual(valid_answer('я бот-пародия, ти шо))'), 'я бот-пародия, ти шо))')
 
     def test_history_is_bounded(self):
-        for i in range(230):
-            self.store.add_message(self.update('сообщение', number=i)['message'])
+        with patch('bot.HISTORY_LIMIT', 200):
+            for i in range(230):
+                self.store.add_message(self.update('сообщение', number=i)['message'])
         with self.store.db() as db:
             count = db.execute('SELECT count(*) FROM messages').fetchone()[0]
         self.assertEqual(count, 200)
