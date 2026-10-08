@@ -80,6 +80,21 @@ class CommunityTests(unittest.TestCase):
         self.assertIsInstance(report, HTMLMessage)
         model.assert_not_called()
 
+    def test_capabilities_question_without_pronoun_routes_to_help_instead_of_parody(self):
+        for text in ('Володька, что умеешь?', 'Володька, что умееш?',
+                     'Бубус, что умеет?', 'Бубус, что ти умееш?', 'Володька, что ты умеешь?'):
+            with self.subTest(text=text):
+                self.assertEqual(community_request(text), {'kind': 'help'})
+        self.assertIsNone(community_request('что умеешь?'))
+        with patch.object(self.bot, 'generate') as model:
+            job = self.job('Володька, что умеешь?')
+            self.assertEqual(job['utility']['kind'], 'help')
+            self.assertTrue(self.bot.jobs.empty())
+            self.bot.process_job(job)
+        self.assertIn('<b>Бубус умеет</b>', self.telegram.sent[-1][1])
+        self.assertIn('1000 тенге', self.telegram.sent[-1][1])
+        model.assert_not_called()
+
     def test_members_cannot_change_settings(self):
         for number, text in enumerate(('/activity 20', '/rules_set новые правила', '/greetings_off', '/adaptive_off'), 1):
             self.store.set('request:-100', 0)

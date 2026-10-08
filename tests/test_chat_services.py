@@ -45,6 +45,7 @@ class ServiceTests(unittest.TestCase):
                                  '<Valute><CharCode>USD</CharCode><Nominal>10</Nominal><Value>845,0000</Value></Valute>'
                                  '<Valute><CharCode>UAH</CharCode><Nominal>10</Nominal><Value>20,0000</Value></Valute>'
                                  '<Valute><CharCode>BYN</CharCode><Nominal>3</Nominal><Value>84,0000</Value></Valute>'
+                                 '<Valute><CharCode>KZT</CharCode><Nominal>100</Nominal><Value>18,0000</Value></Valute>'
                                  '</ValCurs>')
         if 'coingecko.com/' in url:
             ids = parse_qs(urlparse(url).query)['ids'][0].split(',')
@@ -87,6 +88,33 @@ class ServiceTests(unittest.TestCase):
                      'https://example.test/80UAH', '@100BYN', '80 гр', '80 белорусских рублейных'):
             with self.subTest(text=text):
                 self.assertEqual(amounts_in(text), [])
+
+    def test_tenge_aliases_and_symbols_normalize_without_false_matches(self):
+        for text in ('1000 тенге', '1000kzt', '1000 KZT', '1000 ТЕНГЕ',
+                     '1000 казахстанских тенге', '1000 казахских тенге',
+                     '1000 теңге', '1000 ₸', '₸1000', '₸ 1 000'):
+            with self.subTest(text=text):
+                self.assertEqual(service_request(text), {'kind': 'currency', 'amounts': [
+                    {'amount': '1000', 'unit': 'KZT'}]})
+        self.assertEqual(amounts_in('1 234,50 тенге'), [{'amount': '1234.50', 'unit': 'KZT'}])
+        self.assertEqual(amounts_in('1000 KZT, 1000 тенге, ₸1000'), [{'amount': '1000', 'unit': 'KZT'}])
+        for text in ('1000 тенгей', '1000 KZTABC', '1000kzt_foo', '-1000 тенге',
+                     '0 тенге', 'https://example.test/1000KZT', '@1000KZT'):
+            with self.subTest(text=text):
+                self.assertEqual(amounts_in(text), [])
+
+    def test_tenge_conversion_uses_nominal_of_100_and_shares_fiat_cache(self):
+        with patch('chat_services.get_data', side_effect=self.fetch):
+            text = self.client.answer(service_request('1000 тенге'))
+            mixed = self.client.answer(service_request('1000 KZT, 80 гривен, 100 BYN'))
+        expected = '💱 <b>1 000,00 KZT</b>\n💵 <b>≈ 2,13 USD</b>\n💰 <b>≈ 180,00 RUB</b>'
+        self.assertIn(expected, text)
+        self.assertIn(expected, mixed)
+        self.assertIn('<b>≈ 160,00 RUB</b>', mixed)
+        self.assertIn('<b>≈ 2 800,00 RUB</b>', mixed)
+        self.assertIn('курс ЦБ на ' + self.today, text)
+        self.assertNotIn('CoinGecko', text)
+        self.assertEqual(len(self.calls), 1)
 
     def test_weather_request_city_normalization_and_missing_city(self):
         for text in ('Володька, какая погода в городе Орёл', 'погода в Орле?',
@@ -215,7 +243,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(len(self.calls), 1)
 
     def test_missing_or_invalid_fiat_rates_are_not_replaced_with_invented_values(self):
-        for unit in ('UAH', 'BYN'):
+        for unit in ('UAH', 'BYN', 'KZT'):
             for nominal, value in ((None, None), ('0', '20,00'), ('10', 'NaN'), ('10', '-20,00')):
                 root = ET.fromstring(f'<ValCurs Date="{self.today}">'
                                      '<Valute><CharCode>USD</CharCode><Nominal>1</Nominal><Value>84,50</Value></Valute>'

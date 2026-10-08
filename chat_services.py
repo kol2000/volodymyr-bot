@@ -20,8 +20,9 @@ NUMBER = r'(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d+)(?:[.,]\d{1,8})?'
 RUBLE_UNIT = r'руб(?:лей|ля|ль|ли)?'
 BYN_UNIT = r'(?:BYN|белруб(?:ов|а)?|(?:белорусск(?:ий|их|ие|ого|ому|им|ими|ом)|бел\.?)\s+' + RUBLE_UNIT + r'\.?)'
 UAH_UNIT = r'(?:UAH|грн\.?|₴|грив(?:на|ны|ну|не|ной|нами|нам|нах|ен|ня|ні|ню|нею|нями|ням|нях|ень))'
-UNIT = r'(?:' + BYN_UNIT + '|' + UAH_UNIT + r'|USDT|USDC|USD|RUB|BTC|ETH|BNB|SOL|TON|DOGE|доллар(?:ов|а)?|бакс(?:ов|а)?|' + RUBLE_UNIT + r'|\$|₽)'
-AMOUNTS = re.compile(r'(?<![\w.,+\-])(?:(?P<prefix>\$|₽|₴)\s*(?P<first>' + NUMBER +
+KZT_UNIT = r'(?:KZT|₸|(?:(?:казахстанск|казахск)(?:ий|их|ие|ого|ому|им|ими|ом)\s+)?(?:тенге|теңге))'
+UNIT = r'(?:' + BYN_UNIT + '|' + UAH_UNIT + '|' + KZT_UNIT + r'|USDT|USDC|USD|RUB|BTC|ETH|BNB|SOL|TON|DOGE|доллар(?:ов|а)?|бакс(?:ов|а)?|' + RUBLE_UNIT + r'|\$|₽)'
+AMOUNTS = re.compile(r'(?<![\w.,+\-])(?:(?P<prefix>\$|₽|₴|₸)\s*(?P<first>' + NUMBER +
                      r')|(?P<second>' + NUMBER + r')\s*(?P<unit>' + UNIT + r'))(?!\w)', re.I)
 CITY_ALIASES = {'орле': 'Орёл', 'орел': 'Орёл', 'орёл': 'Орёл',
                 'москве': 'Москва', 'петербурге': 'Санкт-Петербург',
@@ -101,6 +102,8 @@ def amounts_in(text):
             unit = 'BYN'
         elif unit in ('UAH', '₴') or unit.startswith(('ГРИВ', 'ГРН')):
             unit = 'UAH'
+        elif unit in ('KZT', '₸', 'ТЕНГЕ', 'ТЕҢГЕ') or unit.startswith(('КАЗАХСТАНСК', 'КАЗАХСК')):
+            unit = 'KZT'
         elif unit in ('₽', 'RUB') or unit.startswith('РУБ'):
             unit = 'RUB'
         row = {'amount': str(amount), 'unit': unit}
@@ -192,7 +195,7 @@ class ChatServices:
             rates = {}
             for row in root.findall('Valute'):
                 unit = row.findtext('CharCode')
-                if unit in ('USD', 'BYN', 'UAH'):
+                if unit in ('USD', 'BYN', 'UAH', 'KZT'):
                     rate = decimal_value(row.findtext('Value').replace(',', '.'), positive=True)
                     nominal = decimal_value(row.findtext('Nominal'), positive=True)
                     rates[unit] = rate / nominal
@@ -238,7 +241,7 @@ class ChatServices:
             elif unit == 'USD':
                 header = f'{money(amount)} USD'
                 results = [f'💰 <b>≈ {money(amount * rate)} RUB</b>']
-            elif unit in ('BYN', 'UAH'):
+            elif unit in ('BYN', 'UAH', 'KZT'):
                 if unit not in rates:
                     raise ServiceError('missing_fiat_rate')
                 rub = amount * rates[unit]
@@ -253,7 +256,7 @@ class ChatServices:
                 results = [f'💵 <b>≈ {money(usd)} USD</b>', f'💰 <b>≈ {money(usd * rate)} RUB</b>']
             blocks.append(f'💱 <b>{escape(header)}</b>\n' + '\n'.join(results))
         sources = f'RUB: курс ЦБ на {date}'
-        if any(row['unit'] in ('BYN', 'UAH') for row in amounts):
+        if any(row['unit'] in ('BYN', 'UAH', 'KZT') for row in amounts):
             sources = f'курс ЦБ на {date}'
         if coins:
             stamp = min(row[1] for row in coins.values())

@@ -52,7 +52,7 @@ def community_request(text, command='', addressed=False):
     raw_body = body.strip()
     body = body.strip(' ,.!?')
     lowered = body.casefold()
-    if command == '/help' or re.fullmatch(r'(?:что (?:ти|ты) умееш[ь]?|помощь|команды|справка)', lowered):
+    if command == '/help' or re.fullmatch(r'(?:что (?:(?:ти|ты) )?(?:умееш[ь]?|умеет)|помощь|команды|справка)', lowered):
         return {'kind': 'help'}
     if command == '/summary' or re.fullmatch(r'(?:что (?:было|било) в чате|перескажи(?: чат)?|суммаризируй)(?:\s+.*)?', lowered):
         return {'kind': 'summary', 'days': period_days(body)}
@@ -87,7 +87,7 @@ def help_text(owner=False):
     text = ('<b>Бубус умеет</b>\n'
             '• /bubus — случайная реплика; с текстом — ответ по теме\n'
             '• «Володька, какая погода в Орле?» или /weather Орёл\n'
-            '• 100 USDT, 80 гривен, 100 BYN — пересчёт в USD и RUB\n'
+            '• 100 USDT, 80 гривен, 100 BYN, 1000 тенге — пересчёт в USD и RUB\n'
             '• «Володька, что было в чате?» или /summary\n'
             '• /summary неделю — пересказ за 7 дней\n'
             '• «Володька, что с чатом?» или /stats\n'
