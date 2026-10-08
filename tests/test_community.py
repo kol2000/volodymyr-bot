@@ -11,7 +11,8 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from bot import Bot, Store, WELCOME_TEXT
 from common import APIError, HTMLMessage, MODEL
-from community import MOSCOW, community_request, period_start, summary_input, summary_text
+from community import (MOSCOW, SummaryError, community_request, period_start,
+                       summary_input, summary_report, summary_text)
 from test_bot import FakeTelegram
 
 
@@ -37,6 +38,11 @@ class CommunityTests(unittest.TestCase):
 
     def human(self, text, number=1, **kwargs):
         self.store.add_message(self.update(text, number, **kwargs)['message'])
+
+    def summary_result(self, text='Обсудили ремонт и выбор обоев.', quip='ты опять пишешь про это', sources=None):
+        return {'message': {'content': json.dumps({'topics': [
+            {'title': 'Ремонт', 'text': text, 'sources': [1] if sources is None else sources, 'quip': quip}],
+            'decisions': []}, ensure_ascii=False)}, 'done_reason': 'stop'}
 
     def job(self, text, number=100, user=7):
         self.bot.handle(self.update(text, number, user))
@@ -205,24 +211,25 @@ class CommunityTests(unittest.TestCase):
         self.assertEqual(self.bot.utility_jobs.get_nowait()['utility']['kind'], 'weather')
 
     def test_summary_uses_only_prior_human_group_messages_with_a_bounded_prompt(self):
-        self.human('обсудили ремонт', 1)
+        self.human('обсудили ремонт и выбор обоев', 1)
         self.human('/help', 2)
         self.human('другой чат', 3, chat=-200)
         self.store.add_message(self.update('ответ бота', 4)['message'], human=False)
         job = self.job('Володька, что было в чате?', 100)
         self.human('сообщение после запроса', 101, stamp=job['queued_at'] + 1)
-        good = {'message': {'content': json.dumps({'points': ['Обсудили ремонт и выбор обоев.']})}}
+        good = self.summary_result()
         with patch('community.http_json', return_value=good) as model, patch.object(self.bot, 'generate') as parody:
             self.bot.process_job(job)
         input_messages = json.loads(model.call_args.args[1]['messages'][1]['content'])['messages']
-        self.assertEqual([row['text'] for row in input_messages], ['обсудили ремонт'])
+        self.assertEqual([row['text'] for row in input_messages], ['обсудили ремонт и выбор обоев'])
+        self.assertEqual([row['id'] for row in input_messages], [1])
         self.assertIn('Обсудили ремонт', self.telegram.sent[-1][1])
         self.assertIn('По 1 из 1 сообщений', self.telegram.sent[-1][1])
         parody.assert_not_called()
         rows = [{'speaker': 'Автор', 'text': 'длинное ' * 100, 'timestamp': time.time()} for _ in range(120)]
         selected = summary_input(rows)
         self.assertLess(len(selected), 120)
-        self.assertLessEqual(sum(len(json.dumps(row, ensure_ascii=False)) for row in selected), 9000)
+        self.assertLessEqual(sum(len(json.dumps(row, ensure_ascii=False)) for row in selected), 14000)
 
     def test_summary_failure_returns_real_excerpts_without_parody_fallback(self):
         self.human('<исходное сообщение>', 1)
@@ -248,17 +255,93 @@ class CommunityTests(unittest.TestCase):
         self.assertEqual(self.telegram.sent[-1][0], 42)
         self.assertIn('Сообщений: <b>1</b>', self.telegram.sent[-1][1])
 
-    def test_summary_rejects_invalid_truncated_reasoning_and_secret_output(self):
+    def test_summary_rejects_invalid_truncated_reasoning_and_untraceable_output(self):
         rows = [{'speaker': 'Автор', 'text': 'привет', 'timestamp': time.time()}]
         cases = [{'message': {'content': 'обычный текст'}},
                  {'message': {'content': '{"points":[]}' }},
-                 {'message': {'content': '{"points":["<think>analysis</think>"]}'}},
-                 {'message': {'content': json.dumps({'points': ['позвони +79991234567']})}},
-                 {'message': {'content': '{"points":["привет"]}'}, 'done_reason': 'length'}]
+                 self.summary_result(quip='<think>analysis</think>'),
+                 self.summary_result(sources=[2]), self.summary_result(sources=[True]),
+                 dict(self.summary_result(), done_reason='length')]
         for result in cases:
             with self.subTest(result=result), patch('community.http_json', return_value=result):
                 with self.assertRaises(APIError):
                     summary_text(self.bot.config, rows, 1, 1)
+
+    def test_summary_groups_topics_names_and_decisions_with_separate_surzhyk_quips(self):
+        rows = [{'speaker': '<kol2000>', 'text': 'Предлагаю проверить оплату завтра', 'timestamp': time.time()},
+                {'speaker': 'Yurii', 'text': 'Договорились проверить завтра', 'timestamp': time.time()}]
+        result = self.summary_result(text='kol2000 предложил проверку; Yurii согласился.', sources=[1, 2])
+        data = json.loads(result['message']['content'])
+        data['decisions'] = [{'text': 'Завтра проверить оплату.', 'sources': [1, 2]}]
+        result['message']['content'] = json.dumps(data)
+        with patch('community.http_json', return_value=result) as model:
+            report = summary_text(self.bot.config, rows, 2, 1)
+        self.assertIn('<b>О чём спорили и болтали</b>', report)
+        self.assertIn('В обсуждении: &lt;kol2000&gt;, Yurii.', report)
+        self.assertIn('ти опять пишеш про ето', report)
+        self.assertIn('<b>К чему пришли</b>\n• Завтра проверить оплату.', report)
+        self.assertNotIn('Последние сообщения', report)
+        payload = model.call_args.args[1]
+        self.assertIsInstance(payload['format'], dict)
+        self.assertEqual(payload['format']['properties']['topics']['maxItems'], 5)
+        self.assertGreater(payload['options']['num_predict'], 650)
+        self.assertIn('не проверенные факты', payload['messages'][0]['content'])
+
+    def test_invalid_summary_retries_a_compact_schema_before_using_excerpts(self):
+        rows = [{'speaker': 'Автор', 'text': 'ремонт', 'timestamp': time.time()}]
+        truncated = dict(self.summary_result(), done_reason='length')
+        with patch('community.http_json', side_effect=[truncated, self.summary_result()]) as model:
+            report = summary_text(self.bot.config, rows, 1, 1)
+        self.assertEqual(model.call_count, 2)
+        self.assertIn('Обсудили ремонт', report)
+        second = model.call_args_list[1].args[1]
+        self.assertEqual(second['format']['properties']['topics']['maxItems'], 3)
+        self.assertLess(second['options']['num_predict'], model.call_args_list[0].args[1]['options']['num_predict'])
+
+    def test_summary_redacts_links_and_secrets_without_dropping_the_whole_report(self):
+        rows = [{'speaker': 'Автор', 'text': 'ссылка https://example.test и +79991234567', 'timestamp': time.time()}]
+        good = self.summary_result(text='Автор прислал https://example.test и номер +79991234567.')
+        with patch('community.http_json', return_value=good) as model:
+            report = summary_text(self.bot.config, rows, 1, 1)
+        self.assertIn('[ссылка]', report)
+        self.assertIn('[номер]', report)
+        self.assertNotIn('79991234567', report)
+        self.assertNotIn('example.test', str(model.call_args.args[1]))
+        self.assertEqual(model.call_count, 1)
+
+    def test_summary_transport_failures_have_safe_reason_and_no_duplicate_model_request(self):
+        rows = [{'speaker': 'Автор', 'text': 'ремонт', 'timestamp': time.time()}]
+        for code, reason in ((0, 'summary_transport_error'), (503, 'summary_http_error')):
+            with self.subTest(code=code), patch('community.http_json', side_effect=APIError('private URL', code)) as model:
+                with self.assertRaises(SummaryError) as failure:
+                    summary_text(self.bot.config, rows, 1, 1)
+            self.assertEqual(failure.exception.reason, reason)
+            self.assertEqual(failure.exception.code, code)
+            self.assertNotIn('private', str(failure.exception))
+            self.assertEqual(model.call_count, 1)
+
+    def test_summary_retry_respects_total_generation_budget(self):
+        rows = [{'speaker': 'Автор', 'text': 'ремонт', 'timestamp': time.time()}]
+        with patch('community.time.monotonic', side_effect=[0, 0, 135]), patch(
+                'community.http_json', return_value=dict(self.summary_result(), done_reason='length')) as model:
+            with self.assertRaises(SummaryError) as failure:
+                summary_text(self.bot.config, rows, 1, 1)
+        self.assertEqual(failure.exception.reason, 'summary_time_budget')
+        self.assertEqual(model.call_count, 1)
+
+    def test_summary_html_and_utf16_size_stay_within_telegram_limit(self):
+        rows = [{'speaker': '😀' * 40, 'text': 'обсуждение', 'timestamp': time.time()}]
+        data = {'topics': [{'title': '😀' * 60, 'text': '😀' * 300, 'quip': '😀' * 90,
+                            'sources': [1]} for _ in range(5)],
+                'decisions': [{'text': '😀' * 160, 'sources': [1]} for _ in range(3)]}
+        result = {'message': {'content': json.dumps(data)}}
+        report = summary_report(result, summary_input(rows), 1, 1)
+        from html import unescape
+        import re
+        visible = unescape(re.sub(r'</?(?:b|i)>', '', report))
+        self.assertLessEqual(len(visible.encode('utf-16-le')) // 2, 3900)
+        escaped = summary_report(self.summary_result(text='<script>текст</script>'), summary_input(rows), 1, 1)
+        self.assertIn('&lt;script&gt;', escaped)
 
     def test_busy_conversation_suppresses_only_automatic_replies_and_can_be_disabled(self):
         self.store.set('automatic', True)

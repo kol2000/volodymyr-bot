@@ -85,6 +85,26 @@ def clean_text(text):
     return text
 
 
+def surzhyk_text(text):
+    """Enforce recurrent archive spellings without removing every soft sign."""
+    spellings = {'ты': 'ти', 'это': 'ето', 'ещё': 'ещо', 'еще': 'ещо',
+                 'было': 'било', 'бы': 'би', 'сейчас': 'сечас'}
+
+    def replace(match):
+        original = match.group()
+        word = original.lower()
+        changed = spellings.get(word, word)
+        if changed.endswith(('ешь', 'ишь')):
+            changed = changed[:-1]
+        if changed == word:
+            return original
+        if original.isupper():
+            return changed.upper()
+        return changed.capitalize() if original[0].isupper() else changed
+
+    return re.sub(r'\b[а-яё]+\b', replace, text, flags=re.I)
+
+
 def load_config():
     with CONFIG.open(encoding='utf-8') as file:
         return json.load(file)

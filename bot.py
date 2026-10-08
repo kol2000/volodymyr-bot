@@ -13,7 +13,7 @@ from difflib import SequenceMatcher
 from html import escape
 from zoneinfo import ZoneInfo
 
-from common import APIError, HTMLMessage, ROOT, STATE, Telegram, clean_text, http_json, load_config
+from common import APIError, HTMLMessage, ROOT, STATE, Telegram, clean_text, http_json, load_config, surzhyk_text
 from chat_services import ChatServices, ServiceError, service_error_reply, service_request
 from community import (COMMUNITY_COMMANDS, GREETINGS, OWNER_FEATURES, community_request,
                        help_text, period_start, statistics_text, summary_excerpt, summary_text)
@@ -309,26 +309,6 @@ class Store:
         return row[0] or 0
 
 
-def surzhyk_text(text):
-    """Enforce recurrent archive spellings without removing every soft sign."""
-    spellings = {'ты': 'ти', 'это': 'ето', 'ещё': 'ещо', 'еще': 'ещо',
-                 'было': 'било', 'бы': 'би', 'сейчас': 'сечас'}
-
-    def replace(match):
-        original = match.group()
-        word = original.lower()
-        changed = spellings.get(word, word)
-        if changed.endswith(('ешь', 'ишь')):
-            changed = changed[:-1]
-        if changed == word:
-            return original
-        if original.isupper():
-            return changed.upper()
-        return changed.capitalize() if original[0].isupper() else changed
-
-    return re.sub(r'\b[а-яё]+\b', replace, text, flags=re.I)
-
-
 def answer_key(text):
     # Ignore capitalization, punctuation and spaces when detecting repeats.
     return ' '.join(re.findall(r'\w+', surzhyk_text(text).casefold().replace('ё', 'е')))
@@ -540,9 +520,12 @@ class Bot:
         if not rows:
             return 'за этот период сообщений для пересказа пока нет'
         try:
-            return summary_text(self.config, rows, total, days)
+            return summary_text(self.config, rows, total, days,
+                                time_budget=min(150, max(1, 170 - (time.time() - job['queued_at']))))
         except (APIError, ValueError, TypeError) as error:
-            LOG.warning('Пересказ заменён выдержками: причина=summary_unavailable; тип=%s', type(error).__name__)
+            LOG.warning('Пересказ заменён выдержками: причина=%s; тип=%s; HTTP=%s',
+                        getattr(error, 'reason', 'summary_unavailable'), type(error).__name__,
+                        getattr(error, 'code', 0))
             return summary_excerpt(rows, total, days)
 
     def greet_new_members(self, message):
