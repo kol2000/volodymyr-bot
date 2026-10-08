@@ -19,7 +19,6 @@ from community import (COMMUNITY_COMMANDS, GREETINGS, OWNER_FEATURES, community_
                        help_text, period_start, statistics_text, summary_excerpt, summary_text)
 from retrieval import build_index, find_examples, random_candidates
 from feedback import praise_signal, rating_signal, relevant_approved
-from football import Football, FootballError, COMMANDS as FOOTBALL_COMMANDS, error_reply as football_error_reply, football_request
 
 LOG = logging.getLogger('volodymyr')
 MOSCOW = ZoneInfo('Europe/Moscow')
@@ -118,9 +117,6 @@ COMMANDS = [('/bubus', 'случайная фраза; с текстом — о�
             ('/bank', 'виртуальная зарплата Володьки в гривнах'),
             ('/weather', 'погода сейчас: /weather Орёл'),
             ('/convert', 'пересчитать сумму: /convert 100 USDT'),
-            ('/football', 'РПЛ и Кубок России: счета и матчи сегодня'),
-            ('/football_on', 'владельцу: уведомления о счёте и итогах матчей'),
-            ('/football_off', 'владельцу: выключить футбольные уведомления'),
             ('/summary', 'пересказ чата: сегодня, неделю, месяц'),
             ('/stats', 'статистика чата'), ('/top', 'топ сообщений: /top неделю'),
             ('/choose', 'выбор: /choose пицца | шаурма'), ('/rules', 'правила чата'),
@@ -505,7 +501,6 @@ class Bot:
         self.jobs = queue.Queue(maxsize=4)
         self.utility_jobs = queue.Queue(maxsize=4)
         self.services = ChatServices()
-        self.football = Football(config, self.store)
         self.lock = threading.Lock()
         self.auto_pending = False
         self.active_job = False
@@ -723,7 +718,7 @@ class Bot:
             self.store.set('next_auto', time.time() + self.random.uniform(3600, 10800))
         if not self.allowed(chat_id):
             return
-        if command and command not in COMMUNITY_COMMANDS | FOOTBALL_COMMANDS | {'/bubus', '/weather', '/convert', '/start', '/auto_on', '/auto_off', '/status'}:
+        if command and command not in COMMUNITY_COMMANDS | {'/bubus', '/weather', '/convert', '/start', '/auto_on', '/auto_off', '/status'}:
             return
         reply = message.get('reply_to_message', {})
         direction = rating_signal(text)
@@ -789,24 +784,8 @@ class Bot:
                         f'В очереди: {self.jobs.qsize()}; обработка: {"идёт" if self.active_job else "нет"}\n'
                         f'Курсы/погода: в очереди {self.utility_jobs.qsize()}; обработка: {"идёт" if self.active_utility else "нет"}\n'
                         f'Пауза между обращениями: {pause} сек.\n'
-                        f'Последнее обращение в группе: {seen_text}\nПоследний пропуск: {skip_text}\n' +
-                        self.football.status() + '\n' +
+                        f'Последнее обращение в группе: {seen_text}\nПоследний пропуск: {skip_text}\n'
                         f'Модель: {self.config["model"]}')
-            return
-        if command in ('/football_on', '/football_off'):
-            if not owner:
-                self.notify(chat_id, 'ети настройки меняет только владелец бота', message['message_id'])
-                return
-            if command == '/football_on' and not self.football.key:
-                self.notify(chat_id, football_error_reply('key_missing'), message['message_id'])
-                return
-            enabled = command == '/football_on'
-            self.store.set('football_enabled', enabled)
-            if enabled:
-                with self.football.lock:
-                    self.store.set(f'football_seen:{self.store.get("chat_id", chat_id)}', None)
-                    self.store.set('football_next', 0)
-            self.notify(chat_id, 'Футбольные уведомления ' + ('включены: РПЛ и Кубок России.' if enabled else 'выключены. /football продолжает работать.'), message['message_id'])
             return
         if command in ('/auto_on', '/auto_off', '/status', '/start'):
             return
@@ -830,8 +809,6 @@ class Bot:
             utility['owner'] = owner
         if not utility:
             utility = service_request(argument, command)
-        if not utility:
-            utility = football_request(argument, command, addressed=private or mentioned or reply_to_bot)
         if private or command == '/bubus' or mentioned or reply_to_bot or triggers or utility:
             self.store.set(f'last_direct:{chat_id}', time.time())
             LOG.info('Получено прямое обращение; ключевых совпадений=%s', len(triggers))
@@ -953,15 +930,10 @@ class Bot:
             try:
                 if utility['kind'] == 'summary':
                     answer = self.summarize(job)
-                elif utility['kind'] == 'football':
-                    answer = self.football.answer(utility)
                 elif utility['kind'] in ('weather', 'currency'):
                     answer = self.services.answer(utility)
                 else:
                     answer = self.community_answer(utility, chat_id)
-            except FootballError as error:
-                LOG.warning('Футбольный ответ недоступен: причина=%s', error)
-                answer = football_error_reply(str(error))
             except ServiceError as error:
                 LOG.warning('Справочный ответ недоступен: сервис=%s; причина=%s', utility['kind'], error)
                 answer = service_error_reply(utility['kind'], str(error))
@@ -1071,41 +1043,6 @@ class Bot:
                         self.auto_pending = False
                 self.jobs.task_done()
 
-    def football_tick(self):
-        chat_id = self.store.get('chat_id')
-        if (not chat_id or not self.store.get('football_enabled', bool(self.football.key))
-                or time.time() < self.store.get('blocked_until', 0)):
-            return
-        try:
-            events = self.football.tick(chat_id)
-        except FootballError as error:
-            LOG.warning('Футбольная проверка недоступна: причина=%s', error)
-            return
-        for event in events:
-            # Claims are durable before sending. An uncertain send is never repeated.
-            if (chat_id != self.store.get('chat_id') or not self.store.get('football_enabled', bool(self.football.key))
-                    or time.time() < self.store.get('blocked_until', 0)):
-                return
-            try:
-                sent = self.telegram.send(chat_id, event)
-                self.store.add_message(sent, human=False, rateable=True)
-                LOG.info('Футбольное уведомление отправлено')
-            except APIError as error:
-                if error.retry_after:
-                    self.store.set('blocked_until', time.time() + error.retry_after)
-                if error.code == 403:
-                    self.store.set('football_enabled', False)
-                LOG.warning('Футбольная отправка не подтверждена, повтор не выполняется: %s', error)
-                return
-
-    def football_worker(self):
-        while True:
-            try:
-                self.football_tick()
-            except Exception as error:
-                LOG.error('Футбольная проверка не выполнена: %s', type(error).__name__)
-            time.sleep(10)
-
     def scheduler(self):
         while True:
             try:
@@ -1130,7 +1067,6 @@ class Bot:
         threading.Thread(target=self.worker, daemon=True).start()
         threading.Thread(target=self.utility_worker, daemon=True).start()
         threading.Thread(target=self.scheduler, daemon=True).start()
-        threading.Thread(target=self.football_worker, daemon=True).start()
         offset = self.store.get('offset', self.config.get('initial_offset', 0))
         LOG.info('Бот @%s запущен; периодический режим=%s', self.username, self.store.get('automatic', False))
         backoff = 2

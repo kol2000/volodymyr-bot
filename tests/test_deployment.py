@@ -20,7 +20,10 @@ class DeploymentTests(unittest.TestCase):
         commands = {
             'id': 'echo botadmin',
             'git': '[ "$1" != pull ] || [ "$BOT_TEST_FAIL" != pull ]',
-            'python3': '[ "$BOT_TEST_FAIL" != tests ]',
+            'python3': '[ "$BOT_TEST_FAIL" != tests ] || exit 1\n'
+                       'if [ "$1" = remove_football.py ]; then\n'
+                       'echo cleanup >> "$BOT_TEST_LOG"\n'
+                       '[ "$BOT_TEST_FAIL" != cleanup ]\nfi',
             'sudo': 'echo "$*" >> "$BOT_TEST_LOG"\n'
                     '[ "$*" != "systemctl is-active volodymyr-bot" ] || [ "$BOT_TEST_FAIL" != start ]',
         }
@@ -43,6 +46,20 @@ class DeploymentTests(unittest.TestCase):
                 result = self.run_script(ROOT / 'update.sh')
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse(self.log.exists())
+
+    def test_successful_update_cleans_after_stop_before_restart(self):
+        result = self.run_script(ROOT / 'update.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.log.read_text().splitlines(),
+                         ['systemctl stop volodymyr-bot', 'cleanup', 'systemctl restart volodymyr-bot',
+                          'systemctl is-active volodymyr-bot'])
+
+    def test_cleanup_failure_attempts_to_start_bot_and_reports_failure(self):
+        self.env['BOT_TEST_FAIL'] = 'cleanup'
+        result = self.run_script(ROOT / 'update.sh')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.log.read_text().splitlines(),
+                         ['systemctl stop volodymyr-bot', 'cleanup', 'systemctl start volodymyr-bot'])
 
     def prepare_migration(self):
         home = self.root / 'botadmin'

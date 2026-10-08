@@ -12,6 +12,12 @@ if ! git diff --quiet HEAD --; then
 fi
 git pull --ff-only
 python3 -m unittest discover -s tests -q
+sudo systemctl stop volodymyr-bot
+if ! python3 remove_football.py; then
+  echo 'Очистка API-Football не завершена; запускаю бота обратно.' >&2
+  sudo systemctl start volodymyr-bot
+  exit 1
+fi
 sudo systemctl restart volodymyr-bot
 sudo systemctl is-active volodymyr-bot
 echo 'Обновление завершено.'
