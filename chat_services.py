@@ -27,7 +27,8 @@ CITY_ALIASES = {'орле': 'Орёл', 'орел': 'Орёл', 'орёл': 'О�
                 'москве': 'Москва', 'петербурге': 'Санкт-Петербург',
                 'санкт-петербурге': 'Санкт-Петербург', 'киеве': 'Киев',
                 'казани': 'Казань', 'сочи': 'Сочи', 'калуге': 'Калуга',
-                'лондоне': 'Лондон', 'париже': 'Париж', 'минске': 'Минск'}
+                'лондоне': 'Лондон', 'париже': 'Париж', 'минске': 'Минск',
+                'махачкале': 'Махачкала', 'махачкалу': 'Махачкала'}
 CONDITIONS = {0: 'ясно', 1: 'преимущественно ясно', 2: 'переменная облачность',
               3: 'пасмурно', 45: 'туман', 48: 'туман с изморозью',
               51: 'слабая морось', 53: 'морось', 55: 'сильная морось',
@@ -112,7 +113,11 @@ def service_request(text, command=''):
         rest = re.sub(r'\b(?:сейчас|сечас|сегодня|пожалуйста)\b', '', rest, flags=re.I).strip(' ,.!?')
         city = re.sub(r'^(?:в|во)\s+', '', rest, flags=re.I)
         city = re.sub(r'^(?:городе?|г\.)\s+', '', city, flags=re.I).strip(' ,.!?')
-        city = CITY_ALIASES.get(city.casefold(), city)
+        # Normalize the city separately from an optional country/region qualifier.
+        # Otherwise "в Махачкале, Россия" would bypass the same alias as "в Махачкале".
+        parts = [' '.join(part.split()) for part in city.split(',')]
+        parts[0] = CITY_ALIASES.get(parts[0].casefold(), parts[0])
+        city = ', '.join(parts)
         if not city:
             return {'kind': 'weather', 'error': 'city_missing'}
         if len(city) > 80 or not re.fullmatch(r'[а-яёіїєґa-z ,\-]+', city, re.I):

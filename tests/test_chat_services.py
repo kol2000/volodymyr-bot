@@ -98,6 +98,36 @@ class ServiceTests(unittest.TestCase):
         self.assertIsNone(service_request('погодка сегодня ужасная'))
         self.assertIsNone(service_request('как там бубус'))
 
+    def test_makhachkala_conversational_requests_keep_location_qualifiers(self):
+        cases = {'володька какая погода в махачкале?': 'Махачкала',
+                 'Володька, какая погода в городе МАХАЧКАЛЕ сейчас?': 'Махачкала',
+                 'погода в Махачкале, Россия': 'Махачкала, Россия',
+                 'погода в Махачкале, Дагестан': 'Махачкала, Дагестан',
+                 'погода в Орле, Россия': 'Орёл, Россия',
+                 'погода в Санкт-Петербурге, Россия': 'Санкт-Петербург, Россия'}
+        for text, city in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(service_request(text), {'kind': 'weather', 'city': city})
+        self.assertEqual(service_request('/weather Махачкале', '/weather')['city'], 'Махачкала')
+        self.assertEqual(service_request('володька какая погода в махачкале завтра?')['error'], 'forecast_unsupported')
+
+    def test_screenshot_weather_request_fetches_canonical_city_and_reports_weather(self):
+        self.place.update(id=532096, name='Махачкала', admin1='Дагестан',
+                          latitude=42.97638, longitude=47.50236, population=596356)
+
+        def fetch(url, xml=False):
+            if 'geocoding-api.' in url and parse_qs(urlparse(url).query)['name'] != ['Махачкала']:
+                return {'results': []}
+            return self.fetch(url, xml)
+
+        with patch('chat_services.get_data', side_effect=fetch):
+            text = self.client.answer(service_request('володька какая погода в махачкале?'))
+        self.assertIn('Сечас в городе <b>Махачкала</b>:', text)
+        self.assertIn('Дагестан, Россия', text)
+        forecast = parse_qs(urlparse(self.calls[1]).query)
+        self.assertEqual(forecast['latitude'], ['42.97638'])
+        self.assertEqual(forecast['longitude'], ['47.50236'])
+
     def test_usd_rub_both_directions_use_cbr_nominal_and_date(self):
         with patch('chat_services.get_data', side_effect=self.fetch):
             text = self.client.answer(service_request('100 USD и 8450 рублей'))
