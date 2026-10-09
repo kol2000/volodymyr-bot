@@ -18,7 +18,7 @@ from chat_services import ChatServices, ServiceError, service_error_reply, servi
 from community import (COMMUNITY_COMMANDS, GREETINGS, OWNER_FEATURES, community_request,
                        help_text, period_start, statistics_text, summary_excerpt, summary_text)
 from retrieval import build_index, find_examples, random_candidates
-from feedback import praise_signal, rating_signal, relevant_approved
+from feedback import praise_signal, rating_signal, relevant_approved, salary_acknowledgement
 from live_football import (Football, FootballError, PREFIX as FOOTBALL_PREFIX,
                            COMMANDS as FOOTBALL_COMMANDS, football_request, error_reply as football_error_reply)
 
@@ -171,6 +171,9 @@ class Store:
                 CREATE TABLE IF NOT EXISTS salary_votes (
                     chat_id INTEGER, message_id INTEGER, user_id INTEGER, direction INTEGER, timestamp REAL,
                     PRIMARY KEY(chat_id,message_id,user_id));
+                CREATE TABLE IF NOT EXISTS feedback_links (
+                    chat_id INTEGER, message_id INTEGER, answer_id INTEGER, text TEXT, timestamp REAL,
+                    PRIMARY KEY(chat_id,message_id));
             ''')
             if 'user_id' not in {row[1] for row in db.execute('PRAGMA table_info(messages)')}:
                 db.execute('ALTER TABLE messages ADD COLUMN user_id INTEGER')
@@ -282,6 +285,62 @@ class Store:
                               (chat_id, limit)).fetchall()
         return [row[0] for row in rows]
 
+    @staticmethod
+    def feedback_target(db, chat_id, message_id, quoted_text):
+        link = db.execute('SELECT answer_id,text FROM feedback_links WHERE chat_id=? AND message_id=?',
+                          (chat_id, message_id)).fetchone()
+        if link and link[1] == clean_text(quoted_text)[:1000]:
+            original = db.execute('SELECT text FROM messages WHERE chat_id=? AND message_id=? AND human=0',
+                                  (chat_id, link[0])).fetchone()
+            if original:
+                return link[0], original[0]
+        return message_id, quoted_text
+
+    def link_feedback(self, sent, chat_id, answer_id, quoted_text):
+        """Only confirmed Telegram receipts point to an existing original reply."""
+        if not sent or sent.get('chat', {}).get('id') != chat_id:
+            return False
+        now = time.time()
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            answer_id, quoted_text = self.feedback_target(db, chat_id, answer_id, quoted_text)
+            row = db.execute('SELECT text FROM messages WHERE chat_id=? AND message_id=? AND human=0',
+                             (chat_id, answer_id)).fetchone()
+            if not row or row[0] != clean_text(quoted_text)[:1000]:
+                return False
+            db.execute('INSERT OR IGNORE INTO feedback_links VALUES (?,?,?,?,?)',
+                       (chat_id, sent['message_id'], answer_id, clean_text(sent['text'])[:1000],
+                        sent.get('date', now)))
+            db.execute('DELETE FROM feedback_links WHERE timestamp<?', (now - 30 * 86400,))
+            return True
+
+    def recover_feedback_link(self, chat_id, reply):
+        """Recover a pre-fix receipt only when one original vote matches its time.
+
+        Caller must verify the Telegram sender is this bot. Ambiguous receipts
+        never pick an arbitrary answer or invent a balance adjustment.
+        """
+        quoted = reply.get('text', '')
+        direction = salary_acknowledgement(quoted)
+        stamp, message_id = reply.get('date'), reply.get('message_id')
+        now = time.time()
+        if (not direction or type(stamp) not in (int, float) or type(message_id) is not int
+                or message_id <= 0 or not now - 30 * 86400 <= stamp <= now + 5):
+            return False
+        with self.db() as db:
+            existing = db.execute('SELECT text FROM feedback_links WHERE chat_id=? AND message_id=?',
+                                  (chat_id, message_id)).fetchone()
+            if existing:
+                return existing[0] == clean_text(quoted)[:1000]
+            candidates = db.execute('SELECT DISTINCT v.message_id,m.text FROM salary_votes v '
+                                    'JOIN messages m ON m.chat_id=v.chat_id AND m.message_id=v.message_id '
+                                    'WHERE v.chat_id=? AND v.direction=? AND v.timestamp BETWEEN ? AND ? '
+                                    'AND m.human=0 AND (m.rateable IS NULL OR m.rateable!=0) AND m.timestamp>=?',
+                                    (chat_id, direction, stamp - 10, stamp + 1, now - 30 * 86400)).fetchall()
+        if len(candidates) != 1:
+            return False
+        return self.link_feedback(dict(reply, chat={'id': chat_id}), chat_id, *candidates[0])
+
     def approve_reply(self, chat_id, message_id, user_id, quoted_text):
         """One vote per user and canonical phrase, including after a restart."""
         if type(user_id) is not int or user_id <= 0:
@@ -289,6 +348,7 @@ class Store:
         now = time.time()
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
+            message_id, quoted_text = self.feedback_target(db, chat_id, message_id, quoted_text)
             row = db.execute('SELECT text,human,request_text,learnable FROM messages '
                              'WHERE chat_id=? AND message_id=?', (chat_id, message_id)).fetchone()
             if not row or row[1] or row[0] != clean_text(quoted_text)[:1000]:
@@ -339,6 +399,7 @@ class Store:
         now = time.time()
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
+            message_id, quoted_text = self.feedback_target(db, chat_id, message_id, quoted_text)
             row = db.execute('SELECT text,human,rateable,timestamp FROM messages '
                              'WHERE chat_id=? AND message_id=?', (chat_id, message_id)).fetchone()
             if (not row or row[1] or row[2] == 0 or row[3] < now - 30 * 86400
@@ -568,7 +629,7 @@ class Bot:
 
     def notify(self, chat_id, text, reply_to=None):
         try:
-            self.telegram.send(chat_id, text, reply_to)
+            return self.telegram.send(chat_id, text, reply_to)
         except APIError as error:
             LOG.warning('Не удалось отправить служебный ответ: %s', error)
 
@@ -734,6 +795,13 @@ class Bot:
         if (self.bot_id and reply.get('from', {}).get('id') == self.bot_id
                 and (praise_signal(text) or direction)):
             quoted = reply.get('text') or reply.get('caption') or ''
+            legacy_receipt = salary_acknowledgement(quoted)
+            if legacy_receipt:
+                linked = self.store.recover_feedback_link(chat_id, reply)
+                if not linked:
+                    self.notify(chat_id, 'ету старую квитанцию не могу связать с ответом '
+                                'отправь плюс или минус в ответ на исходную реплику', message['message_id'])
+                    return
             salary, acknowledge = None, False
             if direction and not private:
                 result, acknowledge, salary = self.store.rate_reply(chat_id, reply.get('message_id'), user_id,
@@ -750,7 +818,8 @@ class Bot:
                 if salary:
                     amount = f'{salary["balance"]:,}'.replace(',', ' ')
                     response += f'\n{"+80" if direction > 0 else "−80"} ₴ · банк: {amount} ₴'
-                self.notify(chat_id, response, message['message_id'])
+                sent = self.notify(chat_id, response, message['message_id'])
+                self.store.link_feedback(sent, chat_id, reply.get('message_id'), quoted)
             LOG.info('Получена оценка ответа; результат=%s', result)
             return
         mentioned = bool(self.username and re.search(r'@' + re.escape(self.username) + r'\b', text, re.I))

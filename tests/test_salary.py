@@ -8,7 +8,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from bot import Store
 from community import community_request
-from feedback import rating_signal
+from feedback import rating_signal, salary_acknowledgement
 import test_feedback as feedback_tests
 
 
@@ -47,6 +47,107 @@ class SalaryTests(unittest.TestCase):
         self.assertEqual(self.store.salary(-100), {'balance': -80, 'plus': 0, 'minus': 1})
         self.assertIn('банк: -80 ₴', self.telegram.sent[0][1])
         self.assertEqual(self.memories(), [])
+
+    def receipt(self, index=-1):
+        chat, text, _ = self.telegram.sent[index]
+        return {'chat': {'id': chat}, 'message_id': 10000 + index + 1 if index >= 0 else 10000 + len(self.telegram.sent),
+                'date': time.time(), 'text': text, 'from': {'id': 99, 'is_bot': True}}
+
+    def test_screenshot_minus_on_salary_receipt_debits_original_reply(self):
+        answer = self.answer()
+        self.bot.handle(self.praise(answer))
+        receipt = self.receipt()
+        self.store.set('feedback_ack:-100', 0)
+        self.bot.handle(self.praise(receipt, text='-', user=8, number=101))
+        self.assertEqual(self.store.salary(-100), {'balance': 0, 'plus': 1, 'minus': 1})
+        self.assertIn('−80 ₴ · банк: 0 ₴', self.telegram.sent[-1][1])
+        with self.store.db() as db:
+            self.assertEqual(db.execute('SELECT message_id FROM salary_votes WHERE direction=-1').fetchone()[0], 1)
+
+    def test_plus_on_receipt_counts_but_same_person_cannot_rate_it_and_original_twice(self):
+        answer = self.answer()
+        self.bot.handle(self.praise(answer))
+        receipt = self.receipt()
+        self.store.set('feedback_ack:-100', 0)
+        self.bot.handle(self.praise(receipt, user=8, number=101))
+        latest = self.receipt()
+        self.bot.handle(self.praise(answer, user=8, number=102))
+        self.bot.handle(self.praise(latest, user=8, number=103))
+        self.assertEqual(self.store.salary(-100), {'balance': 160, 'plus': 2, 'minus': 0})
+        self.assertEqual(len(self.telegram.sent), 2)
+        self.assertEqual(self.memories()[0][2], 2)
+
+    def test_acknowledgement_chain_and_restart_share_one_original(self):
+        answer = self.answer()
+        self.bot.handle(self.praise(answer, text='молодец'))
+        receipt = self.receipt()
+        self.bot.store = Store(self.path)
+        self.store.set('feedback_ack:-100', 0)
+        self.bot.handle(self.praise(receipt, text='-', user=8, number=101))
+        latest = self.receipt()
+        self.bot.store = Store(self.path)
+        self.store.set('feedback_ack:-100', 0)
+        self.bot.handle(self.praise(latest, text='+', user=9, number=102))
+        self.assertEqual(self.store.salary(-100), {'balance': 0, 'plus': 1, 'minus': 1})
+        with self.store.db() as db:
+            self.assertEqual({row[0] for row in db.execute('SELECT answer_id FROM feedback_links')}, {1})
+
+    def test_legacy_receipt_recovers_only_from_unique_confirmed_vote(self):
+        answer = self.answer()
+        self.bot.handle(self.praise(answer))
+        receipt = self.receipt()
+        with self.store.db() as db:
+            db.execute('DELETE FROM feedback_links')
+        self.store.set('feedback_ack:-100', 0)
+        self.bot.handle(self.praise(receipt, text='-', user=8, number=101))
+        self.assertEqual(self.store.salary(-100), {'balance': 0, 'plus': 1, 'minus': 1})
+
+    def test_ambiguous_legacy_receipt_does_not_guess_or_adjust_existing_balance(self):
+        self.bot.handle(self.praise(self.answer()))
+        receipt = self.receipt()
+        self.bot.handle(self.praise(self.answer(number=2), user=9, number=101))
+        with self.store.db() as db:
+            db.execute('DELETE FROM feedback_links')
+        self.bot.handle(self.praise(receipt, text='-', user=8, number=102))
+        self.assertEqual(self.store.salary(-100), {'balance': 160, 'plus': 2, 'minus': 0})
+        self.assertIn('исходную реплику', self.telegram.sent[-1][1])
+
+    def test_receipt_recognition_does_not_accept_arbitrary_reports_or_other_bot(self):
+        for text in ['виртуальний банк 160 ₴', '+80 ₴ · банк: 160 ₴', 'поняв спасибо за оценку\n+100 ₴ · банк: 160 ₴']:
+            self.assertEqual(salary_acknowledgement(text), 0)
+        self.bot.handle(self.praise(self.answer()))
+        receipt = self.receipt()
+        receipt['from']['id'] = 88
+        self.bot.handle(self.praise(receipt, text='-', user=8, number=101))
+        self.assertEqual(self.store.salary(-100), {'balance': 80, 'plus': 1, 'minus': 0})
+
+    def test_altered_quote_and_cross_group_cannot_use_saved_link(self):
+        self.bot.handle(self.praise(self.answer()))
+        receipt = self.receipt()
+        for quoted, chat in [(dict(receipt, text='подмена'), -100), (receipt, -200)]:
+            self.assertEqual(self.store.rate_reply(chat, quoted['message_id'], 8, quoted['text'], -1)[0], 'ignored')
+        self.assertEqual(self.store.salary(-100)['balance'], 80)
+
+    def test_many_people_ratings_during_ack_pause_still_count_both_signs(self):
+        answer = self.answer()
+        self.bot.handle(self.praise(answer))
+        receipt = self.receipt()
+        for user in range(8, 12):
+            self.bot.handle(self.praise(receipt, text='+' if user % 2 else '-', user=user, number=100 + user))
+        self.assertEqual(self.store.salary(-100), {'balance': 80, 'plus': 3, 'minus': 2})
+        self.assertEqual(len(self.telegram.sent), 1)
+
+    def test_concurrent_votes_on_original_and_receipt_cannot_double_pay(self):
+        answer = self.answer()
+        self.bot.handle(self.praise(answer))
+        receipt = self.receipt()
+        def vote(number):
+            target = receipt if number % 2 else answer
+            return self.store.rate_reply(-100, target['message_id'], 8, target['text'], -1)[0]
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            results = list(pool.map(vote, range(12)))
+        self.assertEqual(results.count('rated'), 1)
+        self.assertEqual(self.store.salary(-100), {'balance': 0, 'plus': 1, 'minus': 1})
 
     def test_same_person_has_only_one_salary_vote_on_each_answer_across_restarts(self):
         answer = self.answer()
