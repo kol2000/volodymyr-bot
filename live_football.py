@@ -211,7 +211,7 @@ def parse_page(html, day):
 def fetch_html(url):
     request = urllib.request.Request(url, headers={
         'User-Agent': 'volodymyr-bot/1.0 (+https://github.com/kol2000/volodymyr-bot)',
-        'Accept': 'text/html', 'Cache-Control': 'no-cache',
+        'Accept': 'text/html', 'Cache-Control': 'no-cache, max-age=0', 'Pragma': 'no-cache',
     })
     try:
         with urllib.request.urlopen(request, timeout=12) as response:
@@ -313,7 +313,12 @@ class Scoreboard:
                     candidates = [m for m in matches if near_match(m, now) and m.id not in self.final]
                     def refresh(match):
                         started = time.monotonic()
-                        result = parse_match_page(self.match_fetch(match.url + '/'), match)
+                        # The site's upstream cache has served a pre-match/early
+                        # score for many minutes despite no-cache headers and a
+                        # fresh HTTP Date. A unique request key gives us the current
+                        # scoreboard (verified on CSKA–Rodina: stale 0:0 vs 2:0).
+                        url = match.url + '/?_=' + str(time.time_ns())
+                        result = parse_match_page(self.match_fetch(url), match)
                         LOG.info('Футбол: страница матча=%s; статус=%s; счет=%s:%s; получено=%s; запрос=%.3f сек.',
                                  match.id, result.status, result.home_score, result.away_score,
                                  datetime.fromtimestamp(self.clock(), MOSCOW).isoformat(), time.monotonic() - started)

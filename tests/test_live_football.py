@@ -233,13 +233,21 @@ class DirectSourceTests(unittest.TestCase):
         rows, checked = source.day(DAY)
         self.assertEqual((rows[0].status, rows[0].home_score), ('live', 1))
         self.assertEqual(checked, now[0])
-        self.assertEqual(calls, [fixture().url + '/'])
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(calls[0].startswith(fixture().url + '/?_='))
         now[0] += 9
         source.day(DAY)
         self.assertEqual(len(calls), 1)
         now[0] += 11
         source.day(DAY)
         self.assertEqual(len(calls), 2)
+        self.assertNotEqual(calls[0], calls[1])
+
+    def test_fresh_request_key_bypasses_old_zero_zero_snapshot(self):
+        source = Scoreboard(fetch=lambda u: page(), clock=lambda: START + 3300,
+                            match_fetch=lambda u: match_page('break', (2, 0)) if '/?_=' in u else match_page('live', (0, 0)))
+        row = source.day(DAY)[0][0]
+        self.assertEqual((row.status, row.home_score, row.away_score), ('break', 2, 0))
 
     def test_direct_failure_does_not_fall_back_to_older_daily_score(self):
         source = Scoreboard(fetch=lambda u: page(), clock=lambda: START,
