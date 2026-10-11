@@ -441,7 +441,8 @@ def changes(previous, match, now):
     old_status, old_score = previous.get('status'), previous.get('score')
     current = [match.home_score, match.away_score]
     events = []
-    if match.status in ACTIVE and old_status in ('scheduled', 'paused', 'unknown'):
+    if (match.status in ACTIVE and old_status in ('scheduled', 'paused', 'unknown')
+            and (old_status == 'paused' or not already_started(previous))):
         events.append(('start', '⚽ Матч начался' if old_status == 'scheduled' else '⚽ Матч продолжается'))
     if old_score != current and None not in current and old_score and None not in old_score:
         if match.status in ACTIVE or (match.status == FINISHED and old_status in ACTIVE):
@@ -460,6 +461,24 @@ def changes(previous, match, now):
     if len(events) > 1:
         return [(events[-1][0], ' · '.join(title for _, title in events))]
     return events
+
+
+def already_started(previous):
+    """Infer the marker for installations predating the persistent start flag."""
+    if not previous:
+        return False
+    return bool(previous.get('started') or previous.get('status') in ACTIVE | {FINISHED}
+            or (previous.get('status') == 'paused' and previous.get('score')
+                and None not in previous['score']))
+
+
+def remembered_state(previous, match, checked):
+    started = bool(already_started(previous) or match.status in ACTIVE | {FINISHED})
+    # An observed live match cannot become an unstarted preview again. Preserve
+    # its confirmed score as well, so the next goal is compared with that score.
+    if already_started(previous) and match.status in ('scheduled', 'unknown'):
+        return dict(previous, started=True)
+    return dict(match.state(), checked=checked, started=started)
 
 
 QUIPS = {'start': 'ну шо побегайте хоть нормально', 'live': 'шо там уже начали без меня',
@@ -519,7 +538,9 @@ class Football:
                 if target != self.store.get('chat_id'):
                     raise FootballError('chat_changed')
                 if not self.enabled():
-                    self.store.set(PREFIX + f'seen:{target}', {m.id: dict(m.state(), checked=checked) for m in matches})
+                    previous = self.store.get(PREFIX + f'seen:{target}', {})
+                    self.store.set(PREFIX + f'seen:{target}',
+                                   {m.id: remembered_state(previous.get(m.id), m, checked) for m in matches})
                 self.store.set(PREFIX + 'enabled', True)
                 self.store.set(PREFIX + 'next_poll', 0)
             return HTMLMessage('⚽ <b>Уведомления включены в подключённой группе</b>\n'
@@ -580,8 +601,12 @@ class Football:
                 # A source can briefly regress a final status to live. Never replay it.
                 if previous and previous.get('status') == FINISHED:
                     continue
+                if already_started(previous) and match.status in ('scheduled', 'unknown'):
+                    LOG.warning('Футбольный откат статуса пропущен: матч=%s; сохранено=%s; получено=%s',
+                                match.id, previous.get('status'), match.status)
+                    continue
                 events = changes(previous, match, now)
-                latest[match.id] = dict(match.state(), checked=checked)
+                latest[match.id] = remembered_state(previous, match, checked)
                 latest = {key: row for key, row in latest.items() if row.get('kickoff', 0) >= now - 2 * 86400}
                 self.store.set(PREFIX + f'seen:{chat_id}', latest)
                 if events:

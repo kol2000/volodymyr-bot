@@ -362,6 +362,62 @@ class MonitorTests(unittest.TestCase):
         self.assertIn('Счет изменился', self.sent[-1][1])
         self.assertNotIn('Гол!', self.sent[-1][1])
 
+    def test_live_preview_live_does_not_announce_start_twice(self):
+        self.enable()
+        self.poll([fixture('live', (0, 0))])
+        self.poll([fixture()])
+        self.poll([fixture('live', (0, 0))])
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn('Матч начался', self.sent[0][1])
+        row = self.store.get(PREFIX + 'seen:-100')['444320']
+        self.assertTrue(row['started'])
+        self.assertEqual((row['status'], row['score']), ('live', [0, 0]))
+
+    def test_preview_regression_keeps_score_for_next_goal_and_var_correction(self):
+        self.enable()
+        self.poll([fixture('live', (1, 0))])
+        self.poll([fixture()])
+        self.poll([fixture('live', (2, 0))])
+        self.poll([fixture('live', (1, 0))])
+        self.assertEqual(len(self.sent), 3)
+        self.assertIn('Счет изменился', self.sent[1][1])
+        self.assertIn('2:0', self.sent[1][1])
+        self.assertIn('1:0', self.sent[2][1])
+
+    def test_start_marker_survives_restart_and_preview_regression(self):
+        self.enable()
+        self.poll([fixture('live', (0, 0))])
+        self.football = Football(Store(Path(self.temp.name) / 'bot.sqlite3'), self.source, clock=lambda: self.now[0])
+        self.poll([fixture()])
+        self.poll([fixture('live', (0, 0))])
+        self.assertEqual(len(self.sent), 1)
+
+    def test_legacy_active_state_without_marker_is_not_restarted(self):
+        self.enable()
+        self.store.set(PREFIX + 'seen:-100', {'444320': fixture('live', (1, 0)).state()})
+        self.poll([fixture('unknown', (None, None))])
+        self.poll([fixture()])
+        self.poll([fixture('live', (1, 0))])
+        self.assertEqual(self.sent, [])
+        self.assertTrue(self.store.get(PREFIX + 'seen:-100')['444320']['started'])
+
+    def test_switch_off_on_cannot_reset_started_match_to_preview(self):
+        self.enable()
+        self.poll([fixture('live', (0, 0))])
+        self.football.answer({'kind': 'football_switch', 'enabled': False}, -100)
+        self.rows = [fixture()]
+        self.enable()
+        self.poll([fixture('live', (0, 0))])
+        self.assertEqual(len(self.sent), 1)
+
+    def test_first_seen_live_then_preview_does_not_create_false_start(self):
+        self.store.set(PREFIX + 'enabled', True)
+        self.poll([fixture('live', (0, 0))])
+        self.poll([fixture()])
+        self.poll([fixture('live', (0, 0))])
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn('Матч сейчас идёт', self.sent[0][1])
+
     def test_uncertain_send_is_reserved_and_not_replayed_after_restart(self):
         self.enable()
         self.now[0] = START
