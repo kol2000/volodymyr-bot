@@ -1149,9 +1149,12 @@ class Bot:
         if not self.allowed(chat_id) or chat_id != self.store.get('chat_id'):
             return
         try:
+            started = time.monotonic()
             sent = self.telegram.send(chat_id, answer)
             self.store.add_message(sent, human=False, learnable=False, rateable=False)
-            LOG.info('Футбольное уведомление отправлено')
+            LOG.info('Футбольное уведомление отправлено: Telegram=%s; отправка=%.3f сек.',
+                     datetime.fromtimestamp(sent.get('date', time.time()), MOSCOW).isoformat(),
+                     time.monotonic() - started)
         except APIError as error:
             if error.retry_after:
                 self.store.set('blocked_until', time.time() + error.retry_after)
@@ -1166,8 +1169,8 @@ class Bot:
                 self.football.poll(self.send_football, self.allowed)
             except Exception as error:
                 LOG.error('Футбольная проверка не выполнена: %s', type(error).__name__)
-                self.store.set(FOOTBALL_PREFIX + 'next_poll', time.time() + 300)
-            time.sleep(5)
+                self.store.set(FOOTBALL_PREFIX + 'next_poll', time.time() + 30)
+            time.sleep(1)
 
     def run(self):
         identity = self.telegram.call('getMe')

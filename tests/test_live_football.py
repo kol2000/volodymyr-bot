@@ -1,4 +1,5 @@
 import dataclasses
+import json
 from datetime import date, datetime, timedelta, timezone
 import tempfile
 import threading
@@ -10,7 +11,7 @@ from bot import Bot, Store
 from common import APIError, HTMLMessage, MODEL
 from live_football import (ACTIVE, BASE, FINISHED, PREFIX, Football, FootballError,
                            MOSCOW, MONTHS, Match, Scoreboard, changes, fetch_html,
-                           football_request, parse_page, scoreboard_text, status_code)
+                           football_request, parse_page, parse_match_page, scoreboard_text, status_code)
 from test_bot import FakeTelegram
 
 
@@ -47,6 +48,19 @@ def fixture(status='scheduled', scores=(None, None), **kwargs):
                   'finished': 'завершен', 'penalties': 'пенальти', 'paused': 'отложен',
                   'unknown': 'неизвестно'}[status], *scores,
                  BASE + '/football/n/russia/premier/match-rostov-akron-444320', **kwargs)
+
+
+def match_page(status='live', scores=(0, 0), **overrides):
+    m = fixture(status, scores)
+    row = {'id': int(m.id), 'date': '2026-10-09T19:30:00.000Z',
+           'homeTeam': {'name': m.home}, 'guestTeam': {'name': m.away},
+           'competition': {'name': 'Чемпионат России. Премьер-лига'},
+           'status': {'code': {'live': '1st-period', 'scheduled': 'not-started',
+                              'finished': 'finished'}.get(status, status), 'name': m.label},
+           'score': {'homeScore': scores[0], 'guestScore': scores[1]}}
+    row.update(overrides)
+    data = {'props': {'pageProps': {'vm': {'components': {'scoreboard': {'match': row}}}}}}
+    return '<script id="__NEXT_DATA__" type="application/json">' + json.dumps(data) + '</script>'
 
 
 class ParsingTests(unittest.TestCase):
@@ -155,21 +169,24 @@ class SourceTests(unittest.TestCase):
     def test_cache_shares_requests_and_keeps_original_check_time(self):
         now = [1000]
         calls = []
-        source = Scoreboard(fetch=lambda url: calls.append(url) or page(), clock=lambda: now[0])
+        source = Scoreboard(match_fetch=None, fetch=lambda url: calls.append(url) or page(), clock=lambda: now[0])
         first = source.day(DAY)
-        now[0] += 59
+        now[0] += 9
         self.assertEqual(source.day(DAY), first)
         self.assertEqual(len(calls), 1)
         now[0] += 1
+        self.assertEqual(source.day(DAY)[1], first[1])
+        self.assertEqual(len(calls), 1)
+        now[0] += 300
         self.assertEqual(source.day(DAY)[1], now[0])
         self.assertEqual(len(calls), 2)
         self.assertTrue(calls[0].endswith('/09-10-2026/'))
 
     def test_failed_refresh_does_not_return_stale_score(self):
         now = [1000]
-        source = Scoreboard(fetch=lambda url: page(), clock=lambda: now[0])
+        source = Scoreboard(match_fetch=None, fetch=lambda url: page(), clock=lambda: now[0])
         source.day(DAY)
-        now[0] += 61
+        now[0] += 301
         source.fetch = lambda url: '<html>blocked</html>'
         with self.assertRaises(FootballError):
             source.day(DAY)
@@ -180,7 +197,7 @@ class SourceTests(unittest.TestCase):
 
     def test_concurrent_manual_and_monitor_calls_share_fetch(self):
         calls = []
-        source = Scoreboard(fetch=lambda url: calls.append(url) or page())
+        source = Scoreboard(match_fetch=None, fetch=lambda url: calls.append(url) or page())
         threads = [threading.Thread(target=lambda: source.day(DAY)) for _ in range(4)]
         for thread in threads:
             thread.start()
@@ -207,6 +224,57 @@ class SourceTests(unittest.TestCase):
                 fetch_html(Response.url)
 
 
+class DirectSourceTests(unittest.TestCase):
+    def test_direct_match_has_priority_over_delayed_daily_page(self):
+        now = [START + 100]
+        calls = []
+        source = Scoreboard(fetch=lambda u: page(), clock=lambda: now[0],
+                            match_fetch=lambda u: calls.append(u) or match_page('live', (1, 0)))
+        rows, checked = source.day(DAY)
+        self.assertEqual((rows[0].status, rows[0].home_score), ('live', 1))
+        self.assertEqual(checked, now[0])
+        self.assertEqual(calls, [fixture().url + '/'])
+        now[0] += 9
+        source.day(DAY)
+        self.assertEqual(len(calls), 1)
+        now[0] += 11
+        source.day(DAY)
+        self.assertEqual(len(calls), 2)
+
+    def test_direct_failure_does_not_fall_back_to_older_daily_score(self):
+        source = Scoreboard(fetch=lambda u: page(), clock=lambda: START,
+                            match_fetch=lambda u: '<html>blocked</html>')
+        with self.assertRaisesRegex(FootballError, 'invalid_match_page'):
+            source.day(DAY)
+
+    def test_final_is_confirmed_directly_and_not_regressed_by_discovery(self):
+        now = [START + 7200]
+        calls = []
+        source = Scoreboard(fetch=lambda u: page(), clock=lambda: now[0],
+                            match_fetch=lambda u: calls.append(u) or match_page('finished', (0, 0)))
+        self.assertEqual(source.day(DAY)[0][0].status, 'finished')
+        stamp = source.day(DAY)[1]
+        now[0] += 20
+        self.assertEqual(source.day(DAY)[1], stamp)
+        now[0] += 301
+        self.assertEqual(source.day(DAY)[0][0].status, 'finished')
+        self.assertEqual(len(calls), 1)
+
+    def test_unrelated_match_and_bad_score_are_rejected(self):
+        for changes in [{'id': 999}, {'homeTeam': {'name': 'Зенит'}},
+                        {'date': '2026-10-08T19:30:00.000Z'},
+                        {'competition': {'name': 'Россия. ФНЛ'}},
+                        {'score': {'homeScore': True, 'guestScore': 0}}]:
+            with self.subTest(changes=changes), self.assertRaises(FootballError):
+                parse_match_page(match_page(**changes), fixture())
+
+    def test_moscow_clock_and_penalty_score_are_not_misread(self):
+        html = match_page('penalties', (1, 1), score={'homeScore': 1, 'guestScore': 1,
+                                                  'penalties': {'homeScore': 4, 'guestScore': 3}})
+        row = parse_match_page(html, fixture())
+        self.assertEqual((row.status, row.extra, row.kickoff), ('penalties', 'пен. 4:3', START))
+
+
 class MonitorTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -214,7 +282,7 @@ class MonitorTests(unittest.TestCase):
         self.store.set('chat_id', -100)
         self.now = [START - 600]
         self.rows = [fixture()]
-        self.source = Scoreboard(fetch=lambda url: page(), clock=lambda: self.now[0])
+        self.source = Scoreboard(match_fetch=None, fetch=lambda url: page(), clock=lambda: self.now[0])
         self.source.day = lambda day: (self.rows, self.now[0])
         self.football = Football(self.store, self.source, clock=lambda: self.now[0])
         self.sent = []
@@ -234,6 +302,28 @@ class MonitorTests(unittest.TestCase):
             if fail:
                 raise APIError('uncertain')
         self.football.poll(send, lambda chat: chat == self.store.get('chat_id'))
+
+    def test_live_interval_is_twenty_seconds(self):
+        self.enable()
+        self.poll([fixture('live', (0, 0))])
+        self.assertEqual(self.store.get(PREFIX + 'next_poll'), self.now[0] + 20)
+        with patch.object(self.source, 'day') as check:
+            self.poll(advance=19)
+            check.assert_not_called()
+        self.poll([fixture('live', (1, 0))], advance=1)
+        self.assertEqual(len(self.sent), 2)
+
+    def test_idle_poll_wakes_at_warmup_boundary(self):
+        self.enable()
+        self.now[0] = START - 1000
+        self.poll(advance=0)
+        self.assertEqual(self.store.get(PREFIX + 'next_poll'), START - 900)
+
+    def test_restart_does_not_wait_old_fifteen_minute_deadline(self):
+        self.enable()
+        self.store.set(PREFIX + 'next_poll', self.now[0] + 900)
+        self.poll([fixture('live', (0, 0))])
+        self.assertEqual(len(self.sent), 1)
 
     def test_disabled_poll_has_no_network(self):
         with patch.object(self.source, 'day') as fetch:
@@ -322,7 +412,7 @@ class MonitorTests(unittest.TestCase):
         with patch.object(self.source, 'day', side_effect=FootballError('network_error')) as fetch:
             self.poll([fixture('live', (1, 0))])
             self.assertEqual(self.store.get(PREFIX + 'seen:-100'), before)
-            self.poll()
+            self.poll(advance=10)
             self.assertEqual(fetch.call_count, 1)
         self.assertEqual(self.sent, [])
         self.assertIn('network_error', self.football.answer({'kind': 'football_status'}, -100))

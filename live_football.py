@@ -1,11 +1,13 @@
 """Public match-centre scores for RPL/Russian Cup; no API key or LLM."""
 import logging
+import json
 import re
 import threading
 import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from html import escape
 from html.parser import HTMLParser
@@ -23,6 +25,14 @@ MONTHS = ('января', 'февраля', 'марта', 'апреля', 'ма�
           'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря')
 ACTIVE = {'live', 'break', 'penalties'}
 FINISHED = 'finished'
+LIVE_INTERVAL = 20
+IDLE_INTERVAL = 300
+CACHE_SECONDS = 10
+
+
+def near_match(match, now):
+    return (match.status in ACTIVE or
+            -6 * 3600 <= match.kickoff - now <= 15 * 60)
 
 
 class FootballError(Exception):
@@ -226,10 +236,57 @@ def fetch_html(url):
         raise FootballError('invalid_encoding') from None
 
 
+def parse_match_page(html, expected):
+    """The match page's own scoreboard, never unrelated cards or historical games."""
+    try:
+        scripts = [node for node in Document(html).root.walk()
+                   if node.tag == 'script' and node.attrs.get('id') == '__NEXT_DATA__']
+        if len(scripts) != 1:
+            raise ValueError()
+        payload = ''.join(c for c in scripts[0].children if isinstance(c, str))
+        board = json.loads(payload)['props']['pageProps']['vm']['components']['scoreboard']
+        row = board['match']
+        if (str(row['id']) != expected.id or row['homeTeam']['name'] != expected.home
+                or row['guestTeam']['name'] != expected.away
+                or row['competition']['name'].casefold() not in
+                ('чемпионат россии. премьер-лига', 'кубок россии', 'fonbet кубок россии', 'фонбет кубок россии')):
+            raise ValueError()
+        # This source puts Moscow wall time in a string ending in Z. Validate the
+        # displayed local clock against discovery; do not apply a second UTC offset.
+        wall = datetime.fromisoformat(row['date'].replace('Z', '+00:00')).replace(tzinfo=MOSCOW)
+        if abs(wall.timestamp() - expected.kickoff) > 60:
+            raise ValueError()
+        label = row['status']['name']
+        if not isinstance(label, str) or not label or len(label) > 80:
+            raise ValueError()
+        code = row['status']['code']
+        status = {'finished': FINISHED, 'not-started': 'scheduled', 'delayed': 'paused',
+                  'interrupt': 'paused', 'voided': 'paused', 'penalties': 'penalties'}.get(code, status_code(label))
+        score = row.get('score') or {}
+        home, away = score.get('homeScore'), score.get('guestScore')
+        if status == 'scheduled':
+            home = away = None
+        elif any(type(n) is not int or not 0 <= n <= 30 for n in (home, away)):
+            raise ValueError()
+        extra = ''
+        penalties = score.get('penalties')
+        if penalties:
+            a, b = penalties['homeScore'], penalties['guestScore']
+            if any(type(n) is not int or not 0 <= n <= 50 for n in (a, b)):
+                raise ValueError()
+            extra = f'пен. {a}:{b}'
+        return replace(expected, status=status, label=label, home_score=home, away_score=away, extra=extra)
+    except (ValueError, TypeError, KeyError, AttributeError, RecursionError):
+        raise FootballError('invalid_match_page') from None
+
+
 class Scoreboard:
-    def __init__(self, fetch=fetch_html, clock=time.time):
-        self.fetch, self.clock = fetch, clock
+    def __init__(self, fetch=fetch_html, clock=time.time, match_fetch=fetch_html):
+        self.fetch, self.clock, self.match_fetch = fetch, clock, match_fetch
         self.cache = {}
+        self.discovery = {}
+        self.final = {}
+        self.final_checked = {}
         self.lock = threading.Lock()
         self.requests = 0
         self.last_success = 0
@@ -239,22 +296,46 @@ class Scoreboard:
         with self.lock:
             now = self.clock()
             saved = self.cache.get(day)
-            if saved and now - saved[0] < 60:
+            if saved and now - saved[0] < CACHE_SECONDS:
                 if isinstance(saved[1], FootballError):
                     raise saved[1]
-                return saved[1], saved[0]
+                return saved[1], saved[2]
             self.requests += 1
             try:
-                html = self.fetch(BASE + '/live/football/' + day.strftime('%d-%m-%Y') + '/')
-                matches = parse_page(html, day)
+                discovery = self.discovery.get(day)
+                if not discovery or now - discovery[0] >= IDLE_INTERVAL:
+                    html = self.fetch(BASE + '/live/football/' + day.strftime('%d-%m-%Y') + '/')
+                    discovery = (self.clock(), parse_page(html, day))
+                    self.discovery[day] = discovery
+                matches = list(discovery[1])
+                checked = discovery[0]
+                if self.match_fetch:
+                    candidates = [m for m in matches if near_match(m, now) and m.id not in self.final]
+                    def refresh(match):
+                        started = time.monotonic()
+                        result = parse_match_page(self.match_fetch(match.url + '/'), match)
+                        LOG.info('Футбол: страница матча=%s; статус=%s; счет=%s:%s; получено=%s; запрос=%.3f сек.',
+                                 match.id, result.status, result.home_score, result.away_score,
+                                 datetime.fromtimestamp(self.clock(), MOSCOW).isoformat(), time.monotonic() - started)
+                        return result
+                    with ThreadPoolExecutor(max_workers=4) as executor:
+                        refreshed = list(executor.map(refresh, candidates))
+                    updates = {m.id: m for m in refreshed}
+                    self.final.update({m.id: m for m in refreshed if m.status == FINISHED})
+                    self.final_checked.update({m.id: self.clock() for m in refreshed if m.status == FINISHED})
+                    matches = [self.final.get(m.id, updates.get(m.id, m)) for m in matches]
+                    checked = self.clock() if refreshed else max([checked] + [self.final_checked.get(m.id, 0) for m in matches])
             except FootballError as error:
                 self.last_error = str(error)
                 self.cache[day] = (now, error)
                 raise
-            self.last_success, self.last_error = self.clock(), ''
-            self.cache[day] = (self.last_success, matches)
+            self.last_success, self.last_error = checked, ''
+            self.cache[day] = (self.clock(), matches, checked)
             for old in sorted(self.cache)[:-8]:
                 del self.cache[old]
+                self.discovery.pop(old, None)
+            self.final = {key: m for key, m in self.final.items() if m.kickoff >= now - 2 * 86400}
+            self.final_checked = {key: stamp for key, stamp in self.final_checked.items() if key in self.final}
             return matches, self.last_success
 
 
@@ -394,6 +475,7 @@ class Football:
     def __init__(self, store, source=None, clock=time.time):
         self.store, self.source, self.clock = store, source or Scoreboard(), clock
         self.lock = threading.Lock()
+        self.first_poll = True
 
     def enabled(self):
         return bool(self.store.get(PREFIX + 'enabled', False))
@@ -414,8 +496,9 @@ class Football:
             return ('Футбол: ' + ('включён' if self.enabled() else 'выключен') + '\n'
                     'Источник: Спорт-Экспресс; только РПЛ и Кубок России\n'
                     f'Последняя проверка: {last}\nПоследняя ошибка: {reason}\n'
-                    'При матчах: проверка раз в 90 секунд; вне игр — раз в 15 минут.\n'
-                    'Фактическая задержка зависит от обновления источника.')
+                    'Текущие матчи: прямые страницы каждые 20 секунд; кэш 10 секунд.\n'
+                    'Расписание: каждые 5 минут; перед стартом ожидание сокращается.\n'
+                    'Время «проверено» — получение данных, не публикация события сайтом.')
         now = self.clock()
         day = datetime.fromtimestamp(now, MOSCOW).date()
         if kind == 'football_switch' and not target:
@@ -446,8 +529,11 @@ class Football:
         chat_id = self.store.get('chat_id')
         if not self.enabled() or not chat_id or not allowed(chat_id):
             return
-        if now < self.store.get(PREFIX + 'next_poll', 0) or now < self.store.get('blocked_until', 0):
+        if now < self.store.get('blocked_until', 0):
             return
+        if not self.first_poll and now < self.store.get(PREFIX + 'next_poll', 0):
+            return
+        self.first_poll = False
         day = datetime.fromtimestamp(now, MOSCOW).date()
         seen = self.store.get(PREFIX + f'seen:{chat_id}', {})
         days = [day]
@@ -463,13 +549,19 @@ class Football:
             self.store.set(PREFIX + 'error', '')
         except FootballError as error:
             self.store.set(PREFIX + 'error', str(error))
-            self.store.set(PREFIX + 'next_poll', now + 300)
+            self.store.set(PREFIX + 'next_poll', now + 30)
             LOG.warning('Футбольный источник недоступен: причина=%s', error)
             return
         active = any(match.status in ACTIVE or (match.status in ('scheduled', 'paused', 'unknown')
-                     and -6 * 3600 <= match.kickoff - now <= 15 * 60) for match, _ in snapshots)
-        self.store.set(PREFIX + 'next_poll', now + (90 if active else 900))
-        LOG.info('Футбольная проверка: матчей=%s; интервал=%s сек.', len(snapshots), 90 if active else 900)
+                     and near_match(match, now)) for match, _ in snapshots)
+        interval = LIVE_INTERVAL if active else IDLE_INTERVAL
+        # An idle check must not sleep through the next match's warm-up window.
+        upcoming = [match.kickoff - 15 * 60 - now for match, _ in snapshots
+                    if match.status == 'scheduled' and match.kickoff - 15 * 60 > now]
+        if upcoming:
+            interval = min(interval, max(1, min(upcoming)))
+        self.store.set(PREFIX + 'next_poll', now + interval)
+        LOG.info('Футбольная проверка: матчей=%s; интервал=%s сек.', len(snapshots), interval)
         for match, checked in snapshots:
             with self.lock:
                 if not self.enabled() or chat_id != self.store.get('chat_id') or not allowed(chat_id):
@@ -489,6 +581,9 @@ class Football:
                 self.store.set(PREFIX + f'seen:{chat_id}', latest)
                 if events:
                     # Lock serializes /football_off with the send and state reservation.
+                    LOG.info('Футбольное событие: матч=%s; событие=%s; получено=%s; до отправки=%.3f сек.',
+                             match.id, events[0][0], datetime.fromtimestamp(checked, MOSCOW).isoformat(),
+                             max(0, self.clock() - checked))
                     send(chat_id, event_text(match, events[0], checked))
 
 
