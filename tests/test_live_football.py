@@ -11,7 +11,8 @@ from bot import Bot, Store
 from common import APIError, HTMLMessage, MODEL
 from live_football import (ACTIVE, BASE, FINISHED, PREFIX, Football, FootballError,
                            MOSCOW, MONTHS, Match, Scoreboard, changes, fetch_html,
-                           football_request, parse_page, parse_match_page, scoreboard_text, status_code)
+                           Goal, event_text, goals_between, football_request, parse_page,
+                           parse_match_page, scoreboard_text, status_code)
 from test_bot import FakeTelegram
 
 
@@ -61,6 +62,80 @@ def match_page(status='live', scores=(0, 0), **overrides):
     row.update(overrides)
     data = {'props': {'pageProps': {'vm': {'components': {'scoreboard': {'match': row}}}}}}
     return '<script id="__NEXT_DATA__" type="application/json">' + json.dumps(data) + '</script>'
+
+
+def scoring_page(events, scores=(1, 0), removed=None, status='live'):
+    html = match_page(status, scores)
+    data = json.loads(html.split('>', 1)[1].rsplit('</script>', 1)[0])
+    data['props']['pageProps']['vm']['components']['translation'] = {
+        'events': events, 'deleteEventIds': removed}
+    return '<script id="__NEXT_DATA__">' + json.dumps(data).replace('<', '\\u003c') + '</script>'
+
+
+def goal_row(score='1:0', identifier=1, **kwargs):
+    return dict({'id': identifier, 'kind': 'event', 'type': 'goal', 'score': score,
+                 'time': 30, 'bonusTime': 0, 'isPenaltySeries': False,
+                 'player': {'firstName': 'Иван', 'lastName': 'Игрок'},
+                 'text': '<p>После прострела <strong>пробил в угол</strong>.</p>'}, **kwargs)
+
+
+def goal(score=(1, 0), identifier='1', **kwargs):
+    return Goal(identifier, score, kwargs.get('minute', '30′'),
+                kwargs.get('player', 'Иван Игрок'), kwargs.get('kind', 'goal'),
+                kwargs.get('description', 'После прострела пробил в угол.'))
+
+
+class GoalTests(unittest.TestCase):
+    def test_own_goal_uses_broadcast_author_minute_and_plain_description(self):
+        row = goal_row('0:1', type='own-goal', player={'firstName': 'Жахонгир', 'lastName': 'Урозов '})
+        match = parse_match_page(scoring_page([row], (0, 1)), fixture())
+        self.assertEqual(match.goals, (goal((0, 1), kind='own-goal', player='Жахонгир Урозов'),))
+        rendered = event_text(match, ('score', '⚽ Счет изменился'), START, match.goals)
+        for value in ['30′', 'Автогол', 'Жахонгир Урозов', '0:1', 'После прострела пробил в угол.']:
+            self.assertIn(value, rendered)
+
+    def test_added_time_and_penalty_goal_are_distinct_from_shootout(self):
+        row = goal_row(type='penalty-goal', time=90, bonusTime=3)
+        match = parse_match_page(scoring_page([row]), fixture())
+        self.assertEqual(match.goals[0].minute, '90+3′')
+        self.assertIn('Гол с пенальти', event_text(match, ('score', 'Счет'), START, match.goals))
+        match = parse_match_page(scoring_page([dict(row, isPenaltySeries=True)]), fixture())
+        self.assertEqual(match.goals, ())
+
+    def test_invalid_incomplete_deleted_or_non_goal_rows_do_not_break_score(self):
+        rows = [None, {'type': 'goal'}, goal_row(score='error'), goal_row(time=True),
+                goal_row(player=None), goal_row(text=''), goal_row(text=123),
+                goal_row(kind='text'), goal_row(type='dangerous-moment'), goal_row()]
+        match = parse_match_page(scoring_page(rows, removed=[1]), fixture())
+        self.assertEqual(match.goals, ())
+        self.assertEqual((match.home_score, match.away_score), (1, 0))
+
+    def test_two_goals_in_one_check_are_ordered_by_score_not_feed_order(self):
+        match = fixture('live', (2, 0), goals=(goal((2, 0), '2'), goal()))
+        self.assertEqual([g.score for g in goals_between(match, [0, 0])], [(1, 0), (2, 0)])
+        self.assertEqual(goals_between(match, [1, 0]), (goal((2, 0), '2'),))
+
+    def test_incomplete_or_ambiguous_chain_and_score_decrease_have_no_scorers(self):
+        for match, before in [(fixture('live', (2, 0), goals=(goal((2, 0), '2'),)), [0, 0]),
+                              (fixture('live', (1, 0), goals=(goal(), goal(identifier='2'))), [0, 0]),
+                              (fixture('live', (0, 0), goals=(goal(),)), [1, 0]),
+                              (fixture('live', (1, 1), goals=(goal(), goal((0, 1), '2'))), [0, 0])]:
+            self.assertEqual(goals_between(match, before), ())
+
+    def test_untrusted_markup_is_escaped_and_large_notification_fits_telegram(self):
+        row = goal_row(player={'firstName': '<b>x', 'lastName': '& y'},
+                       text='<p>удар &amp; <script>unsafe</script>гол</p>')
+        match = parse_match_page(scoring_page([row]), fixture())
+        rendered = event_text(match, ('score', 'Счет'), START, match.goals)
+        self.assertIn('&lt;b&gt;x &amp; y', rendered)
+        self.assertNotIn('unsafe', rendered)
+        goals = tuple(goal((n, 0), str(n), description='&' * 600) for n in range(1, 30))
+        rendered = event_text(fixture('live', (29, 0)), ('score', 'Счет'), START, goals)
+        self.assertLess(len(rendered.encode('utf-16-le')) // 2, 4096)
+        match = dataclasses.replace(fixture('live', (29, 0)), home='&' * 80, away='<' * 80)
+        goals = tuple(goal((n, 0), str(n), description='⚽' * 600) for n in range(1, 30))
+        rendered = event_text(match, ('score', 'Счет'), START, goals, awaiting=True)
+        self.assertLess(len(rendered.encode('utf-16-le')) // 2, 4096)
 
 
 class ParsingTests(unittest.TestCase):
@@ -225,6 +300,26 @@ class SourceTests(unittest.TestCase):
 
 
 class DirectSourceTests(unittest.TestCase):
+    def test_final_score_is_refetched_until_broadcast_goal_details_arrive(self):
+        now = [START + 100]
+        calls = []
+        responses = [match_page('finished', (1, 0)),
+                     scoring_page([goal_row()], (1, 0), status='finished')]
+        def fetch(url):
+            calls.append(url)
+            return responses[min(len(calls) - 1, 1)]
+        source = Scoreboard(fetch=lambda u: page(), clock=lambda: now[0], match_fetch=fetch)
+        first, _ = source.day(DAY)
+        self.assertEqual(first[0].goals, ())
+        self.assertNotIn('444320', source.final)
+        now[0] += 20
+        second, _ = source.day(DAY)
+        self.assertEqual(len(second[0].goals), 1)
+        self.assertIn('444320', source.final)
+        now[0] += 20
+        source.day(DAY)
+        self.assertEqual(len(calls), 2)
+
     def test_direct_match_has_priority_over_delayed_daily_page(self):
         now = [START + 100]
         calls = []
@@ -310,6 +405,87 @@ class MonitorTests(unittest.TestCase):
             if fail:
                 raise APIError('uncertain')
         self.football.poll(send, lambda chat: chat == self.store.get('chat_id'))
+
+    def test_goal_card_contains_author_minute_and_description_in_same_send(self):
+        self.enable()
+        self.poll([fixture('live', (0, 0))])
+        self.poll([fixture('live', (1, 0), goals=(goal(),))])
+        self.assertEqual(len(self.sent), 2)
+        self.assertIn('Иван Игрок', self.sent[-1][1])
+        self.assertIn('30′', self.sent[-1][1])
+        self.assertIn('После прострела', self.sent[-1][1])
+        self.assertEqual(self.store.get(PREFIX + 'seen:-100')['444320']['pending_goals'], [])
+
+    def test_first_live_snapshot_with_goal_includes_details(self):
+        self.enable()
+        self.poll([fixture('live', (1, 0), goals=(goal(),))])
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn('Иван Игрок', self.sent[-1][1])
+
+    def test_delayed_description_is_sent_once_even_after_restart(self):
+        self.enable()
+        self.poll([fixture('live', (0, 0))])
+        self.poll([fixture('live', (1, 0))])
+        self.assertIn('ещё не подтверждены', self.sent[-1][1])
+        self.football = Football(Store(Path(self.temp.name) / 'bot.sqlite3'), self.source, clock=lambda: self.now[0])
+        self.poll([fixture('live', (1, 0), goals=(goal(),))])
+        self.assertIn('Подробности гола', self.sent[-1][1])
+        self.assertIn('Иван Игрок', self.sent[-1][1])
+        self.football = Football(Store(Path(self.temp.name) / 'bot.sqlite3'), self.source, clock=lambda: self.now[0])
+        self.poll()
+        self.assertEqual(len(self.sent), 3)
+
+    def test_next_goal_and_late_previous_description_share_one_notification(self):
+        self.enable()
+        self.poll([fixture('live', (0, 0))])
+        self.poll([fixture('live', (1, 0))])
+        self.poll([fixture('live', (2, 0), goals=(goal(), goal((2, 0), '2', player='Другой Игрок')))])
+        self.assertEqual(len(self.sent), 3)
+        self.assertIn('Иван Игрок', self.sent[-1][1])
+        self.assertIn('Другой Игрок', self.sent[-1][1])
+        self.poll()
+        self.assertEqual(len(self.sent), 3)
+
+    def test_var_correction_clears_pending_description(self):
+        self.enable()
+        self.poll([fixture('live', (0, 0))])
+        self.poll([fixture('live', (1, 0))])
+        self.poll([fixture('live', (0, 0), goals=(goal(),))])
+        self.assertNotIn('Иван Игрок', self.sent[-1][1])
+        self.poll([fixture('live', (0, 0), goals=(goal(),))])
+        self.assertEqual(len(self.sent), 3)
+        self.assertEqual(self.store.get(PREFIX + 'seen:-100')['444320']['pending_goals'], [])
+
+    def test_final_goal_details_can_arrive_after_final_without_repeating_finish(self):
+        self.enable()
+        self.poll([fixture('live', (0, 0))])
+        self.poll([fixture('finished', (1, 0))])
+        self.assertIn('Матч завершён', self.sent[-1][1])
+        self.assertEqual(self.store.get(PREFIX + 'next_poll'), self.now[0] + 20)
+        self.poll([fixture('live', (1, 0), goals=(goal(),))])
+        self.assertEqual(len(self.sent), 2)
+        self.poll([fixture('finished', (1, 0), goals=(goal(),))])
+        self.assertIn('Подробности гола', self.sent[-1][1])
+        self.poll()
+        self.assertEqual(len(self.sent), 3)
+
+    def test_uncertain_late_details_send_is_not_replayed(self):
+        self.enable()
+        self.poll([fixture('live', (0, 0))])
+        self.poll([fixture('live', (1, 0))])
+        with self.assertRaises(APIError):
+            self.poll([fixture('live', (1, 0), goals=(goal(),))], fail=True)
+        self.football = Football(self.store, self.source, clock=lambda: self.now[0])
+        self.poll()
+        self.assertEqual(len(self.sent), 3)
+
+    def test_expired_details_do_not_announce_old_goals(self):
+        self.enable()
+        self.poll([fixture('live', (0, 0))])
+        self.poll([fixture('live', (1, 0))])
+        self.poll([fixture('live', (1, 0), goals=(goal(),))], advance=601)
+        self.assertEqual(len(self.sent), 2)
+        self.assertEqual(self.store.get(PREFIX + 'seen:-100')['444320']['pending_goals'], [])
 
     def test_live_interval_is_twenty_seconds(self):
         self.enable()

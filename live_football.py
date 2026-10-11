@@ -121,6 +121,16 @@ def status_code(label):
 
 
 @dataclass(frozen=True)
+class Goal:
+    id: str
+    score: tuple[int, int]
+    minute: str
+    player: str
+    kind: str
+    description: str
+
+
+@dataclass(frozen=True)
 class Match:
     id: str
     competition: str
@@ -133,6 +143,7 @@ class Match:
     away_score: int | None
     url: str
     extra: str = ''
+    goals: tuple[Goal, ...] = ()
 
     def state(self):
         return {'status': self.status, 'score': [self.home_score, self.away_score],
@@ -244,7 +255,8 @@ def parse_match_page(html, expected):
         if len(scripts) != 1:
             raise ValueError()
         payload = ''.join(c for c in scripts[0].children if isinstance(c, str))
-        board = json.loads(payload)['props']['pageProps']['vm']['components']['scoreboard']
+        components = json.loads(payload)['props']['pageProps']['vm']['components']
+        board = components['scoreboard']
         row = board['match']
         if (str(row['id']) != expected.id or row['homeTeam']['name'] != expected.home
                 or row['guestTeam']['name'] != expected.away
@@ -275,9 +287,101 @@ def parse_match_page(html, expected):
             if any(type(n) is not int or not 0 <= n <= 50 for n in (a, b)):
                 raise ValueError()
             extra = f'пен. {a}:{b}'
-        return replace(expected, status=status, label=label, home_score=home, away_score=away, extra=extra)
+        return replace(expected, status=status, label=label, home_score=home, away_score=away,
+                       extra=extra, goals=parse_goals(components.get('translation')))
     except (ValueError, TypeError, KeyError, AttributeError, RecursionError):
         raise FootballError('invalid_match_page') from None
+
+
+def parse_goals(translation):
+    """Only structured scoring events in this match's broadcast, not prose guesses."""
+    if not isinstance(translation, dict) or not isinstance(translation.get('events'), list):
+        return ()
+    removed = translation.get('deleteEventIds') or []
+    if not isinstance(removed, list):
+        return ()
+    goals = []
+    for row in translation['events'][:5000]:
+        try:
+            if (row.get('kind') != 'event' or row.get('type') not in
+                    ('goal', 'own-goal', 'penalty', 'penalty-goal')
+                    or row.get('isPenaltySeries') is True or row.get('id') in removed):
+                continue
+            score = re.fullmatch(r'(\d{1,2})\s*:\s*(\d{1,2})', row['score'])
+            if not score or any(int(n) > 30 for n in score.groups()):
+                continue
+            minute, bonus = row['time'], row.get('bonusTime')
+            if bonus is None:
+                bonus = 0
+            if (type(minute) is not int or not 1 <= minute <= 120
+                    or type(bonus) is not int or not 0 <= bonus <= 30):
+                continue
+            player = row['player']
+            name = ' '.join(((player.get('firstName') or '') + ' ' + player['lastName']).split())
+            html = row.get('text') or ''
+            if not name or len(name) > 120 or not isinstance(html, str) or len(html) > 8000:
+                continue
+            description = re.sub(r'\s+([.,!?;:])', r'\1', text(Document(html).root))
+            # Incomplete events remain pending, allowing a later poll to supply details.
+            if not description:
+                continue
+            if len(description) > 600:
+                description = description[:597].rsplit(' ', 1)[0] + '…'
+            goals.append(Goal(str(row['id']), tuple(int(n) for n in score.groups()),
+                              str(minute) + (f'+{bonus}' if bonus else '') + '′',
+                              name, row['type'], description))
+        except (KeyError, TypeError, AttributeError, ValueError, FootballError):
+            continue
+    return tuple(goals)
+
+
+def goals_between(match, before, after=None):
+    """A complete, unambiguous one-goal-at-a-time path between two confirmed scores."""
+    after = after or [match.home_score, match.away_score]
+    if not before or None in before or None in after or any(b > a for b, a in zip(before, after)):
+        return ()
+    current, target, found = tuple(before), tuple(after), []
+    while current != target:
+        choices = {}
+        for goal in match.goals:
+            if (all(c <= g <= t for c, g, t in zip(current, goal.score, target))
+                    and sum(goal.score) == sum(current) + 1):
+                if goal.id in choices and choices[goal.id] != goal:
+                    return ()
+                choices[goal.id] = goal
+        if len(choices) != 1:
+            return ()
+        goal = next(iter(choices.values()))
+        found.append(goal)
+        current = goal.score
+    return tuple(found)
+
+
+def goal_updates(previous, match, now):
+    """Reserve late descriptions with the score state, so restarts cannot replay them."""
+    before = previous.get('score') if previous else None
+    after = [match.home_score, match.away_score]
+    if previous and previous.get('status') == 'scheduled' and not already_started(previous):
+        before = [0, 0]
+    if not before or None in before or None in after:
+        return (), []
+    # A score correction invalidates outstanding goal descriptions (VAR, source rollback).
+    if any(a < b for b, a in zip(before, after)):
+        return (), []
+    pending = list(previous.get('pending_goals', []))
+    if before != after:
+        pending.append({'before': before, 'after': after, 'created': now})
+    ready, remaining = [], []
+    for item in pending:
+        if now - item['created'] > 600:
+            LOG.warning('Подробности гола не появились за 10 минут: матч=%s; счет=%s', match.id, item['after'])
+            continue
+        goals = goals_between(match, item['before'], item['after'])
+        if goals:
+            ready.extend(goals)
+        else:
+            remaining.append(item)
+    return tuple(ready), remaining
 
 
 class Scoreboard:
@@ -326,8 +430,10 @@ class Scoreboard:
                     with ThreadPoolExecutor(max_workers=4) as executor:
                         refreshed = list(executor.map(refresh, candidates))
                     updates = {m.id: m for m in refreshed}
-                    self.final.update({m.id: m for m in refreshed if m.status == FINISHED})
-                    self.final_checked.update({m.id: self.clock() for m in refreshed if m.status == FINISHED})
+                    complete = [m for m in refreshed if m.status == FINISHED and
+                                len(goals_between(m, [0, 0])) == m.home_score + m.away_score]
+                    self.final.update({m.id: m for m in complete})
+                    self.final_checked.update({m.id: self.clock() for m in complete})
                     matches = [self.final.get(m.id, updates.get(m.id, m)) for m in matches]
                     checked = self.clock() if refreshed else max([checked] + [self.final_checked.get(m.id, 0) for m in matches])
             except FootballError as error:
@@ -484,15 +590,33 @@ def remembered_state(previous, match, checked):
 QUIPS = {'start': 'ну шо побегайте хоть нормально', 'live': 'шо там уже начали без меня',
          'score': 'ну хоть ворота нашли наконец то', 'break': 'шо устали уже бегать',
          'penalties': 'ну сечас начнется нервотрепка', 'finish': 'всё разбегайтесь эксперты диванные',
-         'paused': 'шо опять всё через одно место'}
+         'paused': 'шо опять всё через одно место', 'details': 'во подробности подвезли'}
 
 
-def event_text(match, event, checked):
+def event_text(match, event, checked, goals=(), awaiting=False):
     kind, title = event
     stamp = datetime.fromtimestamp(checked, MOSCOW).strftime('%H:%M:%S МСК')
-    return HTMLMessage(f'<b>{escape(title)}</b>\n{escape(match.competition)}\n{match_line(match)}\n'
-                       f'\n<i>{QUIPS[kind]}</i>\n<i><a href="{escape(match.url, quote=True)}">'
-                       f'Спорт-Экспресс</a> · проверено {stamp}</i>')
+    header = f'<b>{escape(title)}</b>\n{escape(match.competition)}\n{match_line(match)}\n'
+    footer = (f'\n<i>{QUIPS[kind]}</i>\n<i><a href="{escape(match.url, quote=True)}">'
+              f'Спорт-Экспресс</a> · проверено {stamp}</i>')
+    waiting = ('\nМинута, автор и описание ещё не подтверждены трансляцией; '
+               'добавлю подробности, когда появятся.\n') if awaiting else ''
+    units = lambda value: len(value.encode('utf-16-le')) // 2
+    budget = min(2800, 3800 - units(header + footer + waiting))
+    details = ''
+    for index, goal in enumerate(goals):
+        label = {'own-goal': 'Автогол', 'penalty': 'Гол с пенальти',
+                 'penalty-goal': 'Гол с пенальти'}.get(goal.kind, 'Гол')
+        description = goal.description
+        while len(escape(description)) > 1400:
+            description = description[:len(description) // 2].rstrip() + '…'
+        line = (f'\n<b>{escape(goal.minute)} · {label} · {goal.score[0]}:{goal.score[1]}</b>\n'
+                f'{escape(goal.player)}\n{escape(description)}\n')
+        if units(details + line) > budget:
+            details += f'\nЕщё голов в трансляции: {len(goals) - index}.\n'
+            break
+        details += line
+    return HTMLMessage(header + details + waiting + footer)
 
 
 class Football:
@@ -599,14 +723,21 @@ class Football:
                 if previous and previous.get('checked', 0) > checked:
                     continue
                 # A source can briefly regress a final status to live. Never replay it.
-                if previous and previous.get('status') == FINISHED:
+                if previous and previous.get('status') == FINISHED and not previous.get('pending_goals'):
+                    continue
+                if previous and previous.get('status') == FINISHED and match.status != FINISHED:
                     continue
                 if already_started(previous) and match.status in ('scheduled', 'unknown'):
                     LOG.warning('Футбольный откат статуса пропущен: матч=%s; сохранено=%s; получено=%s',
                                 match.id, previous.get('status'), match.status)
                     continue
-                events = changes(previous, match, now)
-                latest[match.id] = remembered_state(previous, match, checked)
+                events = [] if previous and previous.get('status') == FINISHED else changes(previous, match, now)
+                goals, pending = goal_updates(previous, match, now)
+                latest[match.id] = dict(remembered_state(previous, match, checked), pending_goals=pending)
+                if pending:
+                    self.store.set(PREFIX + 'next_poll', min(self.store.get(PREFIX + 'next_poll'), now + LIVE_INTERVAL))
+                if goals and not events:
+                    events = [('details', '⚽ Подробности гола из трансляции')]
                 latest = {key: row for key, row in latest.items() if row.get('kickoff', 0) >= now - 2 * 86400}
                 self.store.set(PREFIX + f'seen:{chat_id}', latest)
                 if events:
@@ -614,7 +745,9 @@ class Football:
                     LOG.info('Футбольное событие: матч=%s; событие=%s; получено=%s; до отправки=%.3f сек.',
                              match.id, events[0][0], datetime.fromtimestamp(checked, MOSCOW).isoformat(),
                              max(0, self.clock() - checked))
-                    send(chat_id, event_text(match, events[0], checked))
+                    send(chat_id, event_text(match, events[0], checked, goals,
+                                            awaiting=bool(pending and previous and previous.get('score') !=
+                                                          [match.home_score, match.away_score])))
 
 
 def error_reply():
