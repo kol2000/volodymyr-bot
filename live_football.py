@@ -359,6 +359,19 @@ def goals_between(match, before, after=None):
     return tuple(found)
 
 
+def announced_score(previous):
+    if not previous:
+        return None
+    if 'announced_score' in previous:
+        return previous['announced_score']
+    # Migrate outstanding descriptions from the earlier two-message version.
+    if previous.get('pending_goals'):
+        return previous['pending_goals'][0]['before']
+    if previous.get('status') == 'scheduled' and not already_started(previous):
+        return [0, 0]
+    return previous.get('score')
+
+
 def goal_updates(previous, match, now):
     """Reserve late descriptions with the score state, so restarts cannot replay them."""
     before = previous.get('score') if previous else None
@@ -369,21 +382,27 @@ def goal_updates(previous, match, now):
         return (), []
     # A score correction invalidates outstanding goal descriptions (VAR, source rollback).
     if any(a < b for b, a in zip(before, after)):
+        published = announced_score(previous)
+        if published and None not in published and after != published and all(a >= p for a, p in zip(after, published)):
+            return goal_updates(dict(previous, score=published, pending_goals=[]), match, now)
         return (), []
     pending = list(previous.get('pending_goals', []))
     if before != after:
         pending.append({'before': before, 'after': after, 'created': now})
-    ready, remaining = [], []
+    ready, remaining, valid = [], [], []
     for item in pending:
         if now - item['created'] > 600:
             LOG.warning('Подробности гола не появились за 10 минут: матч=%s; счет=%s', match.id, item['after'])
             continue
+        valid.append(item)
         goals = goals_between(match, item['before'], item['after'])
         if goals:
             ready.extend(goals)
         else:
             remaining.append(item)
-    return tuple(ready), remaining
+    # Hold the entire unsent sequence until every goal has details. Otherwise a
+    # card for an earlier goal would expose a newer score without its description.
+    return ((), valid) if remaining else (tuple(ready), [])
 
 
 class Scoreboard:
@@ -591,22 +610,14 @@ def remembered_state(previous, match, checked):
     return dict(match.state(), checked=checked, started=started)
 
 
-QUIPS = {'start': 'ну шо побегайте хоть нормально', 'live': 'шо там уже начали без меня',
-         'score': 'ну хоть ворота нашли наконец то', 'break': 'шо устали уже бегать',
-         'penalties': 'ну сечас начнется нервотрепка', 'finish': 'всё разбегайтесь эксперты диванные',
-         'paused': 'шо опять всё через одно место', 'details': 'во подробности подвезли'}
-
-
-def event_text(match, event, checked, goals=(), awaiting=False):
+def event_text(match, event, checked, goals=()):
     kind, title = event
     stamp = datetime.fromtimestamp(checked, MOSCOW).strftime('%H:%M:%S МСК')
     header = f'<b>{escape(title)}</b>\n{escape(match.competition)}\n{match_line(match)}\n'
-    footer = (f'\n<i>{QUIPS[kind]}</i>\n<i><a href="{escape(match.url, quote=True)}">'
+    footer = (f'\n<i><a href="{escape(match.url, quote=True)}">'
               f'{escape(match.source)}</a> · проверено {stamp}</i>')
-    waiting = ('\nМинута, автор и описание ещё не подтверждены трансляцией; '
-               'добавлю подробности, когда появятся.\n') if awaiting else ''
     units = lambda value: len(value.encode('utf-16-le')) // 2
-    budget = min(2800, 3800 - units(header + footer + waiting))
+    budget = min(2800, 3800 - units(header + footer))
     details = ''
     for index, goal in enumerate(goals):
         label = {'own-goal': 'Автогол', 'penalty': 'Гол с пенальти',
@@ -620,7 +631,7 @@ def event_text(match, event, checked, goals=(), awaiting=False):
             details += f'\nЕщё голов в трансляции: {len(goals) - index}.\n'
             break
         details += line
-    return HTMLMessage(header + details + waiting + footer)
+    return HTMLMessage(header + details + footer)
 
 
 class Football:
@@ -747,11 +758,28 @@ class Football:
                     continue
                 events = [] if previous and previous.get('status') == FINISHED else changes(previous, match, now)
                 goals, pending = goal_updates(previous, match, now)
-                latest[match.id] = dict(remembered_state(previous, match, checked), pending_goals=pending)
+                published = announced_score(previous)
+                current = [match.home_score, match.away_score]
+                if current == published and previous and previous.get('score') != current and not goals:
+                    # An unsent provisional goal disappeared. Do not announce a
+                    # rollback to the score the chat already knows.
+                    events = [(kind, title.replace('⚽ Счет изменился · ', ''))
+                              for kind, title in events if kind != 'score']
                 if pending:
                     self.store.set(PREFIX + 'next_poll', min(self.store.get(PREFIX + 'next_poll'), now + LIVE_INTERVAL))
+                    # No score-only placeholder or period card exposing an
+                    # undescribed goal. State is still saved for the next poll.
+                    events = []
                 if goals and not events:
-                    events = [('details', '⚽ Подробности гола из трансляции')]
+                    title = '⚽ Счет изменился'
+                    kind = 'score'
+                    if match.status == FINISHED:
+                        kind, title = 'finish', title + ' · 🏁 Матч завершён'
+                    elif match.status == 'break':
+                        kind, title = 'break', title + ' · ⏸ Перерыв'
+                    events = [(kind, title)]
+                latest[match.id] = dict(remembered_state(previous, match, checked), pending_goals=pending,
+                                       announced_score=current if events or previous is None else published)
                 latest = {key: row for key, row in latest.items() if row.get('kickoff', 0) >= now - 2 * 86400}
                 self.store.set(PREFIX + f'seen:{chat_id}', latest)
                 if events:
@@ -759,9 +787,7 @@ class Football:
                     LOG.info('Футбольное событие: матч=%s; событие=%s; получено=%s; до отправки=%.3f сек.',
                              match.id, events[0][0], datetime.fromtimestamp(checked, MOSCOW).isoformat(),
                              max(0, self.clock() - checked))
-                    send(chat_id, event_text(match, events[0], checked, goals,
-                                            awaiting=bool(pending and previous and previous.get('score') !=
-                                                          [match.home_score, match.away_score])))
+                    send(chat_id, event_text(match, events[0], checked, goals))
 
 
 def error_reply():

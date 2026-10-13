@@ -134,7 +134,7 @@ class GoalTests(unittest.TestCase):
         self.assertLess(len(rendered.encode('utf-16-le')) // 2, 4096)
         match = dataclasses.replace(fixture('live', (29, 0)), home='&' * 80, away='<' * 80)
         goals = tuple(goal((n, 0), str(n), description='⚽' * 600) for n in range(1, 30))
-        rendered = event_text(match, ('score', 'Счет'), START, goals, awaiting=True)
+        rendered = event_text(match, ('score', 'Счет'), START, goals)
         self.assertLess(len(rendered.encode('utf-16-le')) // 2, 4096)
 
 
@@ -426,25 +426,25 @@ class MonitorTests(unittest.TestCase):
         self.enable()
         self.poll([fixture('live', (0, 0))])
         self.poll([fixture('live', (1, 0))])
-        self.assertIn('ещё не подтверждены', self.sent[-1][1])
+        self.assertEqual(len(self.sent), 1)
         self.football = Football(Store(Path(self.temp.name) / 'bot.sqlite3'), self.source, clock=lambda: self.now[0])
         self.poll([fixture('live', (1, 0), goals=(goal(),))])
-        self.assertIn('Подробности гола', self.sent[-1][1])
+        self.assertIn('Счет изменился', self.sent[-1][1])
         self.assertIn('Иван Игрок', self.sent[-1][1])
         self.football = Football(Store(Path(self.temp.name) / 'bot.sqlite3'), self.source, clock=lambda: self.now[0])
         self.poll()
-        self.assertEqual(len(self.sent), 3)
+        self.assertEqual(len(self.sent), 2)
 
     def test_next_goal_and_late_previous_description_share_one_notification(self):
         self.enable()
         self.poll([fixture('live', (0, 0))])
         self.poll([fixture('live', (1, 0))])
         self.poll([fixture('live', (2, 0), goals=(goal(), goal((2, 0), '2', player='Другой Игрок')))])
-        self.assertEqual(len(self.sent), 3)
+        self.assertEqual(len(self.sent), 2)
         self.assertIn('Иван Игрок', self.sent[-1][1])
         self.assertIn('Другой Игрок', self.sent[-1][1])
         self.poll()
-        self.assertEqual(len(self.sent), 3)
+        self.assertEqual(len(self.sent), 2)
 
     def test_var_correction_clears_pending_description(self):
         self.enable()
@@ -453,21 +453,66 @@ class MonitorTests(unittest.TestCase):
         self.poll([fixture('live', (0, 0), goals=(goal(),))])
         self.assertNotIn('Иван Игрок', self.sent[-1][1])
         self.poll([fixture('live', (0, 0), goals=(goal(),))])
-        self.assertEqual(len(self.sent), 3)
+        self.assertEqual(len(self.sent), 1)
         self.assertEqual(self.store.get(PREFIX + 'seen:-100')['444320']['pending_goals'], [])
+
+    def test_var_cancels_unannounced_goal_after_restart_without_any_score_card(self):
+        self.enable()
+        self.poll([fixture('live', (0, 0))])
+        self.poll([fixture('live', (1, 0))])
+        self.football = Football(Store(Path(self.temp.name) / 'bot.sqlite3'), self.source, clock=lambda: self.now[0])
+        self.poll([fixture('live', (0, 0))])
+        self.assertEqual(len(self.sent), 1)
+        self.poll([fixture('live', (1, 0), goals=(goal(identifier='new-valid-goal'),))])
+        self.assertEqual(len(self.sent), 2)
+        self.assertIn('Иван Игрок', self.sent[-1][1])
+
+    def test_one_missing_description_holds_entire_unsent_score_sequence(self):
+        self.enable()
+        self.poll([fixture('live', (0, 0))])
+        self.poll([fixture('live', (1, 0))])
+        self.poll([fixture('live', (2, 0), goals=(goal(),))])
+        self.assertEqual(len(self.sent), 1)
+        self.poll([fixture('live', (2, 0), goals=(goal(), goal((2, 0), '2')))])
+        self.assertEqual(len(self.sent), 2)
+        self.assertIn('1:0', self.sent[-1][1])
+        self.assertIn('2:0', self.sent[-1][1])
+        self.poll()
+        self.assertEqual(len(self.sent), 2)
+
+    def test_var_removes_second_unannounced_goal_but_keeps_first_with_details(self):
+        self.enable()
+        self.poll([fixture('live', (0, 0))])
+        self.poll([fixture('live', (2, 0), goals=(goal((2, 0), '2'),))])
+        self.assertEqual(len(self.sent), 1)
+        self.poll([fixture('live', (1, 0), goals=(goal(),))])
+        self.assertEqual(len(self.sent), 2)
+        self.assertIn('Иван Игрок', self.sent[-1][1])
+        self.assertNotIn('2:0', self.sent[-1][1])
+
+    def test_football_cards_have_no_parody_comment_or_placeholder(self):
+        for kind, title in [('start', 'Матч начался'), ('score', 'Счет изменился'),
+                            ('break', 'Перерыв'), ('finish', 'Матч завершён')]:
+            rendered = event_text(fixture('live', (1, 0)), (kind, title), START, (goal(),))
+            self.assertNotIn('ну хоть', rendered)
+            self.assertNotIn('разбегайтесь', rendered)
+            self.assertNotIn('подробности подвезли', rendered)
+            self.assertNotIn('добавлю подробности', rendered)
+            self.assertEqual(rendered.count('<i>'), 1)  # Source/time footer only.
 
     def test_final_goal_details_can_arrive_after_final_without_repeating_finish(self):
         self.enable()
         self.poll([fixture('live', (0, 0))])
         self.poll([fixture('finished', (1, 0))])
-        self.assertIn('Матч завершён', self.sent[-1][1])
+        self.assertEqual(len(self.sent), 1)
         self.assertEqual(self.store.get(PREFIX + 'next_poll'), self.now[0] + 20)
         self.poll([fixture('live', (1, 0), goals=(goal(),))])
-        self.assertEqual(len(self.sent), 2)
+        self.assertEqual(len(self.sent), 1)
         self.poll([fixture('finished', (1, 0), goals=(goal(),))])
-        self.assertIn('Подробности гола', self.sent[-1][1])
+        self.assertIn('Матч завершён', self.sent[-1][1])
+        self.assertIn('Иван Игрок', self.sent[-1][1])
         self.poll()
-        self.assertEqual(len(self.sent), 3)
+        self.assertEqual(len(self.sent), 2)
 
     def test_uncertain_late_details_send_is_not_replayed(self):
         self.enable()
@@ -477,14 +522,14 @@ class MonitorTests(unittest.TestCase):
             self.poll([fixture('live', (1, 0), goals=(goal(),))], fail=True)
         self.football = Football(self.store, self.source, clock=lambda: self.now[0])
         self.poll()
-        self.assertEqual(len(self.sent), 3)
+        self.assertEqual(len(self.sent), 2)
 
     def test_expired_details_do_not_announce_old_goals(self):
         self.enable()
         self.poll([fixture('live', (0, 0))])
         self.poll([fixture('live', (1, 0))])
         self.poll([fixture('live', (1, 0), goals=(goal(),))], advance=601)
-        self.assertEqual(len(self.sent), 2)
+        self.assertEqual(len(self.sent), 1)
         self.assertEqual(self.store.get(PREFIX + 'seen:-100')['444320']['pending_goals'], [])
 
     def test_live_interval_is_twenty_seconds(self):
@@ -494,7 +539,7 @@ class MonitorTests(unittest.TestCase):
         with patch.object(self.source, 'day') as check:
             self.poll(advance=19)
             check.assert_not_called()
-        self.poll([fixture('live', (1, 0))], advance=1)
+        self.poll([fixture('live', (1, 0), goals=(goal(),))], advance=1)
         self.assertEqual(len(self.sent), 2)
 
     def test_idle_poll_wakes_at_warmup_boundary(self):
@@ -518,7 +563,7 @@ class MonitorTests(unittest.TestCase):
         self.enable()
         self.now[0] = START
         self.poll([fixture('live', (0, 0))])
-        self.poll([fixture('live', (1, 0))])
+        self.poll([fixture('live', (1, 0), goals=(goal(),))])
         self.poll([dataclasses.replace(fixture('live', (1, 0)), label="43'")])
         self.poll([fixture('break', (1, 0))])
         self.poll([fixture('break', (1, 0))])
@@ -533,7 +578,7 @@ class MonitorTests(unittest.TestCase):
     def test_correction_decreases_score_without_claiming_another_goal(self):
         self.enable()
         self.now[0] = START
-        self.poll([fixture('live', (1, 0))])
+        self.poll([fixture('live', (1, 0), goals=(goal(),))])
         self.poll([fixture('live', (0, 0))])
         self.assertIn('Счет изменился', self.sent[-1][1])
         self.assertNotIn('Гол!', self.sent[-1][1])
@@ -551,9 +596,9 @@ class MonitorTests(unittest.TestCase):
 
     def test_preview_regression_keeps_score_for_next_goal_and_var_correction(self):
         self.enable()
-        self.poll([fixture('live', (1, 0))])
+        self.poll([fixture('live', (1, 0), goals=(goal(),))])
         self.poll([fixture()])
-        self.poll([fixture('live', (2, 0))])
+        self.poll([fixture('live', (2, 0), goals=(goal(), goal((2, 0), '2')))])
         self.poll([fixture('live', (1, 0))])
         self.assertEqual(len(self.sent), 3)
         self.assertIn('Счет изменился', self.sent[1][1])
@@ -598,7 +643,7 @@ class MonitorTests(unittest.TestCase):
         self.enable()
         self.now[0] = START
         with self.assertRaises(APIError):
-            self.poll([fixture('live', (1, 0))], fail=True)
+            self.poll([fixture('live', (1, 0), goals=(goal(),))], fail=True)
         self.football = Football(Store(Path(self.temp.name) / 'bot.sqlite3'), self.source, clock=lambda: self.now[0])
         self.poll([fixture('live', (1, 0))])
         self.assertEqual(len(self.sent), 1)
@@ -625,7 +670,7 @@ class MonitorTests(unittest.TestCase):
         self.store.set(PREFIX + 'enabled', True)
         self.store.set(PREFIX + 'seen:-100', {'444320': fixture('live', (0, 0)).state()})
         self.now[0] = START + 7200
-        self.poll([fixture('finished', (0, 1))])
+        self.poll([fixture('finished', (0, 1), goals=(goal((0, 1)),))])
         self.assertEqual(len(self.sent), 1)
         self.assertIn('Счет изменился', self.sent[0][1])
         self.assertIn('Матч завершён', self.sent[0][1])
@@ -635,7 +680,7 @@ class MonitorTests(unittest.TestCase):
         self.now[0] = START + 7200
         self.poll([fixture('unknown', (2, 1))])
         self.assertEqual(self.sent, [])
-        self.poll([fixture('finished', (2, 1))])
+        self.poll([fixture('finished', (2, 1), goals=(goal(), goal((1, 1), '2'), goal((2, 1), '3')))])
         self.poll([fixture('live', (2, 1))], advance=901)
         self.assertEqual(len(self.sent), 1)
 
@@ -685,7 +730,8 @@ class MonitorTests(unittest.TestCase):
         self.now[0] = START
         live_second = dataclasses.replace(second, status='live', label="12'", home_score=0, away_score=0)
         self.poll([fixture('live', (0, 0)), live_second])
-        self.poll([fixture('live', (1, 0)), dataclasses.replace(live_second, away_score=1)])
+        self.poll([fixture('live', (1, 0), goals=(goal(),)),
+                   dataclasses.replace(live_second, away_score=1, goals=(goal((0, 1)),))])
         self.assertEqual(len(self.sent), 4)
         self.assertEqual(set(self.store.get(PREFIX + 'seen:-100')), {'444320', '1234'})
 
