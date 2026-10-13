@@ -19,7 +19,7 @@ from common import HTMLMessage
 LOG = logging.getLogger('volodymyr')
 MOSCOW = ZoneInfo('Europe/Moscow')
 BASE = 'https://www.sport-express.net'
-PREFIX = 'livefootball:'  # Retired API-Football cleanup must not touch this state.
+PREFIX = 'livefootball:'
 COMMANDS = {'/football', '/football_on', '/football_off', '/football_status'}
 MONTHS = ('января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
           'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря')
