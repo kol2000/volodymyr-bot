@@ -1,4 +1,4 @@
-"""Public match-centre scores for RPL/Russian Cup; no API key or LLM."""
+"""Football notification state and formatting; the default source is FNK's daily selection."""
 import logging
 import json
 import re
@@ -144,6 +144,8 @@ class Match:
     url: str
     extra: str = ''
     goals: tuple[Goal, ...] = ()
+    source: str = 'Спорт-Экспресс'
+    checked: float = 0
 
     def state(self):
         return {'status': self.status, 'score': [self.home_score, self.away_score],
@@ -521,9 +523,10 @@ def match_line(match):
 
 def scoreboard_text(matches, day, checked, query=''):
     selected = select_matches(matches, query)
-    lines = [f'⚽ <b>РПЛ и Кубок России · {day.strftime("%d.%m.%Y")}</b>']
+    lines = [f'⚽ <b>Матчи дня · {day.strftime("%d.%m.%Y")}</b>']
     if not selected:
-        lines.append('На эту дату подходящих матчей нет.' if query else 'На эту дату матчей этих турниров нет.')
+        lines.append('На эту дату в доступной выборке подходящих матчей нет.' if query
+                     else 'В доступной выборке нет матчей на эту дату.')
     displayed = 0
     for match in selected[:12]:
         line = f'\n{escape(match.competition)}\n{match_line(match)}'
@@ -534,7 +537,8 @@ def scoreboard_text(matches, day, checked, query=''):
     if len(selected) > displayed:
         lines.append(f'\nЕщё матчей: {len(selected) - displayed}. Уточни команду: /football Ростов')
     stamp = datetime.fromtimestamp(checked, MOSCOW).strftime('%H:%M:%S МСК')
-    lines.append(f'\n<i>Источник: Спорт-Экспресс · проверено {stamp}</i>')
+    source = matches[0].source if matches else 'Футбол на Куличках'
+    lines.append(f'\n<i>Источник: {escape(source)} · проверено {stamp}</i>')
     return HTMLMessage('\n'.join(lines))
 
 
@@ -598,7 +602,7 @@ def event_text(match, event, checked, goals=(), awaiting=False):
     stamp = datetime.fromtimestamp(checked, MOSCOW).strftime('%H:%M:%S МСК')
     header = f'<b>{escape(title)}</b>\n{escape(match.competition)}\n{match_line(match)}\n'
     footer = (f'\n<i>{QUIPS[kind]}</i>\n<i><a href="{escape(match.url, quote=True)}">'
-              f'Спорт-Экспресс</a> · проверено {stamp}</i>')
+              f'{escape(match.source)}</a> · проверено {stamp}</i>')
     waiting = ('\nМинута, автор и описание ещё не подтверждены трансляцией; '
                'добавлю подробности, когда появятся.\n') if awaiting else ''
     units = lambda value: len(value.encode('utf-16-le')) // 2
@@ -621,7 +625,10 @@ def event_text(match, event, checked, goals=(), awaiting=False):
 
 class Football:
     def __init__(self, store, source=None, clock=time.time):
-        self.store, self.source, self.clock = store, source or Scoreboard(), clock
+        if source is None:
+            from kulichki_football import KulichkiScoreboard
+            source = KulichkiScoreboard(store, clock=clock)
+        self.store, self.source, self.clock = store, source, clock
         self.lock = threading.Lock()
         self.first_poll = True
 
@@ -642,7 +649,7 @@ class Football:
             last = datetime.fromtimestamp(stamp, MOSCOW).strftime('%d.%m %H:%M:%S МСК') if stamp else 'ещё нет'
             reason = self.store.get(PREFIX + 'error', '') or 'нет'
             return ('Футбол: ' + ('включён' if self.enabled() else 'выключен') + '\n'
-                    'Источник: Спорт-Экспресс; только РПЛ и Кубок России\n'
+                    f'Источник: {getattr(self.source, "name", "Спорт-Экспресс")}; выбранные матчи дня\n'
                     f'Последняя проверка: {last}\nПоследняя ошибка: {reason}\n'
                     'Текущие матчи: прямые страницы каждые 20 секунд; кэш 10 секунд.\n'
                     'Расписание: каждые 5 минут; перед стартом ожидание сокращается.\n'
@@ -669,7 +676,7 @@ class Football:
                 self.store.set(PREFIX + 'next_poll', 0)
             return HTMLMessage('⚽ <b>Уведомления включены в подключённой группе</b>\n'
                                'Начало, изменение счета, перерыв и финал.\n'
-                               'Только РПЛ и Кубок России; /football_off — выключить.\n\n'
+                               'Матчи из блока «Онлайн трансляции» на главной ФНК; /football_off — выключить.\n\n'
                                + scoreboard_text(matches, day, checked))
         return scoreboard_text(matches, day, checked, request.get('filter', ''))
 
@@ -686,6 +693,11 @@ class Football:
         self.first_poll = False
         day = datetime.fromtimestamp(now, MOSCOW).date()
         seen = self.store.get(PREFIX + f'seen:{chat_id}', {})
+        if getattr(self.source, 'name', '') == 'Футбол на Куличках':
+            current = {key: row for key, row in seen.items() if key.startswith('fnk:')}
+            if len(current) != len(seen):
+                self.store.set(PREFIX + f'seen:{chat_id}', current)
+            seen = current
         days = [day]
         if any(row.get('status') in ACTIVE | {'scheduled'} and 0 <= now - row.get('kickoff', 0) < 6 * 3600
                and datetime.fromtimestamp(row['kickoff'], MOSCOW).date() < day for row in seen.values()):
@@ -694,9 +706,9 @@ class Football:
         try:
             for requested_day in days:
                 items, checked = self.source.day(requested_day)
-                snapshots.extend((match, checked) for match in items)
+                snapshots.extend((match, match.checked or checked) for match in items)
                 self.store.set(PREFIX + 'success', checked)
-            self.store.set(PREFIX + 'error', '')
+            self.store.set(PREFIX + 'error', getattr(self.source, 'last_error', ''))
         except FootballError as error:
             self.store.set(PREFIX + 'error', str(error))
             self.store.set(PREFIX + 'next_poll', now + 30)
@@ -705,6 +717,8 @@ class Football:
         active = any(match.status in ACTIVE or (match.status in ('scheduled', 'paused', 'unknown')
                      and near_match(match, now)) for match, _ in snapshots)
         interval = LIVE_INTERVAL if active else IDLE_INTERVAL
+        if getattr(self.source, 'last_error', ''):
+            interval = min(interval, LIVE_INTERVAL)
         # An idle check must not sleep through the next match's warm-up window.
         upcoming = [match.kickoff - 15 * 60 - now for match, _ in snapshots
                     if match.status == 'scheduled' and match.kickoff - 15 * 60 > now]

@@ -5,8 +5,8 @@ from datetime import datetime
 from html import unescape
 import re
 import time
-from live_football import (BASE, FootballError, MOSCOW, Scoreboard, fetch_html,
-                           parse_page, scoreboard_text, normalize)
+from live_football import FootballError, MOSCOW, scoreboard_text, normalize
+from kulichki_football import BASE, KulichkiScoreboard, fetch_html, parse_home
 
 
 def main():
@@ -22,18 +22,18 @@ def main():
         parser.error('Дата должна быть в формате YYYY-MM-DD.')
     if args.watch and not 20 <= args.watch <= 3600:
         parser.error('--watch: от 20 до 3600 секунд.')
-    source = Scoreboard()
+    source = KulichkiScoreboard()
     if args.compare:
         try:
             started = time.monotonic()
-            old = parse_page(fetch_html(BASE + '/live/football/' + day.strftime('%d-%m-%Y') + '/'), day)
+            old = parse_home(fetch_html(BASE + '/?_=' + str(time.time_ns())))
             stamp = datetime.now(MOSCOW).strftime('%H:%M:%S МСК')
-            print(f'Общая страница · получено {stamp} · запрос {time.monotonic() - started:.2f} сек.', flush=True)
+            print(f'Выборка главной ФНК · получено {stamp} · запрос {time.monotonic() - started:.2f} сек.', flush=True)
             for match in old:
-                if not args.team or normalize(args.team) in normalize(match.home + ' ' + match.away):
-                    print(f'{match.home} — {match.away}: {match.label}; {match.home_score}:{match.away_score}', flush=True)
+                if not args.team or normalize(args.team) in normalize(match['home'] + ' ' + match['away']):
+                    print(f'{match["clock"]} · {match["home"]} — {match["away"]} · {match["url"]}', flush=True)
         except FootballError as error:
-            print(f'Общая страница недоступна: {error}', flush=True)
+            print(f'Главная ФНК недоступна: {error}', flush=True)
     deadline = time.monotonic() + args.watch
     while True:
         started = time.monotonic()
@@ -44,6 +44,11 @@ def main():
             return 1
         print(unescape(re.sub(r'<[^>]+>', '', scoreboard_text(matches, day, checked, args.team))), flush=True)
         print(f'Получение и разбор: {time.monotonic() - started:.2f} сек.\n', flush=True)
+        for match in matches:
+            if args.team and normalize(args.team) not in normalize(match.home + ' ' + match.away):
+                continue
+            for goal in match.goals:
+                print(f'Гол из трансляции: {goal.minute} · {goal.player} · {goal.score[0]}:{goal.score[1]} · {goal.kind}', flush=True)
         if not args.watch or time.monotonic() + 20 > deadline:
             break
         time.sleep(20)
