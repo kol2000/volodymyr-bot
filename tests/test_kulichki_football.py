@@ -93,6 +93,30 @@ class ParsingTests(unittest.TestCase):
         self.assertEqual(len(match.goals), 2)
         self.assertEqual(len(goals_between(match, [0, 0])), 2)
 
+    def test_cska_rostov_third_goal_uses_fnk_penalty_goal_icon(self):
+        # FNK uses pengoal.gif for a scored penalty, not pen.gif. The penalty
+        # award immediately below it is a separate event with no goal score.
+        selected = dict(id='fnk:2026:25712', home='ЦСКА', away='Ростов',
+                        clock='20:45', competition='Кубок России',
+                        url=BASE + '/trans/2026/25712-CSKA-Rostov-online-translyaciyu-matcha-smotret.htm')
+        html = broadcast('live', '3:0', day=14, a='ЦСКА', b='Ростов')
+        summary, rows = '<table><tr><td><img src="/trans/goal.gif">', ''
+        for score, name, minute in [(1, 'Аззи', 2), (2, 'Кармо', 5), (3, 'Обляков', 11)]:
+            qualifier = ' - с пенальти' if score == 3 else ''
+            summary += f'<a href="/players/{score}.htm">{name}</a>, {minute}{qualifier} ({score}:0); '
+            icon = 'pengoal.gif' if score == 3 else 'GOOal.gif'
+            rows += (f'<tr><td>{minute}</td><td><img src="/trans/{icon}"></td>'
+                     f'<td>ГООООЛ!!! {name}, {score}:0. Удар в угол ворот.</td></tr>')
+        summary += '</td></tr></table><a href="/players/3.htm">Иван Обляков</a>'
+        rows += '<tr><td>10</td><td><img src="/trans/pen.gif"></td><td>Пенальти!</td></tr>'
+        html = html.replace('<table id="table15">', summary + '<table id="table15">' + rows)
+        match = parse_broadcast(html, selected)
+        self.assertEqual(len(goals_between(match, [0, 0])), 3)
+        goal = goals_between(match, [2, 0])[0]
+        self.assertEqual((goal.player, goal.minute, goal.kind, goal.score),
+                         ('Иван Обляков', '11′', 'penalty-goal', (3, 0)))
+        self.assertIn('Удар в угол ворот', goal.description)
+
     def test_wrong_match_title_and_missing_score_fail_closed(self):
         selected = parse_home(home())[0]
         for html in [broadcast(a='Спартак'), broadcast().replace('size="6"', 'size="4"'),

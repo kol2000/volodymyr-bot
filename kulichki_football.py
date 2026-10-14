@@ -153,7 +153,7 @@ def parse_broadcast(html, selected):
 def broadcast_goals(root, events, match_id):
     descriptions = {}
     for _, icons, description in events:
-        if not set(icons) & {'gooal.gif', 'owngoal.gif', 'pen.gif'}:
+        if not set(icons) & {'gooal.gif', 'owngoal.gif', 'pen.gif', 'pengoal.gif'}:
             continue
         score = re.search(r'(?<!\d)(\d{1,2}):(\d{1,2})(?!\d)', description)
         if score:

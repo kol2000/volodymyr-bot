@@ -524,13 +524,87 @@ class MonitorTests(unittest.TestCase):
         self.poll()
         self.assertEqual(len(self.sent), 2)
 
-    def test_expired_details_do_not_announce_old_goals(self):
+    def test_complete_late_description_is_not_discarded_at_ten_minutes(self):
         self.enable()
         self.poll([fixture('live', (0, 0))])
         self.poll([fixture('live', (1, 0))])
         self.poll([fixture('live', (1, 0), goals=(goal(),))], advance=601)
-        self.assertEqual(len(self.sent), 1)
+        self.assertEqual(len(self.sent), 2)
         self.assertEqual(self.store.get(PREFIX + 'seen:-100')['444320']['pending_goals'], [])
+
+    def test_expired_third_goal_recovers_once_after_parser_fix_and_restart(self):
+        self.now[0] = START + 1200
+        self.enable()
+        self.poll([fixture('live', (0, 0))])
+        self.poll([fixture('live', (2, 0), goals=(goal(), goal((2, 0), 'second')))])
+        self.poll([fixture('live', (3, 0))])
+        self.poll(advance=601)  # Old parser dropped the unrecognized description.
+        self.assertEqual(len(self.sent), 2)
+        self.assertEqual(self.store.get(PREFIX + 'seen:-100')['444320']['pending_goals'], [])
+        self.football = Football(Store(Path(self.temp.name) / 'bot.sqlite3'), self.source, clock=lambda: self.now[0])
+        penalty = goal((3, 0), 'third', player='Иван Обляков', minute='11′', kind='penalty-goal')
+        self.poll([fixture('live', (3, 0), goals=(penalty,))])
+        self.assertEqual(len(self.sent), 3)
+        self.assertIn('Иван Обляков', self.sent[-1][1])
+        self.assertIn('11′', self.sent[-1][1])
+        self.football = Football(self.store, self.source, clock=lambda: self.now[0])
+        self.poll()
+        self.assertEqual(len(self.sent), 3)
+
+    def test_expired_goal_can_recover_at_final_without_replaying_finish(self):
+        self.now[0] = START + 7200
+        self.enable()
+        self.poll([fixture('live', (0, 0))])
+        self.poll([fixture('finished', (1, 0))])
+        self.poll(advance=601)
+        self.assertEqual(len(self.sent), 1)
+        self.poll([fixture('finished', (1, 0), goals=(goal(),))], advance=301)
+        self.assertEqual(len(self.sent), 2)
+        self.assertIn('Матч завершён', self.sent[-1][1])
+        self.poll()
+        self.assertEqual(len(self.sent), 2)
+
+    def test_expired_unannounced_goal_is_not_recovered_from_old_match(self):
+        self.now[0] = START + 1200
+        self.enable()
+        self.poll([fixture('live', (0, 0))])
+        self.poll([fixture('live', (1, 0))])
+        self.poll(advance=601)
+        self.now[0] = START + 6 * 3600
+        self.poll([fixture('live', (1, 0), goals=(goal(),))])
+        self.assertEqual(len(self.sent), 1)
+
+    def test_expired_goal_cancelled_by_var_is_not_recovered(self):
+        self.now[0] = START + 1200
+        self.enable()
+        self.poll([fixture('live', (0, 0))])
+        self.poll([fixture('live', (1, 0))])
+        self.poll(advance=601)
+        self.poll([fixture('live', (0, 0), goals=(goal(),))])
+        self.assertEqual(len(self.sent), 1)
+
+    def test_recovery_requires_details_for_every_unannounced_goal(self):
+        self.now[0] = START + 1200
+        self.enable()
+        self.poll([fixture('live', (0, 0))])
+        self.poll([fixture('live', (2, 0))])
+        self.poll(advance=601)
+        self.poll([fixture('live', (2, 0), goals=(goal((2, 0), 'second'),))])
+        self.assertEqual(len(self.sent), 1)
+        self.poll([fixture('live', (2, 0), goals=(goal(), goal((2, 0), 'second')))])
+        self.assertEqual(len(self.sent), 2)
+
+    def test_recovered_goal_uncertain_send_is_reserved_before_restart(self):
+        self.now[0] = START + 1200
+        self.enable()
+        self.poll([fixture('live', (0, 0))])
+        self.poll([fixture('live', (1, 0))])
+        self.poll(advance=601)
+        with self.assertRaises(APIError):
+            self.poll([fixture('live', (1, 0), goals=(goal(),))], fail=True)
+        self.football = Football(self.store, self.source, clock=lambda: self.now[0])
+        self.poll()
+        self.assertEqual(len(self.sent), 2)
 
     def test_live_interval_is_twenty_seconds(self):
         self.enable()

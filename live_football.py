@@ -380,6 +380,16 @@ def goal_updates(previous, match, now):
         before = [0, 0]
     if not before or None in before or None in after:
         return (), []
+    # A parser fix or a late source update can supply details after the pending
+    # range expired. Recover only the complete, still-valid unannounced chain in
+    # this match's live window. Reserving announced_score before sending prevents
+    # restart/timeout duplicates; baseline scores never create historical goals.
+    published = announced_score(previous)
+    if (published != after and match.status in ACTIVE | {FINISHED}
+            and 0 <= now - match.kickoff < 6 * 3600):
+        recovered = goals_between(match, published)
+        if recovered:
+            return recovered, []
     # A score correction invalidates outstanding goal descriptions (VAR, source rollback).
     if any(a < b for b, a in zip(before, after)):
         published = announced_score(previous)
@@ -748,7 +758,9 @@ class Football:
                 if previous and previous.get('checked', 0) > checked:
                     continue
                 # A source can briefly regress a final status to live. Never replay it.
-                if previous and previous.get('status') == FINISHED and not previous.get('pending_goals'):
+                if (previous and previous.get('status') == FINISHED and not previous.get('pending_goals')
+                        and (announced_score(previous) == previous.get('score')
+                             or not 0 <= now - match.kickoff < 6 * 3600)):
                     continue
                 if previous and previous.get('status') == FINISHED and match.status != FINISHED:
                     continue
