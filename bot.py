@@ -27,6 +27,15 @@ MOSCOW = ZoneInfo('Europe/Moscow')
 HISTORY_LIMIT = 20000
 WELCOME_USERNAME = 'leonadosasa'
 WELCOME_TEXT = 'оо алкаш епти ти де бил?'
+TEASE_USERNAME = 'frankyvidadim'
+
+
+def tease_available(history, now):
+    day = datetime.fromtimestamp(now, MOSCOW).date()
+    return (not history or now - max(history) >= 6 * 3600) and sum(
+        datetime.fromtimestamp(t, MOSCOW).date() == day for t in history) < 2
+
+
 TRIGGER_WORDS = ('бубуська', 'володька', 'рахиня', 'украина', 'война', 'киев',
                  'цаца', 'цацик', 'бубус', 'цацыг', 'хряк', 'свинья', 'сосатка',
                  'крым', 'крим', 'даг')
@@ -436,7 +445,10 @@ class Store:
             rows = db.execute('SELECT kind,count(*) FROM sends WHERE day=? GROUP BY kind', (day,)).fetchall()
         return dict(rows)
 
-    def claim_send(self, kind, chat_id):
+    def tease_available(self, chat_id, user_id, now):
+        return tease_available(self.get(f'tease_attempts:{chat_id}:{user_id}', []), now)
+
+    def claim_send(self, kind, chat_id, tease_user_id=None):
         now = time.time()
         day = datetime.now(MOSCOW).strftime('%Y-%m-%d')
         with self.db() as db:
@@ -451,6 +463,14 @@ class Store:
             if now - last < (3600 if kind == 'automatic' else 15):
                 LOG.info('Отправка пропущена: причина=send_cooldown; режим=%s', kind)
                 return None
+            if tease_user_id is not None:
+                key = f'tease_attempts:{chat_id}:{tease_user_id}'
+                row = db.execute('SELECT value FROM settings WHERE key=?', (key,)).fetchone()
+                history = json.loads(row[0]) if row else []
+                if kind != 'automatic' or not tease_available(history, now):
+                    return None
+                history = [t for t in history if t >= now - 2 * 86400] + [now]
+                db.execute('INSERT OR REPLACE INTO settings VALUES (?,?)', (key, json.dumps(history)))
             cursor = db.execute('INSERT INTO sends(timestamp,day,kind,chat_id,status) VALUES (?,?,?,?,?)',
                                 (now, day, kind, chat_id, 'attempt'))
             db.execute('DELETE FROM sends WHERE timestamp<?', (now - 30 * 86400,))
@@ -594,7 +614,7 @@ class Bot:
         return self.store.counts().get('automatic', 0) < 5 and now - self.store.last_send(chat_id) >= 3600
 
     def enqueue(self, chat_id, text='', reply_to=None, automatic=False, random_quote=False,
-                trigger_words=None, utility=None):
+                trigger_words=None, utility=None, tease_target=None):
         if not self.allowed(chat_id):
             return False
         with self.lock:
@@ -611,6 +631,7 @@ class Bot:
                                      'random_quote': random_quote,
                                      'trigger_words': trigger_words or [],
                                      'utility': utility,
+                                     'tease_target': tease_target,
                                      'queued_at': time.time()})
             except queue.Full:
                 if not automatic:
@@ -622,6 +643,20 @@ class Bot:
                 self.store.set(f'request:{chat_id}', time.time())
                 LOG.info('Обращение поставлено в очередь')
         return True
+
+    def tease_eligible(self, chat_id, target, now=None):
+        now = time.time() if now is None else now
+        current = self.store.get(f'tease_target:{chat_id}')
+        return bool(target and current and target['user_id'] == current['user_id']
+                    and 0 <= now - current['seen_at'] <= 86400
+                    and self.auto_eligible(chat_id, now)
+                    and self.store.tease_available(chat_id, target['user_id'], now))
+
+    def enqueue_scheduled(self, chat_id):
+        target = self.store.get(f'tease_target:{chat_id}')
+        if self.tease_eligible(chat_id, target):
+            return self.enqueue(chat_id, target['text'], target['message_id'], automatic=True, tease_target=target)
+        return self.enqueue(chat_id, automatic=True)
 
     def record_skip(self, chat_id, reason):
         self.store.set(f'last_skip:{chat_id}', {'reason': reason, 'time': time.time()})
@@ -790,6 +825,10 @@ class Bot:
             return
         if command and command not in COMMUNITY_COMMANDS | FOOTBALL_COMMANDS | {'/bubus', '/weather', '/convert', '/start', '/auto_on', '/auto_off', '/status'}:
             return
+        if (not private and user_id and (message.get('from', {}).get('username') or '').casefold() == TEASE_USERNAME
+                and text.strip() and not command):
+            self.store.set(f'tease_target:{chat_id}', dict(user_id=user_id, seen_at=time.time(),
+                           message_id=message['message_id'], text=clean_text(text)[:250]))
         reply = message.get('reply_to_message', {})
         direction = rating_signal(text)
         if (self.bot_id and reply.get('from', {}).get('id') == self.bot_id
@@ -904,6 +943,8 @@ class Bot:
 
     def generate(self, job):
         previous = self.store.recent_answers(job['chat_id'], limit=30)
+        if job.get('tease_target'):
+            previous = [re.sub(r'^@' + TEASE_USERNAME + r',\s*', '', text) for text in previous]
         if job.get('random_quote'):
             for text in random_candidates(limit=500):
                 answer = valid_answer(text)
@@ -940,9 +981,16 @@ class Bot:
                 'style_examples': examples, 'live_context': context,
                 'trigger_words': job.get('trigger_words', []),
                 'current_request': job['text']}
+        if job.get('tease_target'):
+            data['proactive_tease'] = {'username': TEASE_USERNAME, 'nickname': 'франки'}
         reason = None
         for attempt in range(2):
             prompt = self.prompt
+            if job.get('tease_target'):
+                prompt += ('\nСейчас напиши короткий дружеский язвительный подкол участнику франки по его '
+                           'реплике current_request. Не выдумывай его поступки или биографию. '
+                           'Без угроз, унижения внешности, национальности или происхождения. '
+                           'Верни только реплику без @упоминания: адресат добавляется программой.')
             if attempt:
                 prompt += '\nПредыдущий вариант не подошёл. Дай новую готовую реплику на 3–12 слов одной строкой по теме current_request. Без анализа, пояснений и оскорблений защищённых групп. Не повторяй уже сказанные реплики, даже с другой пунктуацией.'
             retry_data = dict(data, style_examples=[], live_context=context[-2:],
@@ -1007,6 +1055,9 @@ class Bot:
             return
         if job['automatic'] and not self.auto_eligible(chat_id):
             return
+        tease_target = job.get('tease_target')
+        if tease_target and (not job['automatic'] or not self.tease_eligible(chat_id, tease_target)):
+            return
         utility = job.get('utility')
         if utility:
             try:
@@ -1051,14 +1102,20 @@ class Bot:
             if not job['automatic']:
                 self.record_skip(chat_id, 'telegram_retry_after')
             return
+        if tease_target and not self.tease_eligible(chat_id, tease_target):
+            return
         kind = 'automatic' if job['automatic'] else 'manual'
-        send_id = self.reserve_utility_send(job) if utility else self.store.claim_send(kind, chat_id)
+        send_id = self.reserve_utility_send(job) if utility else self.store.claim_send(
+            kind, chat_id, tease_user_id=tease_target['user_id'] if tease_target else None)
         if send_id is None:
             if not job['automatic'] and not utility:
                 self.record_skip(chat_id, 'send_cooldown')
             return
         try:
-            sent = self.telegram.send(chat_id, answer if utility else surzhyk_text(answer), job['reply_to'])
+            answer = answer if utility else surzhyk_text(answer)
+            if tease_target:
+                answer = f'@{TEASE_USERNAME}, ' + answer
+            sent = self.telegram.send(chat_id, answer, job['reply_to'])
             self.store.add_message(sent, human=False, request_text=job['text'], learnable=not utility,
                                    rateable=not utility or utility['kind'] != 'bank')
             self.store.finish_send(send_id, 'sent')
@@ -1140,7 +1197,7 @@ class Bot:
                 if now >= next_time:
                     self.store.set('next_auto', now + self.random.uniform(3600, 10800))
                     if self.auto_eligible(chat_id):
-                        self.enqueue(chat_id, automatic=True)
+                        self.enqueue_scheduled(chat_id)
             except Exception as error:
                 LOG.error('Ошибка расписания: %s', type(error).__name__)
             time.sleep(10)

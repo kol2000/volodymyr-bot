@@ -87,6 +87,14 @@ def clean_text(text):
 
 def surzhyk_text(text):
     """Enforce recurrent archive spellings without removing every soft sign."""
+    text = text.translate(str.maketrans({'і': 'и', 'І': 'И', 'є': 'е', 'Є': 'Е'}))
+    # Latin i can replace a Cyrillic letter in mixed spellings; English names
+    # such as Linux, WiFi and iPhone must retain their original spelling.
+    latin_i = str.maketrans({'i': 'и', 'I': 'И'})
+    text = re.sub(r'(?<!\w)[а-яёїґi]+(?!\w)',
+                  lambda m: m.group().translate(latin_i) if re.search(r'[а-яёїґ]', m.group(), re.I)
+                  else m.group(), text, flags=re.I)
+    text = re.sub(r'(?<!\S)i(?=$|[\s,.!?;:])', lambda m: m.group().translate(latin_i), text, flags=re.I)
     spellings = {'ты': 'ти', 'это': 'ето', 'ещё': 'ещо', 'еще': 'ещо',
                  'было': 'било', 'бы': 'би', 'сейчас': 'сечас'}
 

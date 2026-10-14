@@ -247,6 +247,32 @@ class BotTests(unittest.TestCase):
         for text in FALLBACK_REPLIES + tuple(text for _, pool in FALLBACK_TOPICS for text in pool):
             self.assertEqual(surzhyk_text(text), text)
 
+    def test_surzhyk_uses_russian_letters_and_preserves_latin_names(self):
+        self.assertEqual(surzhyk_text('за норгів а ти бубус підтримуєш немає'),
+                         'за норгив а ти бубус пидтримуеш немае')
+        self.assertEqual(surzhyk_text('пiдтримуєш i пишеш І Є ПІДТРИМУЄШ'),
+                         'пидтримуеш и пишеш И Е ПИДТРИМУЕШ')
+        text = 'Linux WiFi API IPv6 iPhone bitcoin https://wiki.example/i'
+        self.assertEqual(surzhyk_text(text), text)
+        result = surzhyk_text('ти і є немає пiва')
+        self.assertEqual(surzhyk_text(result), result)
+
+    def test_model_and_archive_apply_russian_letters_without_changing_request(self):
+        job = self.manual_job(text='а ти бубус підтримуєш?')
+        with patch('bot.find_examples', return_value=[]), patch('bot.http_json', return_value={
+                'message': {'content': 'а ти че бубус підтримуєш немає пiва'}}) as model:
+            self.assertEqual(self.bot.generate(job), 'а ти че бубус пидтримуеш немае пива')
+            data = json.loads(model.call_args.args[1]['messages'][1]['content'])
+            self.assertEqual(data['current_request'], job['text'])
+        with patch('bot.random_candidates', return_value=['ти бля підтримуєш ето пiво']), patch('bot.http_json') as model:
+            self.assertEqual(self.bot.generate(self.manual_job(random_quote=True)),
+                             'ти бля пидтримуеш ето пиво')
+            model.assert_not_called()
+
+    def test_russian_letter_variants_do_not_evade_repeat_filter(self):
+        self.remember_answer('а ти бубус пидтримуеш немае пива')
+        self.assertTrue(repeated_answer('а ти бубус підтримуєш немає пiва', self.store.recent_answers(-100)))
+
     def test_plain_amount_and_weather_use_separate_queue_without_llm_job(self):
         self.bind()
         for number, text in enumerate(('100 USDT', 'Володька, какая погода в городе Орёл', '/weather Орёл', '/convert 100 USD',
@@ -747,6 +773,99 @@ class BotTests(unittest.TestCase):
         day = datetime(2026, 10, 5, 15, 0, tzinfo=MOSCOW).timestamp()
         with patch.object(self.store, 'latest_human', return_value=day - 7201):
             self.assertFalse(self.bot.auto_eligible(-100, now=day))
+
+    def prepare_tease(self):
+        self.bind()
+        self.store.set('automatic', True)
+        self.store.set('adaptive', False)
+        message = self.update('у меня опять интернет пропал', user=7, number=17)['message']
+        self.store.add_message(message)
+        target = dict(user_id=7, seen_at=time.time(), message_id=17, text=message['text'])
+        self.store.set('tease_target:-100', target)
+        return target
+
+    def test_tease_identity_is_learned_only_from_target_in_bound_group(self):
+        self.bind()
+        message = self.update('связь опять пропала', user=7, number=17)
+        message['message']['from']['username'] = 'FrankyVidadim'
+        self.bot.handle(message)
+        self.assertEqual(self.store.get('tease_target:-100')['user_id'], 7)
+        other = self.update('слова @frankyvidadim даг', user=8, number=18)
+        self.bot.handle(other)
+        self.assertEqual(self.store.get('tease_target:-100')['message_id'], 17)
+        message['update_id'] = 19
+        message['message']['chat']['id'] = -200
+        self.bot.handle(message)
+        self.assertIsNone(self.store.get('tease_target:-200'))
+
+    def test_scheduled_tease_mentions_target_and_normalizes_sent_and_saved_text(self):
+        self.prepare_tease()
+        self.assertTrue(self.bot.enqueue_scheduled(-100))
+        job = self.bot.jobs.get_nowait()
+        self.assertEqual(job['text'], 'у меня опять интернет пропал')
+        self.assertTrue(job['automatic'])
+        self.assertEqual(job['tease_target']['user_id'], 7)
+        with patch.object(self.bot, 'generate', return_value='ти підтримуєш i немає звязку'):
+            self.bot.process_job(job)
+        expected = '@frankyvidadim, ти пидтримуеш и немае звязку'
+        self.assertEqual(self.telegram.sent[-1], (-100, expected, 17))
+        self.assertEqual(self.store.recent_answers(-100)[0], expected)
+        self.assertEqual(self.store.counts()['automatic'], 1)
+
+    def test_tease_model_instruction_uses_actual_message_and_prevents_repeat_with_mention(self):
+        target = self.prepare_tease()
+        self.remember_answer('@frankyvidadim, ти роутер опять уговариваеш')
+        job = self.manual_job(automatic=True, text=target['text'], tease_target=target)
+        replies = [{'message': {'content': 'ти роутер опять уговариваеш'}},
+                   {'message': {'content': 'ну перезагрузи его хватит шаманить'}}]
+        with patch('bot.find_examples', return_value=[]), patch('bot.http_json', side_effect=replies) as model:
+            self.assertEqual(self.bot.generate(job), 'ну перезагрузи его хватит шаманить')
+        self.assertEqual(model.call_count, 2)
+        data = json.loads(model.call_args_list[0].args[1]['messages'][1]['content'])
+        self.assertEqual(data['current_request'], target['text'])
+        self.assertEqual(data['proactive_tease']['username'], 'frankyvidadim')
+
+    def test_missing_or_stale_target_keeps_ordinary_scheduled_reply(self):
+        target = self.prepare_tease()
+        target['seen_at'] -= 86401
+        self.store.set('tease_target:-100', target)
+        self.assertTrue(self.bot.enqueue_scheduled(-100))
+        job = self.bot.jobs.get_nowait()
+        self.assertIsNone(job['tease_target'])
+        self.assertEqual(job['text'], '')
+
+    def test_tease_limits_survive_restart_and_include_uncertain_attempts(self):
+        base = datetime(2026, 10, 14, 0, 1, tzinfo=MOSCOW).timestamp()
+        with patch('bot.time.time', return_value=base):
+            self.assertIsNotNone(self.store.claim_send('automatic', -100, tease_user_id=7))
+        restarted = Store(self.database)
+        self.assertFalse(restarted.tease_available(-100, 7, base + 3601))
+        with patch('bot.time.time', return_value=base + 6 * 3600):
+            self.assertIsNotNone(restarted.claim_send('automatic', -100, tease_user_id=7))
+        self.assertFalse(restarted.tease_available(-100, 7, base + 12 * 3600))
+        with patch('bot.time.time', return_value=base + 12 * 3600):
+            self.assertIsNone(restarted.claim_send('automatic', -100, tease_user_id=7))
+        self.assertTrue(restarted.tease_available(-100, 7, base + 86400))
+
+    def test_auto_off_during_tease_generation_cancels_target_message(self):
+        target = self.prepare_tease()
+        job = self.manual_job(automatic=True, text=target['text'], tease_target=target)
+        def generate(_):
+            self.store.set('automatic', False)
+            return 'ти шо опять интернет потерял'
+        before = len(self.telegram.sent)
+        with patch.object(self.bot, 'generate', side_effect=generate):
+            self.bot.process_job(job)
+        self.assertEqual(len(self.telegram.sent), before)
+        self.assertEqual(self.store.get('tease_attempts:-100:7', []), [])
+
+    def test_changed_target_identity_cancels_queued_tease(self):
+        target = self.prepare_tease()
+        job = self.manual_job(automatic=True, text=target['text'], tease_target=target)
+        self.store.set('tease_target:-100', dict(target, user_id=8))
+        with patch.object(self.bot, 'generate') as generate:
+            self.bot.process_job(job)
+        generate.assert_not_called()
 
     def test_daily_limit_and_cooldown_survive_restart(self):
         base = time.time()
