@@ -19,6 +19,8 @@ from community import (COMMUNITY_COMMANDS, GREETINGS, OWNER_FEATURES, community_
                        help_text, period_start, statistics_text, summary_excerpt, summary_text)
 from retrieval import build_index, find_examples, random_candidates
 from feedback import praise_signal, rating_signal, relevant_approved, salary_acknowledgement
+from question_answers import (PROMPT as QUESTION_PROMPT, FALLBACK as QUESTION_FALLBACK,
+                              ends_question, thoughtful_request, answer_style)
 from live_football import (Football, FootballError, PREFIX as FOOTBALL_PREFIX,
                            COMMANDS as FOOTBALL_COMMANDS, football_request, error_reply as football_error_reply)
 
@@ -551,17 +553,21 @@ def response_problem(text, previous=(), subject=''):
     return None
 
 
-def answer_problem(text):
+def answer_problem(text, thoughtful=False):
     text = text.strip()
     if text == '__SILENCE__':
         return None
     if len(text) < 2:
         return 'empty_response'
-    if len(text) > 220 or len(text.split()) > 35:
+    too_long = (len(text) > 3000 or len(text.encode('utf-16-le')) // 2 > 3500) if thoughtful else (
+        len(text) > 220 or len(text.split()) > 35)
+    if too_long:
         return 'response_too_long'
     if '<think' in text.lower() or '</think' in text.lower():
         return 'reasoning_in_response'
-    if len(text.splitlines()) > 1:
+    if thoughtful and text.count('```') % 2:
+        return 'unfinished_code'
+    if not thoughtful and len(text.splitlines()) > 1:
         return 'multiline_response'
     if re.match(r'(?i)(хорошо[, ]+пользователь|пользователь (пишет|спрашивает)|нужно ответить|анализ|вот (ответ|реплика)|я должен)', text):
         return 'reasoning_in_response'
@@ -614,7 +620,7 @@ class Bot:
         return self.store.counts().get('automatic', 0) < 5 and now - self.store.last_send(chat_id) >= 3600
 
     def enqueue(self, chat_id, text='', reply_to=None, automatic=False, random_quote=False,
-                trigger_words=None, utility=None, tease_target=None):
+                trigger_words=None, utility=None, tease_target=None, quoted_message=''):
         if not self.allowed(chat_id):
             return False
         with self.lock:
@@ -626,12 +632,15 @@ class Bot:
                     return False
             try:
                 target_queue = self.utility_jobs if utility and utility['kind'] != 'summary' else self.jobs
-                target_queue.put_nowait({'chat_id': chat_id, 'text': clean_text(text)[:1000],
+                thoughtful = not (automatic or utility or random_quote) and thoughtful_request(text)
+                target_queue.put_nowait({'chat_id': chat_id, 'text': clean_text(text)[:2000 if thoughtful else 1000],
                                      'reply_to': reply_to, 'automatic': automatic,
                                      'random_quote': random_quote,
                                      'trigger_words': trigger_words or [],
                                      'utility': utility,
                                      'tease_target': tease_target,
+                                     'thoughtful': thoughtful,
+                                     'quoted_message': clean_text(quoted_message)[:1000] if thoughtful else '',
                                      'queued_at': time.time()})
             except queue.Full:
                 if not automatic:
@@ -930,18 +939,22 @@ class Bot:
             utility['owner'] = owner
         if not utility:
             utility = service_request(argument, command)
-        if private or command == '/bubus' or mentioned or reply_to_bot or triggers or utility:
+        question_call = not command and ends_question(argument)
+        if private or command == '/bubus' or mentioned or reply_to_bot or triggers or utility or question_call:
             self.store.set(f'last_direct:{chat_id}', time.time())
             LOG.info('Получено прямое обращение; ключевых совпадений=%s', len(triggers))
             if not self.enqueue(chat_id, argument, message['message_id'],
                                 random_quote=(command == '/bubus' and not argument.strip()),
-                                trigger_words=triggers, utility=utility):
+                                trigger_words=triggers, utility=utility,
+                                quoted_message=reply.get('text') or reply.get('caption') or ''):
                 if owner and private:
                     self.notify(chat_id, 'Подожди немного: действует пауза или очередь заполнена.')
         elif not private and self.random.random() < self.store.get('activity_probability', 0.03):
             self.enqueue(chat_id, text, message['message_id'], automatic=True)
 
     def generate(self, job):
+        if self.is_thoughtful(job):
+            return self.generate_thoughtful(job)
         previous = self.store.recent_answers(job['chat_id'], limit=30)
         if job.get('tease_target'):
             previous = [re.sub(r'^@' + TEASE_USERNAME + r',\s*', '', text) for text in previous]
@@ -1034,6 +1047,68 @@ class Bot:
             LOG.warning('Ответ модели отклонён: причина=%s; попытка=%s/2', reason, attempt + 1)
         return None
 
+    @staticmethod
+    def is_thoughtful(job):
+        return not (job['automatic'] or job.get('utility') or job.get('random_quote')) and (
+            job.get('thoughtful') or thoughtful_request(job.get('text', '')))
+
+    def generate_thoughtful(self, job):
+        # Separate prompt and validation: short parody examples and the 35-word
+        # filter must never replace an explanation with a random angry phrase.
+        LOG.info('Начата генерация содержательного ответа')
+        context, budget = [], 1800
+        for row in reversed(self.store.context(job['chat_id'], limit=12)):
+            if row['text'].startswith('/') or row['text'] == job['text']:
+                continue
+            item = dict(row, text=clean_text(row['text'])[:500])
+            cost = len(json.dumps(item, ensure_ascii=False))
+            if cost > budget:
+                break
+            context.append(item)
+            budget -= cost
+        data = {'mode': 'question', 'current_request': clean_text(job['text'])[:2000],
+                'quoted_message': clean_text(job.get('quoted_message', ''))[:1000],
+                'live_context': list(reversed(context))}
+        previous = {answer_key(text) for text in self.store.recent_answers(job['chat_id'], limit=5)}
+        reason = None
+        for attempt in range(2):
+            prompt = QUESTION_PROMPT
+            if attempt:
+                prompt += ('\nПредыдущий ответ отклонён: ' + reason
+                           + '. Дай законченный ответ короче, без анализа задания и повторов.')
+            try:
+                result = http_json(self.config['ollama_url'] + '/api/chat', {
+                    'model': self.config['model'], 'stream': False, 'keep_alive': '24h',
+                    'messages': [{'role': 'system', 'content': prompt},
+                                 {'role': 'user', 'content': json.dumps(data, ensure_ascii=False)}],
+                    'options': {'num_ctx': 4096, 'num_thread': 16,
+                                'num_predict': 768 if reason == 'length_limit' else 512,
+                                'temperature': 0.35, 'repeat_penalty': 1.08},
+                }, timeout=120)
+            except APIError as error:
+                LOG.warning('Ответ на вопрос недоступен: HTTP=%s; попытка=%s/2', error.code, attempt + 1)
+                # A timeout may leave CPU inference running. Never queue another.
+                if error.code not in (429, 500, 502, 503, 504) or attempt:
+                    return None
+                reason = 'model_unavailable'
+                continue
+            message = result.get('message') if isinstance(result, dict) else None
+            answer = message.get('content') if isinstance(message, dict) else None
+            if not isinstance(result, dict) or result.get('error') or not isinstance(answer, str):
+                reason = 'malformed_response'
+            elif result.get('done_reason') == 'length':
+                reason = 'length_limit'
+            else:
+                reason = answer_problem(answer, thoughtful=True)
+                if not reason and answer.strip() == '__SILENCE__':
+                    reason = 'silence_on_direct_request'
+                if not reason and answer_key(answer) in previous:
+                    reason = 'repeated_response'
+            if not reason:
+                return answer_style(answer.strip())
+            LOG.warning('Ответ на вопрос отклонён: причина=%s; попытка=%s/2', reason, attempt + 1)
+        return None
+
     def fallback_answer(self, job):
         previous = self.store.recent_answers(job['chat_id'], limit=30)
         previous_keys = {answer_key(text) for text in previous}
@@ -1049,7 +1124,9 @@ class Bot:
 
     def process_job(self, job):
         chat_id = job['chat_id']
-        if not self.allowed(chat_id) or time.time() - job['queued_at'] > 180:
+        thoughtful = self.is_thoughtful(job)
+        lifetime = 360 if thoughtful else 180
+        if not self.allowed(chat_id) or time.time() - job['queued_at'] > lifetime:
             if not job['automatic']:
                 self.record_skip(chat_id, 'chat_changed' if not self.allowed(chat_id) else 'job_expired')
             return
@@ -1088,12 +1165,12 @@ class Bot:
         if not answer:
             if job['automatic']:
                 return
-            answer = self.fallback_answer(job)
+            answer = QUESTION_FALLBACK if thoughtful else self.fallback_answer(job)
             if not answer:
                 return
             LOG.info('Использована резервная реплика, режим=manual')
         # Recheck after generation: /auto_off and rebinding can arrive meanwhile.
-        if (not self.allowed(chat_id) or time.time() - job['queued_at'] > 180
+        if (not self.allowed(chat_id) or time.time() - job['queued_at'] > lifetime
                 or (job['automatic'] and not self.auto_eligible(chat_id))):
             if not job['automatic']:
                 self.record_skip(chat_id, 'chat_changed' if not self.allowed(chat_id) else 'job_expired')
@@ -1112,11 +1189,12 @@ class Bot:
                 self.record_skip(chat_id, 'send_cooldown')
             return
         try:
-            answer = answer if utility else surzhyk_text(answer)
+            if not utility:
+                answer = answer_style(answer) if thoughtful else surzhyk_text(answer)
             if tease_target:
                 answer = f'@{TEASE_USERNAME}, ' + answer
             sent = self.telegram.send(chat_id, answer, job['reply_to'])
-            self.store.add_message(sent, human=False, request_text=job['text'], learnable=not utility,
+            self.store.add_message(sent, human=False, request_text=job['text'], learnable=not utility and not thoughtful,
                                    rateable=not utility or utility['kind'] != 'bank')
             self.store.finish_send(send_id, 'sent')
             LOG.info('Реплика отправлена, режим=%s', kind)
