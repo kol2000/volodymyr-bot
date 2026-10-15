@@ -925,11 +925,13 @@ class Bot:
             return
         matches = (' '.join(match.group().casefold().split()) for match in TRIGGER_PATTERN.finditer(text))
         triggers = list(dict.fromkeys(TRIGGER_FORMS.get(word, word) for word in matches))
-        utility = football_request(argument, command, addressed=private or mentioned or reply_to_bot)
+        question_call = not command and ends_question(argument)
+        addressed = private or mentioned or reply_to_bot or question_call
+        utility = football_request(argument, command, addressed=addressed)
         if utility and utility['kind'] == 'football_switch' and not owner:
             utility = {'kind': 'fixed', 'text': 'футбольные уведомления включает и выключает только владелец'}
         if not utility:
-            utility = community_request(argument, command, addressed=private or mentioned or reply_to_bot)
+            utility = community_request(argument, command, addressed=addressed)
         if utility and utility['kind'] in OWNER_FEATURES:
             if owner:
                 self.notify(chat_id, self.setting_reply(utility, message), message['message_id'])
@@ -939,7 +941,6 @@ class Bot:
             utility['owner'] = owner
         if not utility:
             utility = service_request(argument, command)
-        question_call = not command and ends_question(argument)
         if private or command == '/bubus' or mentioned or reply_to_bot or triggers or utility or question_call:
             self.store.set(f'last_direct:{chat_id}', time.time())
             LOG.info('Получено прямое обращение; ключевых совпадений=%s', len(triggers))

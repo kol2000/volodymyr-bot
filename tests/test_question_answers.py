@@ -89,7 +89,9 @@ class QuestionTests(unittest.TestCase):
         for number, (text, kind) in enumerate([
                 ('Володька, какая погода в Орле?', 'weather'),
                 ('Володька, какой счет ЦСКА?', 'football'),
-                ('Володька, что умеешь?', 'help')], 1):
+                ('Володька, что умеешь?', 'help'),
+                ('какой счет ЦСКА?', 'football'),
+                ('что умеешь?', 'help')], 1):
             with self.subTest(text=text):
                 self.store.set('request:-100', 0)
                 self.bot.handle(self.message(text, number))
