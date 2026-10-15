@@ -21,6 +21,10 @@ from retrieval import build_index, find_examples, random_candidates
 from feedback import praise_signal, rating_signal, relevant_approved, salary_acknowledgement
 from question_answers import (PROMPT as QUESTION_PROMPT, FALLBACK as QUESTION_FALLBACK,
                               ends_question, thoughtful_request, answer_style)
+from assistant_features import (FeatureStore, FEATURE_COMMANDS, FOLLOWUP, CALL as FEATURE_CALL, feature_request,
+                                negative_reason, memory_context)
+from style_profile import profile_for_request
+from fact_check import FactChecker, FactError
 from live_football import (Football, FootballError, PREFIX as FOOTBALL_PREFIX,
                            COMMANDS as FOOTBALL_COMMANDS, football_request, error_reply as football_error_reply)
 
@@ -127,6 +131,10 @@ FALLBACK_TOPICS = (
     )),
 )
 COMMANDS = [('/bubus', 'случайная фраза; с текстом — ответ по теме'),
+            ('/more', 'раскрыть предыдущий ответ подробнее'),
+            ('/check', 'проверить утверждение по интернет-источникам'),
+            ('/remember', 'запомнить договорённость чата'), ('/memory', 'записи памяти'),
+            ('/memory_edit', 'исправить свою запись: номер и текст'), ('/forget', 'удалить свою запись: номер'),
             ('/bank', 'виртуальная зарплата Володьки в гривнах'),
             ('/weather', 'погода сейчас: /weather Орёл'),
             ('/convert', 'пересчитать сумму: /convert 100 USDT'),
@@ -149,7 +157,7 @@ COMMANDS = [('/bubus', 'случайная фраза; с текстом — о�
             ('/status', 'показать состояние'), ('/whoami', 'показать мой Telegram ID')]
 
 
-class Store:
+class Store(FeatureStore):
     def __init__(self, path):
         self.path = path
         with self.db() as db:
@@ -189,9 +197,11 @@ class Store:
             if 'user_id' not in {row[1] for row in db.execute('PRAGMA table_info(messages)')}:
                 db.execute('ALTER TABLE messages ADD COLUMN user_id INTEGER')
             columns = {row[1] for row in db.execute('PRAGMA table_info(messages)')}
-            for name, kind in (('request_text', 'TEXT'), ('learnable', 'INTEGER'), ('rateable', 'INTEGER')):
+            for name, kind in (('request_text', 'TEXT'), ('learnable', 'INTEGER'), ('rateable', 'INTEGER'),
+                               ('reply_to', 'INTEGER'), ('answer_mode', 'TEXT'), ('body', 'TEXT')):
                 if name not in columns:
                     db.execute(f'ALTER TABLE messages ADD COLUMN {name} {kind}')
+        self.init_features()
 
     @contextlib.contextmanager
     def db(self):
@@ -223,11 +233,13 @@ class Store:
         now = time.time()
         with self.db() as db:
             inserted = db.execute('INSERT OR IGNORE INTO messages '
-                                  '(chat_id,message_id,timestamp,speaker,text,human,user_id,request_text,learnable,rateable) VALUES (?,?,?,?,?,?,?,?,?,?)',
+                                  '(chat_id,message_id,timestamp,speaker,text,human,user_id,request_text,learnable,rateable,reply_to,answer_mode,body) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
                                   (chat_id, message['message_id'], stamp,
                                    speaker, clean_text(text)[:1000], int(human), user_id,
                                    clean_text(request_text)[:240], int(learnable and not human),
-                                   int(not human and (learnable if rateable is None else rateable)))).rowcount
+                                   int(not human and (learnable if rateable is None else rateable)),
+                                   message.get('_reply_to') or message.get('reply_to_message', {}).get('message_id'),
+                                   message.get('_answer_mode'), clean_text(text)[:3000])).rowcount
             if inserted and human and isinstance(user_id, int) and user_id > 0 and not (
                     message.get('_command') or text.startswith('/')):
                 day = datetime.fromtimestamp(stamp, MOSCOW).strftime('%Y-%m-%d')
@@ -371,6 +383,8 @@ class Store:
                         and len(answer.split()) <= 25 and bool(answer_key(answer)))
             if eligible:
                 key = answer_key(answer)
+                if db.execute('SELECT 1 FROM answer_issues WHERE chat_id=? AND response_key=?', (chat_id, key)).fetchone():
+                    return 'appreciated', self.feedback_ack(db, chat_id, now)
                 inserted = db.execute('INSERT OR IGNORE INTO reply_feedback VALUES (?,?,?,?)',
                                       (chat_id, key, user_id, now)).rowcount
                 if not inserted:
@@ -594,6 +608,7 @@ class Bot:
         self.jobs = queue.Queue(maxsize=4)
         self.utility_jobs = queue.Queue(maxsize=4)
         self.services = ChatServices()
+        self.fact_checker = FactChecker()
         self.football = Football(self.store)
         self.lock = threading.Lock()
         self.auto_pending = False
@@ -620,7 +635,8 @@ class Bot:
         return self.store.counts().get('automatic', 0) < 5 and now - self.store.last_send(chat_id) >= 3600
 
     def enqueue(self, chat_id, text='', reply_to=None, automatic=False, random_quote=False,
-                trigger_words=None, utility=None, tease_target=None, quoted_message=''):
+                trigger_words=None, utility=None, tease_target=None, quoted_message='',
+                user_id=None, speaker='', dialogue_id=None, detailed=False, force_thoughtful=False):
         if not self.allowed(chat_id):
             return False
         with self.lock:
@@ -631,8 +647,8 @@ class Bot:
                     self.record_skip(chat_id, 'request_cooldown')
                     return False
             try:
-                target_queue = self.utility_jobs if utility and utility['kind'] != 'summary' else self.jobs
-                thoughtful = not (automatic or utility or random_quote) and thoughtful_request(text)
+                target_queue = self.utility_jobs if utility and utility['kind'] not in ('summary', 'factcheck') else self.jobs
+                thoughtful = not (automatic or utility or random_quote) and (force_thoughtful or thoughtful_request(text))
                 target_queue.put_nowait({'chat_id': chat_id, 'text': clean_text(text)[:2000 if thoughtful else 1000],
                                      'reply_to': reply_to, 'automatic': automatic,
                                      'random_quote': random_quote,
@@ -641,6 +657,8 @@ class Bot:
                                      'tease_target': tease_target,
                                      'thoughtful': thoughtful,
                                      'quoted_message': clean_text(quoted_message)[:1000] if thoughtful else '',
+                                     'user_id': user_id, 'speaker': clean_text(speaker)[:80],
+                                     'dialogue_id': dialogue_id, 'detailed': detailed,
                                      'queued_at': time.time()})
             except queue.Full:
                 if not automatic:
@@ -832,14 +850,15 @@ class Bot:
             self.store.set('next_auto', time.time() + self.random.uniform(3600, 10800))
         if not self.allowed(chat_id):
             return
-        if command and command not in COMMUNITY_COMMANDS | FOOTBALL_COMMANDS | {'/bubus', '/weather', '/convert', '/start', '/auto_on', '/auto_off', '/status'}:
+        if command and command not in COMMUNITY_COMMANDS | FOOTBALL_COMMANDS | FEATURE_COMMANDS | {'/bubus', '/weather', '/convert', '/start', '/auto_on', '/auto_off', '/status'}:
             return
         if (not private and user_id and (message.get('from', {}).get('username') or '').casefold() == TEASE_USERNAME
                 and text.strip() and not command):
             self.store.set(f'tease_target:{chat_id}', dict(user_id=user_id, seen_at=time.time(),
                            message_id=message['message_id'], text=clean_text(text)[:250]))
         reply = message.get('reply_to_message', {})
-        direction = rating_signal(text)
+        issue = negative_reason(text)
+        direction = -1 if issue else rating_signal(text)
         if (self.bot_id and reply.get('from', {}).get('id') == self.bot_id
                 and (praise_signal(text) or direction)):
             quoted = reply.get('text') or reply.get('caption') or ''
@@ -851,18 +870,24 @@ class Bot:
                                 'отправь плюс или минус в ответ на исходную реплику', message['message_id'])
                     return
             salary, acknowledge = None, False
+            issue_saved = self.store.add_issue(chat_id, reply.get('message_id'), user_id, quoted, issue, answer_key) if issue else False
             if direction and not private:
                 result, acknowledge, salary = self.store.rate_reply(chat_id, reply.get('message_id'), user_id,
                                                                     quoted, direction)
-                if result == 'duplicate' or (result == 'ignored' and direction < 0):
+                if (result == 'duplicate' and not issue_saved) or (result == 'ignored' and direction < 0):
                     LOG.info('Получена оценка зарплаты; результат=%s', result)
                     return
             result, learned_ack = (self.store.approve_reply(chat_id, reply.get('message_id'), user_id, quoted)
                                    if praise_signal(text) else ('negative', False))
             acknowledge = acknowledge or learned_ack
+            acknowledge = acknowledge or issue_saved
             if acknowledge and time.time() >= self.store.get('blocked_until', 0):
                 response = ('поняв ету фразу запомнив' if result == 'learned'
                             else 'минус 80 гривен ну ти и жмот' if direction < 0 else 'поняв оценку записав')
+                if issue_saved:
+                    response = 'поняв причину записав'
+                elif direction < 0:
+                    response += '\nпричину можеш написать в ответ: мимо темы / неправда / не похож на Володьку / опять повторяешься'
                 if salary:
                     amount = f'{salary["balance"]:,}'.replace(',', ' ')
                     response += f'\n{"+80" if direction > 0 else "−80"} ₴ · банк: {amount} ₴'
@@ -911,7 +936,8 @@ class Bot:
                         f'Курсы/погода: в очереди {self.utility_jobs.qsize()}; обработка: {"идёт" if self.active_utility else "нет"}\n'
                         f'Пауза между обращениями: {pause} сек.\n'
                         f'Последнее обращение в группе: {seen_text}\nПоследний пропуск: {skip_text}\n'
-                        f'Модель: {self.config["model"]}')
+                        f'Модель: {self.config["model"]}\n'
+                        f'Последняя обработка: {self.store.get(f"metrics:{target}", {})}')
             return
         if command in ('/auto_on', '/auto_off', '/status', '/start'):
             return
@@ -926,8 +952,19 @@ class Bot:
         matches = (' '.join(match.group().casefold().split()) for match in TRIGGER_PATTERN.finditer(text))
         triggers = list(dict.fromkeys(TRIGGER_FORMS.get(word, word) for word in matches))
         question_call = not command and ends_question(argument)
-        addressed = private or mentioned or reply_to_bot or question_call
-        utility = football_request(argument, command, addressed=addressed)
+        session_id = self.store.session(chat_id, user_id)
+        followup = bool(FOLLOWUP.match(FEATURE_CALL.sub('', argument)))
+        explanation_reply = reply_to_bot and self.store.answer_mode(chat_id, reply.get('message_id')) in ('question', 'factcheck')
+        dialogue_id = reply.get('message_id') if reply_to_bot else session_id if followup else None
+        addressed = private or mentioned or reply_to_bot or question_call or bool(session_id and followup)
+        utility = feature_request(argument, command, addressed=addressed)
+        detailed = bool(utility and utility['kind'] == 'more')
+        if detailed:
+            utility = None
+            dialogue_id = reply.get('message_id') if reply_to_bot else session_id
+            addressed = True
+        if not utility:
+            utility = football_request(argument, command, addressed=addressed)
         if utility and utility['kind'] == 'football_switch' and not owner:
             utility = {'kind': 'fixed', 'text': 'футбольные уведомления включает и выключает только владелец'}
         if not utility:
@@ -941,13 +978,16 @@ class Bot:
             utility['owner'] = owner
         if not utility:
             utility = service_request(argument, command)
-        if private or command == '/bubus' or mentioned or reply_to_bot or triggers or utility or question_call:
+        if private or command in ('/bubus', '/more') or mentioned or reply_to_bot or triggers or utility or question_call or (session_id and followup):
             self.store.set(f'last_direct:{chat_id}', time.time())
             LOG.info('Получено прямое обращение; ключевых совпадений=%s', len(triggers))
             if not self.enqueue(chat_id, argument, message['message_id'],
                                 random_quote=(command == '/bubus' and not argument.strip()),
                                 trigger_words=triggers, utility=utility,
-                                quoted_message=reply.get('text') or reply.get('caption') or ''):
+                                quoted_message=reply.get('text') or reply.get('caption') or '',
+                                user_id=user_id, speaker=message.get('from', {}).get('first_name', 'участник'),
+                                dialogue_id=dialogue_id, detailed=detailed,
+                                force_thoughtful=bool(detailed or (dialogue_id and (explanation_reply or followup)))):
                 if owner and private:
                     self.notify(chat_id, 'Подожди немного: действует пауза или очередь заполнена.')
         elif not private and self.random.random() < self.store.get('activity_probability', 0.03):
@@ -995,6 +1035,12 @@ class Bot:
                 'style_examples': examples, 'live_context': context,
                 'trigger_words': job.get('trigger_words', []),
                 'current_request': job['text']}
+        issues = self.store.issues(job['chat_id'])
+        rejected = self.store.rejected_keys(job['chat_id'])
+        data['style_examples'] = [row for row in data['style_examples'] if answer_key(row['response']) not in rejected]
+        data['speech_profile'] = profile_for_request(subject)
+        data['speech_profile']['examples'] = [text for text in data['speech_profile']['examples'] if answer_key(text) not in rejected]
+        data['quality_feedback'] = [dict(reason=row['reason'], request=row['request']) for row in issues[:3]]
         if job.get('tease_target'):
             data['proactive_tease'] = {'username': TEASE_USERNAME, 'nickname': 'франки'}
         reason = None
@@ -1010,7 +1056,7 @@ class Bot:
             retry_data = dict(data, style_examples=[], live_context=context[-2:],
                               previous_failure=reason) if attempt else data
             try:
-                result = http_json(self.config['ollama_url'] + '/api/chat', {
+                result = self.call_model(job, {
                     'model': self.config['model'], 'stream': False, 'keep_alive': '24h',
                     'messages': [{'role': 'system', 'content': prompt},
                                  {'role': 'user', 'content': json.dumps(retry_data, ensure_ascii=False)}],
@@ -1039,6 +1085,8 @@ class Bot:
                 reason = 'length_limit'
             else:
                 reason = response_problem(answer, previous, subject)
+                if not reason and answer_key(answer) in rejected:
+                    reason = 'negative_feedback'
             answer = answer.strip() if isinstance(answer, str) else ''
             if not reason and answer == '__SILENCE__' and not job['automatic']:
                 reason = 'silence_on_direct_request'
@@ -1047,6 +1095,14 @@ class Bot:
             # Log only a fixed reason code, never generated text or requests.
             LOG.warning('Ответ модели отклонён: причина=%s; попытка=%s/2', reason, attempt + 1)
         return None
+
+    def call_model(self, job, payload, timeout):
+        started = time.monotonic()
+        try:
+            return http_json(self.config['ollama_url'] + '/api/chat', payload, timeout=timeout)
+        finally:
+            metrics = job.setdefault('_metrics', {})
+            metrics['model_seconds'] = round(metrics.get('model_seconds', 0) + time.monotonic() - started, 3)
 
     @staticmethod
     def is_thoughtful(job):
@@ -1070,7 +1126,17 @@ class Bot:
         data = {'mode': 'question', 'current_request': clean_text(job['text'])[:2000],
                 'quoted_message': clean_text(job.get('quoted_message', ''))[:1000],
                 'live_context': list(reversed(context))}
+        data['dialogue'] = self.store.dialogue(job['chat_id'], job.get('dialogue_id'))
+        data['detail'] = 'detailed' if job.get('detailed') else 'brief'
+        subject = job['text'] + ' ' + ' '.join(row['text'] for row in data['dialogue'][-2:])
+        data['speech_profile'] = profile_for_request(subject)
+        data['chat_memories'] = memory_context(self.store.memories(job['chat_id'], subject, limit=3))
+        issues = self.store.issues(job['chat_id'])
+        rejected = self.store.rejected_keys(job['chat_id'])
+        data['speech_profile']['examples'] = [text for text in data['speech_profile']['examples'] if answer_key(text) not in rejected]
+        data['quality_feedback'] = [dict(reason=row['reason'], request=row['request']) for row in issues[:3]]
         previous = {answer_key(text) for text in self.store.recent_answers(job['chat_id'], limit=5)}
+        num_ctx = 8192 if data['dialogue'] or data['chat_memories'] or len(json.dumps(data, ensure_ascii=False)) > 3500 else 4096
         reason = None
         for attempt in range(2):
             prompt = QUESTION_PROMPT
@@ -1078,12 +1144,12 @@ class Bot:
                 prompt += ('\nПредыдущий ответ отклонён: ' + reason
                            + '. Дай законченный ответ короче, без анализа задания и повторов.')
             try:
-                result = http_json(self.config['ollama_url'] + '/api/chat', {
+                result = self.call_model(job, {
                     'model': self.config['model'], 'stream': False, 'keep_alive': '24h',
                     'messages': [{'role': 'system', 'content': prompt},
                                  {'role': 'user', 'content': json.dumps(data, ensure_ascii=False)}],
-                    'options': {'num_ctx': 4096, 'num_thread': 16,
-                                'num_predict': 768 if reason == 'length_limit' else 512,
+                    'options': {'num_ctx': num_ctx, 'num_thread': 16,
+                                'num_predict': 768 if reason == 'length_limit' else 512 if job.get('detailed') else 256,
                                 'temperature': 0.35, 'repeat_penalty': 1.08},
                 }, timeout=120)
             except APIError as error:
@@ -1105,6 +1171,8 @@ class Bot:
                     reason = 'silence_on_direct_request'
                 if not reason and answer_key(answer) in previous:
                     reason = 'repeated_response'
+                if not reason and answer_key(answer) in rejected:
+                    reason = 'negative_feedback'
             if not reason:
                 return answer_style(answer.strip())
             LOG.warning('Ответ на вопрос отклонён: причина=%s; попытка=%s/2', reason, attempt + 1)
@@ -1124,9 +1192,25 @@ class Bot:
         return None
 
     def process_job(self, job):
+        started = time.monotonic()
+        job['_metrics'] = {'queue_seconds': round(max(0, time.time() - job['queued_at']), 3)}
+        long_job = self.is_thoughtful(job) or (job.get('utility') or {}).get('kind') == 'factcheck'
+        typing = (not job['automatic'] and self.allowed(job['chat_id']) and hasattr(self.telegram, 'typing')
+                  and time.time() - job['queued_at'] <= (360 if long_job else 180))
+        try:
+            with self.telegram.typing(job['chat_id']) if typing else contextlib.nullcontext():
+                return self._process_job(job)
+        finally:
+            metrics = dict(job['_metrics'], total_seconds=round(time.monotonic() - started, 3))
+            try:
+                self.store.set(f'metrics:{job["chat_id"]}', metrics)
+            except (sqlite3.Error, OSError):
+                pass
+
+    def _process_job(self, job):
         chat_id = job['chat_id']
         thoughtful = self.is_thoughtful(job)
-        lifetime = 360 if thoughtful else 180
+        lifetime = 360 if thoughtful or (job.get('utility') or {}).get('kind') == 'factcheck' else 180
         if not self.allowed(chat_id) or time.time() - job['queued_at'] > lifetime:
             if not job['automatic']:
                 self.record_skip(chat_id, 'chat_changed' if not self.allowed(chat_id) else 'job_expired')
@@ -1137,9 +1221,15 @@ class Bot:
         if tease_target and (not job['automatic'] or not self.tease_eligible(chat_id, tease_target)):
             return
         utility = job.get('utility')
+        generation_started = time.monotonic()
         if utility:
             try:
-                if utility['kind'] == 'summary':
+                if utility['kind'] == 'factcheck':
+                    answer = self.fact_checker.answer(utility['query'], self.config, profile_for_request(utility['query']))
+                elif utility['kind'].startswith('memory_'):
+                    answer = self.store.memory_action(utility, chat_id, job.get('user_id'), job.get('speaker', ''),
+                                                      job['reply_to'], owner=job.get('user_id') == self.config['owner_id'])
+                elif utility['kind'] == 'summary':
                     answer = self.summarize(job)
                 elif utility['kind'] in ('weather', 'currency'):
                     answer = self.services.answer(utility)
@@ -1154,6 +1244,9 @@ class Bot:
                 self.store.set(FOOTBALL_PREFIX + 'error', str(error))
                 LOG.warning('Футбольный ответ недоступен: причина=%s', error)
                 answer = football_error_reply()
+            except FactError as error:
+                LOG.warning('Проверка фактов недоступна: причина=%s', error)
+                answer = 'подтвердить не могу доступных источников для проверки сечас нет'
         else:
             try:
                 answer = self.generate(job)
@@ -1161,6 +1254,9 @@ class Bot:
                 LOG.warning('Генерация не выполнена: причина=local_generation_error; тип=%s',
                             type(error).__name__)
                 answer = None
+        job['_metrics']['answer_seconds'] = round(time.monotonic() - generation_started, 3)
+        if utility and utility['kind'] == 'factcheck':
+            job['_metrics'].update(self.fact_checker.last_timings)
         if answer == '__SILENCE__':
             return
         if not answer:
@@ -1183,7 +1279,7 @@ class Bot:
         if tease_target and not self.tease_eligible(chat_id, tease_target):
             return
         kind = 'automatic' if job['automatic'] else 'manual'
-        send_id = self.reserve_utility_send(job) if utility else self.store.claim_send(
+        send_id = self.reserve_utility_send(job) if utility or thoughtful else self.store.claim_send(
             kind, chat_id, tease_user_id=tease_target['user_id'] if tease_target else None)
         if send_id is None:
             if not job['automatic'] and not utility:
@@ -1194,9 +1290,15 @@ class Bot:
                 answer = parody_text(answer)
             if tease_target:
                 answer = f'@{TEASE_USERNAME} ' + answer
+            send_started = time.monotonic()
             sent = self.telegram.send(chat_id, answer, job['reply_to'])
-            self.store.add_message(sent, human=False, request_text=job['text'], learnable=not utility and not thoughtful,
+            job['_metrics']['send_seconds'] = round(time.monotonic() - send_started, 3)
+            mode = utility['kind'] if utility else 'question' if thoughtful else 'parody'
+            self.store.add_message(dict(sent, _reply_to=job['reply_to'], _answer_mode=mode), human=False,
+                                   request_text=job['text'], learnable=not utility and not thoughtful,
                                    rateable=not utility or utility['kind'] != 'bank')
+            if thoughtful or (utility and utility['kind'] == 'factcheck'):
+                self.store.remember_session(chat_id, job.get('user_id'), sent['message_id'])
             self.store.finish_send(send_id, 'sent')
             LOG.info('Реплика отправлена, режим=%s', kind)
         except APIError as error:
@@ -1219,7 +1321,7 @@ class Bot:
                 self.record_skip(chat_id, 'telegram_retry_after')
                 return None
             delay = max(0, 15 - (now - self.store.last_send(chat_id)))
-            if now + delay - job['queued_at'] > 180:
+            if now + delay - job['queued_at'] > (360 if self.is_thoughtful(job) or (job.get('utility') or {}).get('kind') == 'factcheck' else 180):
                 self.record_skip(chat_id, 'job_expired')
                 return None
             if delay:

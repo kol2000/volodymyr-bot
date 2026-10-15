@@ -122,7 +122,7 @@ class QuestionTests(unittest.TestCase):
         approved.assert_not_called()
         self.assertEqual(model.call_args.args[1]['messages'][0]['content'], PROMPT)
         self.assertEqual(model.call_args.args[1]['options']['num_ctx'], 4096)
-        self.assertEqual(model.call_args.args[1]['options']['num_predict'], 512)
+        self.assertEqual(model.call_args.args[1]['options']['num_predict'], 256)
         self.assertEqual(model.call_args.kwargs['timeout'], 120)
 
     def test_long_multiline_explanation_sends_once_and_is_not_a_learned_fact(self):

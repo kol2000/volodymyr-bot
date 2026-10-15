@@ -1,5 +1,6 @@
 """Local configuration and Telegram HTTP client. No third-party dependencies."""
 import json
+import contextlib
 import re
 import threading
 import time
@@ -75,6 +76,25 @@ class Telegram:
             self.last_send = time.monotonic()
             # Deliberately no blind retry: a timeout can mean Telegram accepted it.
             return self.call('sendMessage', **payload)
+
+    @contextlib.contextmanager
+    def typing(self, chat_id):
+        stopped = threading.Event()
+        def refresh():
+            while not stopped.is_set():
+                try:
+                    http_json(self.base + 'sendChatAction', {'chat_id': chat_id, 'action': 'typing'}, timeout=5)
+                except APIError:
+                    return
+                if stopped.wait(4):
+                    return
+        thread = threading.Thread(target=refresh, daemon=True)
+        thread.start()
+        try:
+            yield
+        finally:
+            stopped.set()
+            thread.join(timeout=0.1)
 
 
 def clean_text(text):
