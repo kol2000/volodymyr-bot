@@ -482,9 +482,15 @@ class Scoreboard:
 
 
 def football_request(value, command='', addressed=False, now=None):
-    if command and command not in COMMANDS:
+    if command and command not in COMMANDS | {'/check', '/bubus'}:
         return None
     body = value.strip()
+    if command == '/check':
+        body = body.split(maxsplit=1)[1] if len(body.split(maxsplit=1)) > 1 else ''
+        addressed = True
+    elif command == '/bubus':
+        # Bot.handle already removed this command from the argument.
+        addressed = True
     if command in COMMANDS:
         body = body.split(maxsplit=1)[1] if len(body.split(maxsplit=1)) > 1 else ''
     else:
@@ -493,13 +499,27 @@ def football_request(value, command='', addressed=False, now=None):
             body, addressed = body[nickname.end():], True
         if not addressed:
             return None
+        body = re.sub(r'^(?:проверь|перепроверь|скажи|посмотри)\b[\s,:]+', '', body, flags=re.I)
         match = re.match(r'^(?:какой\s+сч[её]т|сч[её]т(?:\s+матч[аей]+)?|футбол|'
                          r'что\s+там\s+футбол|как\s+игра(?:ет|ют)|'
                          r'кто\s+играет(?:\s+в\s+футбол)?|результаты\s+матчей|'
                          r'что\s+с\s+футболом)\b[\s,:!?]*(.*)$', body, re.I)
-        if not match:
-            return None
-        body = match[1]
+        if match:
+            body = match[1]
+        else:
+            # Keep dates and team names, removing only the recognized question.
+            # These requests must use the scoreboard, never offline generation.
+            playing = r'\bигра(?:ет|ют)\b'
+            match_word = r'\bматч(?:и)?\b'
+            time_question = re.match(r'^(?:во\s+сколько|когда)\b', body, re.I)
+            yes_no = re.match(r'^игра(?:ет|ют)\s+ли\b', body, re.I)
+            dated_play = (re.search(playing, body, re.I) and
+                          re.search(r'\b(?:сегодня|завтра|вчера)\b|\d{1,2}\.\d{1,2}', body, re.I))
+            if not ((time_question and re.search(f'{playing}|{match_word}', body, re.I))
+                    or yes_no or dated_play):
+                return None
+            body = re.sub(r'\b(?:во\s+сколько|когда|играет|играют|ли|кто|матч|матчи|'
+                          r'будет|будут|начнется|начнётся|начинается)\b', '', body, flags=re.I)
     if command in ('/football_on', '/football_off'):
         return {'kind': 'football_switch', 'enabled': command == '/football_on'}
     if command == '/football_status':
@@ -524,6 +544,22 @@ def football_request(value, command='', addressed=False, now=None):
     if len(body) > 100:
         return {'kind': 'football_invalid'}
     return {'kind': 'football', 'day': day.isoformat(), 'filter': ' '.join(body.split()).strip(' ,.!?')}
+
+
+def football_correction(value, dialogue, now=None):
+    """Recheck the original football question; a user's correction is not evidence."""
+    correction = re.match(r'^(?:(?:вот\s+)?(?:ти|ты)\s+)?(?:вот\s+)?'
+                          r'(?:пиздабол|ошиб(?:ся|ка)|вр[её]ш[ь]?|неправильно|неверно|'
+                          r'перепроверь|проверь\s+е(?:щ[её]|що)\s+раз)\b', value.strip(), re.I)
+    if not correction:
+        return None
+    # Only the immediately preceding human turn belongs to this correction.
+    # Do not revive an old football topic through an unrelated question.
+    previous = next((row['text'] for row in reversed(dialogue) if row['human']), '')
+    command = previous.split(maxsplit=1)[0].lower().split('@')[0] if previous.startswith('/') else ''
+    if command == '/bubus':
+        previous = previous.split(maxsplit=1)[1] if len(previous.split(maxsplit=1)) > 1 else ''
+    return football_request(previous, command, addressed=True, now=now)
 
 
 def normalize(value):

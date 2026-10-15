@@ -11,7 +11,7 @@ from bot import Bot, Store
 from common import APIError, HTMLMessage, MODEL
 from live_football import (ACTIVE, BASE, FINISHED, PREFIX, Football, FootballError,
                            MOSCOW, MONTHS, Match, Scoreboard, changes, fetch_html,
-                           Goal, event_text, goals_between, football_request, parse_page,
+                           Goal, event_text, goals_between, football_request, football_correction, parse_page,
                            parse_match_page, scoreboard_text, status_code)
 from test_bot import FakeTelegram
 
@@ -224,6 +224,43 @@ class ParsingTests(unittest.TestCase):
         for value in ['100 RUB', 'курс доллара', 'какой счет Ростов Акрон']:
             self.assertIsNone(football_request(value))
         self.assertIsNone(football_request('/weather Орёл', '/weather', True))
+
+    def test_natural_kickoff_and_verification_keep_only_team_and_date(self):
+        now = datetime(2026, 10, 15, 19, 50, tzinfo=MOSCOW).timestamp()
+        cases = [('бубус, во сколько сегодня играет СПАРТАК?', ''),
+                 ('Бубус проверь играет ли сегодня СПАРТАК?', ''),
+                 ('Бубус, когда матч Спартак?', ''),
+                 ('Бубус, Спартак сегодня играет?', ''),
+                 ('Бубус, сегодня играет Спартак?', ''),
+                 ('/check играет ли сегодня СПАРТАК?', '/check'),
+                 ('во сколько сегодня играет Спартак?', '/bubus')]
+        for text, command in cases:
+            with self.subTest(text=text):
+                request = football_request(text, command, now=now)
+                self.assertEqual(request, dict(kind='football', day='2026-10-15',
+                                               filter='СПАРТАК' if 'СПАРТАК' in text else 'Спартак'))
+        for text, day in [('Бубус когда завтра играет Спартак?', '2026-10-16'),
+                          ('Бубус во сколько 18.10 играет Спартак?', '2026-10-18')]:
+            self.assertEqual(football_request(text, now=now), dict(kind='football', day=day, filter='Спартак'))
+
+    def test_unrelated_questions_and_commands_keep_their_original_routes(self):
+        for text in ['Бубус во сколько открывается магазин?', 'Бубус проверь курс доллара',
+                     'Бубус когда будет погода?', 'Бубус Спартак хороший фильм?']:
+            self.assertIsNone(football_request(text))
+        self.assertIsNone(football_request('сегодня играет Спартак?'))
+        self.assertIsNone(football_request('/remember Спартак сегодня играет', '/remember', True))
+
+    def test_correction_uses_original_request_not_claimed_score_or_link(self):
+        dialogue = [dict(human=True, text='бубус во сколько сегодня играет Спартак?'),
+                    dict(human=False, text='Спартак не играет сегодня. Проверил.')]
+        now = START
+        for text in ['вот пиздабол. 20:45 Родина - Спартак - 0:0 https://example.com',
+                     'ты ошибся', 'проверь еще раз']:
+            self.assertEqual(football_correction(text, dialogue, now=now),
+                             dict(kind='football', day=DAY.isoformat(), filter='Спартак'))
+        self.assertIsNone(football_correction('проверь цену биткоина', dialogue))
+        self.assertIsNone(football_correction('вот пиздабол', dialogue + [dict(human=True, text='Почему небо синее?')]))
+        self.assertIsNone(football_correction('вот пиздабол', []))
 
     def test_team_and_competition_filters(self):
         matches = [fixture(), dataclasses.replace(fixture(), id='2', competition='Кубок России', home='ЦСКА')]
@@ -880,6 +917,57 @@ class BotIntegrationTests(unittest.TestCase):
         self.assertFalse(self.store.get(PREFIX + 'enabled', False))
         self.bot.handle(self.update('/football_on', chat=-200))
         self.assertTrue(self.bot.utility_jobs.empty())
+
+    def test_screenshot_schedule_questions_bypass_model_and_general_factcheck(self):
+        match = dataclasses.replace(fixture(), home='Родина', away='Спартак',
+                                    kickoff=datetime(2026, 10, 15, 20, 45, tzinfo=MOSCOW).timestamp())
+        for message in ['бубус, во сколько сегодня играет СПАРТАК?',
+                        'Бубус проверь играет ли сегодня СПАРТАК?',
+                        '/check играет ли сегодня Спартак?', '/bubus во сколько играет Спартак?']:
+            with self.subTest(message=message):
+                self.store.set('request:-100', 0)
+                with self.store.db() as db:
+                    db.execute('DELETE FROM messages')
+                    db.execute('DELETE FROM sends')
+                with patch('bot.feature_request') as generic:
+                    self.bot.handle(self.update(message, user=7))
+                    generic.assert_not_called()
+                self.assertTrue(self.bot.jobs.empty())
+                job = self.bot.utility_jobs.get_nowait()
+                self.assertEqual(job['utility']['filter'].casefold(), 'спартак')
+                with patch.object(self.bot.football.source, 'day', return_value=([match], START)) as source, \
+                        patch('bot.http_json') as model:
+                    self.bot.process_job(job)
+                    source.assert_called_once()
+                    model.assert_not_called()
+                self.assertIn('Родина — Спартак', self.telegram.sent[-1][1])
+                self.assertIn('20:45 МСК', self.telegram.sent[-1][1])
+
+    def test_reply_correcting_old_hallucination_rechecks_football_after_restart(self):
+        import time
+        self.store.add_message(dict(chat={'id': -100}, message_id=10, date=time.time(),
+                               text='бубус во сколько сегодня играет Спартак?',
+                               **{'from': {'id': 7, 'first_name': 'Tester'}}))
+        self.store.add_message(dict(chat={'id': -100}, message_id=11, date=time.time(),
+                               text='Спартак не играет сегодня. Проверил по расписанию.',
+                               _reply_to=10, _answer_mode='question'), human=False)
+        self.bot.store = Store(Path(self.temp.name) / 'bot.sqlite3')
+        message = self.update('вот пиздабол. 20:45. Родина - Спартак - 0:0', user=7)
+        message['message']['reply_to_message'] = dict(message_id=11, **{'from': {'id': 99, 'is_bot': True}})
+        self.bot.handle(message)
+        self.assertTrue(self.bot.jobs.empty())
+        request = self.bot.utility_jobs.get_nowait()['utility']
+        self.assertEqual(request['kind'], 'football')
+        self.assertEqual(request['filter'], 'Спартак')
+
+    def test_empty_schedule_cannot_become_claim_that_team_does_not_play(self):
+        self.bot.handle(self.update('Бубус проверь играет ли сегодня Спартак?', user=7))
+        job = self.bot.utility_jobs.get_nowait()
+        with patch.object(self.bot.football.source, 'day', return_value=([], START)), patch('bot.http_json') as model:
+            self.bot.process_job(job)
+            model.assert_not_called()
+        self.assertIn('в доступной выборке', self.telegram.sent[-1][1])
+        self.assertNotIn('не играет', self.telegram.sent[-1][1])
 
     def test_unavailable_source_returns_explicit_error_without_llm_or_parody(self):
         self.bot.handle(self.update('/football'))

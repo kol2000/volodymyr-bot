@@ -26,7 +26,8 @@ from assistant_features import (FeatureStore, FEATURE_COMMANDS, FOLLOWUP, CALL a
 from style_profile import profile_for_request
 from fact_check import FactChecker, FactError
 from live_football import (Football, FootballError, PREFIX as FOOTBALL_PREFIX,
-                           COMMANDS as FOOTBALL_COMMANDS, football_request, error_reply as football_error_reply)
+                           COMMANDS as FOOTBALL_COMMANDS, football_request, football_correction,
+                           error_reply as football_error_reply)
 
 LOG = logging.getLogger('volodymyr')
 MOSCOW = ZoneInfo('Europe/Moscow')
@@ -957,14 +958,16 @@ class Bot:
         explanation_reply = reply_to_bot and self.store.answer_mode(chat_id, reply.get('message_id')) in ('question', 'factcheck')
         dialogue_id = reply.get('message_id') if reply_to_bot else session_id if followup else None
         addressed = private or mentioned or reply_to_bot or question_call or bool(session_id and followup)
-        utility = feature_request(argument, command, addressed=addressed)
+        utility = football_request(argument, command, addressed=addressed)
+        if not utility and reply_to_bot and not command:
+            utility = football_correction(argument, self.store.dialogue(chat_id, reply.get('message_id')))
+        if not utility:
+            utility = feature_request(argument, command, addressed=addressed)
         detailed = bool(utility and utility['kind'] == 'more')
         if detailed:
             utility = None
             dialogue_id = reply.get('message_id') if reply_to_bot else session_id
             addressed = True
-        if not utility:
-            utility = football_request(argument, command, addressed=addressed)
         if utility and utility['kind'] == 'football_switch' and not owner:
             utility = {'kind': 'fixed', 'text': 'футбольные уведомления включает и выключает только владелец'}
         if not utility:
