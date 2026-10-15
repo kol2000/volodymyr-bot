@@ -30,7 +30,7 @@ def praise_signal(text):
 def salary_acknowledgement(text):
     """Recognize only our old salary receipts, not arbitrary bot messages."""
     match = re.fullmatch(
-        r'(?:поняв ету фразу запомнив спасибо за науку|поняв спасибо за оценку|'
+        r'(?:поняв ету фразу запомнив(?: спасибо за науку)?|поняв спасибо за оценку|поняв оценку записав|'
         r'минус 80 гривен ну ти и жмот)\n([+−])80 ₴ · банк: -?\d[\d ]* ₴', text.strip())
     return (1 if match[1] == '+' else -1) if match else 0
 

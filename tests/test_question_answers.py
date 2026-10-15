@@ -223,6 +223,6 @@ class QuestionTests(unittest.TestCase):
                                    text='проверь соединение по кабелю и сравни с WiFi'), human=False)
         text = 'проверь соединение по кабелю. если скорость нормальная, проверь помехи в WiFi.'
         with patch('bot.http_json', return_value=self.result(text)) as model:
-            self.assertEqual(self.bot.generate(self.job()), text)
+            self.assertEqual(self.bot.generate(self.job()), answer_style(text))
         model.assert_called_once()
 

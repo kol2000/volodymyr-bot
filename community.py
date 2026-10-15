@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from html import escape, unescape
 from zoneinfo import ZoneInfo
 
-from common import APIError, HTMLMessage, clean_text, http_json, surzhyk_text
+from common import APIError, HTMLMessage, clean_text, http_json, parody_text
 
 LOG = logging.getLogger('volodymyr')
 
@@ -224,8 +224,8 @@ def summary_report(result, selected, total, days, compact=False):
         if not isinstance(item, dict):
             raise SummaryError('summary_invalid_field')
         authors = summary_sources(item.get('sources'), selected)
-        title = surzhyk_text(summary_string(item.get('title'), 60))
-        text = surzhyk_text(summary_string(item.get('text'), 180 if compact else 300))
+        title = parody_text(summary_string(item.get('title'), 60))
+        text = parody_text(summary_string(item.get('text'), 180 if compact else 300))
         quip = summary_string(item.get('quip', ''), 60 if compact else 90, optional=True)
         # Author labels come from stored messages, never from model-generated names.
         names = ', '.join(clean_text(name)[:40] for name in authors[:2])
@@ -233,14 +233,14 @@ def summary_report(result, selected, total, days, compact=False):
             names += f' и ещё {len(authors) - 2}'
         block = f'{number}. <b>{escape(title)}</b>\n{escape(text)}\n<i>В обсуждении: {escape(names)}.</i>'
         if quip:
-            block += '\n<i>' + escape(surzhyk_text(quip.lower())) + '</i>'
+            block += '\n<i>' + escape(parody_text(quip.lower())) + '</i>'
         topics.append(block)
     agreements = []
     for item in decisions:
         if not isinstance(item, dict):
             raise SummaryError('summary_invalid_field')
         summary_sources(item.get('sources'), selected)
-        agreements.append('• ' + escape(surzhyk_text(summary_string(item.get('text'), 160))))
+        agreements.append('• ' + escape(parody_text(summary_string(item.get('text'), 160))))
 
     def render():
         heading = f'<b>Ну шо тут у вас · {period_label(days)}</b>\n\n<b>О чём спорили и болтали</b>\n'
@@ -277,6 +277,8 @@ def summary_text(config, rows, total, days, time_budget=150):
               'Не выдумывай события, мотивы, обвинения, согласие, решения, цены, погоду или имена. '
               'В decisions включи только явно принятые договорённости с sources; если их нет, верни []. '
               'Содержание text должно быть точным, разговорным и слегка ироничным. '
+              'В собственном тексте почти без запятых и без пожалуйста, спасибо, благодарю и извинений. '
+              'Более-менее записывай болья менья, только по смыслу и не в каждой теме. '
               'Отдельный quip — короткий язвительный комментарий Володьки к этой теме: строчные буквы, '
               'суржик ти, ето, шо, ещо, пишеш; допустим разговорный мат. Подкалывай ход беседы, '
               'споры и пустую болтовню; не добавляй в шутке новые факты и обвинения, угрозы '

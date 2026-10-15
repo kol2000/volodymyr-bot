@@ -143,7 +143,7 @@ class BotTests(unittest.TestCase):
     def test_trigger_substrings_and_other_bot_commands_do_not_activate(self):
         self.bind()
         with patch.object(self.bot.random, 'random', return_value=1):
-            self.bot.handle(self.update('киевский цацапка бубусик цацыга хрякать свиньями сосатками крымский криминал дагестан', user=7, number=2))
+            self.bot.handle(self.update('киевский цацапка бубусик цацыга хрякать свиньями сосатками крымский криминал дагестан москватест путинский путенский воваська свинство', user=7, number=2))
             self.bot.handle(self.update('/say@other_bot бубус', user=7, number=3))
         self.assertEqual(self.bot.jobs.qsize(), 0)
 
@@ -236,7 +236,7 @@ class BotTests(unittest.TestCase):
         self.bind()
         with patch.object(self.bot, 'generate', return_value='ахуел, так и знал, что ты опять в пизде'):
             self.bot.process_job(self.manual_job())
-        expected = 'ахуел, так и знал, что ти опять в пизде'
+        expected = 'ахуел так и знал что ти опять в пизде'
         self.assertEqual(self.telegram.sent[-1][1], expected)
         self.assertEqual(self.store.recent_answers(-100)[0], expected)
 
@@ -807,7 +807,7 @@ class BotTests(unittest.TestCase):
         self.assertEqual(job['tease_target']['user_id'], 7)
         with patch.object(self.bot, 'generate', return_value='ти підтримуєш i немає звязку'):
             self.bot.process_job(job)
-        expected = '@frankyvidadim, ти пидтримуеш и немае звязку'
+        expected = '@frankyvidadim ти пидтримуеш и немае звязку'
         self.assertEqual(self.telegram.sent[-1], (-100, expected, 17))
         self.assertEqual(self.store.recent_answers(-100)[0], expected)
         self.assertEqual(self.store.counts()['automatic'], 1)

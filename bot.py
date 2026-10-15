@@ -13,7 +13,7 @@ from difflib import SequenceMatcher
 from html import escape
 from zoneinfo import ZoneInfo
 
-from common import APIError, HTMLMessage, ROOT, STATE, Telegram, clean_text, http_json, load_config, surzhyk_text
+from common import APIError, HTMLMessage, ROOT, STATE, Telegram, clean_text, http_json, load_config, surzhyk_text, parody_text
 from chat_services import ChatServices, ServiceError, service_error_reply, service_request
 from community import (COMMUNITY_COMMANDS, GREETINGS, OWNER_FEATURES, community_request,
                        help_text, period_start, statistics_text, summary_excerpt, summary_text)
@@ -40,7 +40,7 @@ def tease_available(history, now):
 
 TRIGGER_WORDS = ('бубуська', 'володька', 'рахиня', 'украина', 'война', 'киев',
                  'цаца', 'цацик', 'бубус', 'цацыг', 'хряк', 'свинья', 'сосатка',
-                 'крым', 'крим', 'даг')
+                 'крым', 'крим', 'даг', 'москва', 'путин', 'путен', 'вова', 'свин')
 TRIGGER_PHRASES = ('крым наш',)
 TRIGGER_FORMS = {word: word for word in TRIGGER_WORDS}
 for name, forms in {
@@ -377,7 +377,7 @@ class Store:
                     return 'duplicate', False
                 db.execute('INSERT INTO approved_replies VALUES (?,?,?,?,1,?) '
                            'ON CONFLICT(chat_id,response_key) DO UPDATE SET score=score+1,timestamp=excluded.timestamp',
-                           (chat_id, key, surzhyk_text(answer), context or '', now))
+                           (chat_id, key, parody_text(answer), context or '', now))
                 db.execute('DELETE FROM approved_replies WHERE chat_id=? AND response_key NOT IN '
                            '(SELECT response_key FROM approved_replies WHERE chat_id=? '
                            'ORDER BY timestamp DESC LIMIT 500)', (chat_id, chat_id))
@@ -506,7 +506,7 @@ class Store:
 
 def answer_key(text):
     # Ignore capitalization, punctuation and spaces when detecting repeats.
-    return ' '.join(re.findall(r'\w+', surzhyk_text(text).casefold().replace('ё', 'е')))
+    return ' '.join(re.findall(r'\w+', parody_text(text).casefold().replace('ё', 'е')))
 
 
 def repeat_words(text):
@@ -685,7 +685,7 @@ class Bot:
         if kind == 'bank':
             salary = self.store.salary(target)
             amount = f'{salary["balance"]:,}'.replace(',', ' ')
-            remark = 'ну шо наконец то зарплату дали' if salary['balance'] >= 0 else 'ну спасибо ещо и в долги загнали'
+            remark = 'ну шо наконец то зарплату дали' if salary['balance'] >= 0 else 'ну ещо и в долги загнали'
             return HTMLMessage(f'<b>Виртуальний банк Володьки</b>\n💰 <b>{amount} ₴</b>\n'
                                f'Плюсов: {salary["plus"]} · Минусов: {salary["minus"]}\n'
                                f'<i>За оценку: +80 или −80 ₴. Ето репутация чата.</i>\n\n<i>{remark}</i>')
@@ -861,8 +861,8 @@ class Bot:
                                    if praise_signal(text) else ('negative', False))
             acknowledge = acknowledge or learned_ack
             if acknowledge and time.time() >= self.store.get('blocked_until', 0):
-                response = ('поняв ету фразу запомнив спасибо за науку' if result == 'learned'
-                            else 'минус 80 гривен ну ти и жмот' if direction < 0 else 'поняв спасибо за оценку')
+                response = ('поняв ету фразу запомнив' if result == 'learned'
+                            else 'минус 80 гривен ну ти и жмот' if direction < 0 else 'поняв оценку записав')
                 if salary:
                     amount = f'{salary["balance"]:,}'.replace(',', ' ')
                     response += f'\n{"+80" if direction > 0 else "−80"} ₴ · банк: {amount} ₴'
@@ -958,7 +958,7 @@ class Bot:
             return self.generate_thoughtful(job)
         previous = self.store.recent_answers(job['chat_id'], limit=30)
         if job.get('tease_target'):
-            previous = [re.sub(r'^@' + TEASE_USERNAME + r',\s*', '', text) for text in previous]
+            previous = [re.sub(r'^@' + TEASE_USERNAME + r',?\s*', '', text) for text in previous]
         if job.get('random_quote'):
             for text in random_candidates(limit=500):
                 answer = valid_answer(text)
@@ -966,7 +966,7 @@ class Bot:
                         and answer == answer.lower() and not re.search(r'\d|@|\[|\]', answer)
                         and ANGRY_QUOTE_PATTERN.search(answer)
                         and not response_problem(answer, previous)):
-                    return surzhyk_text(answer)
+                    return parody_text(answer)
             LOG.warning('Случайная реплика не найдена: причина=no_random_quote')
             return None
         # Own previous output must not become the subject of an unrelated request.
@@ -1043,7 +1043,7 @@ class Bot:
             if not reason and answer == '__SILENCE__' and not job['automatic']:
                 reason = 'silence_on_direct_request'
             if not reason:
-                return surzhyk_text(answer)
+                return parody_text(answer)
             # Log only a fixed reason code, never generated text or requests.
             LOG.warning('Ответ модели отклонён: причина=%s; попытка=%s/2', reason, attempt + 1)
         return None
@@ -1191,9 +1191,9 @@ class Bot:
             return
         try:
             if not utility:
-                answer = answer_style(answer) if thoughtful else surzhyk_text(answer)
+                answer = parody_text(answer)
             if tease_target:
-                answer = f'@{TEASE_USERNAME}, ' + answer
+                answer = f'@{TEASE_USERNAME} ' + answer
             sent = self.telegram.send(chat_id, answer, job['reply_to'])
             self.store.add_message(sent, human=False, request_text=job['text'], learnable=not utility and not thoughtful,
                                    rateable=not utility or utility['kind'] != 'bank')

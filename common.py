@@ -113,6 +113,30 @@ def surzhyk_text(text):
     return re.sub(r'\b[а-яё]+\b', replace, text, flags=re.I)
 
 
+def parody_text(text):
+    """Archive speech in prose; preserve numbers, quotations and code literals."""
+    parts = re.split(r'(```[\s\S]*?```|`[^`\n]+`|«[^»\n]*»|"[^"\n]*"|https?://\S+)', text)
+    for index in range(0, len(parts), 2):
+        prose = surzhyk_text(parts[index])
+        def phrase(match):
+            original = match.group()
+            return 'БОЛЬЯ МЕНЬЯ' if original.isupper() else 'Болья менья' if original[0].isupper() else 'болья менья'
+        prose = re.sub(r'\bболее[\s\-–—]+менее\b', phrase, prose, flags=re.I)
+        prose = re.sub(
+            r'\b(?:(?:большое|огромное|заранее)\s+)?спасибо'
+            r'(?:\s+(?:тебе|вам))?(?:\s+за\s+(?:вопрос|ответ|помощь|оценку|уточнение|информацию|обращение|подсказку))?\b'
+            r'|\b(?:пожалуйста|благодарю|благодарим|извините|извини|простите)\b'
+            r'|\b(?:будьте\s+добры|будь\s+добр|рад\s+помочь|рады\s+помочь|буду\s+рад\s+помочь)\b',
+            '', prose, flags=re.I)
+        # A decimal comma is data, unlike a pause in ordinary speech.
+        prose = re.sub(r'(?<!\d),|,(?!\d)', ' ', prose)
+        prose = re.sub(r'[^\S\n]+', ' ', prose)
+        prose = re.sub(r' +([.!?;:])', r'\1', prose)
+        prose = re.sub(r'(?m)^ *[.!;:,]+ *', '', prose)
+        parts[index] = prose
+    return ''.join(parts).strip()
+
+
 def load_config():
     with CONFIG.open(encoding='utf-8') as file:
         return json.load(file)

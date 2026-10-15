@@ -126,7 +126,7 @@ class FeedbackTests(unittest.TestCase):
             answer = self.answer(text, number=number, learnable=False)
             self.bot.handle(self.praise(answer, number=100 + number))
         self.assertEqual(self.memories(), [])
-        self.assertIn('спасибо за оценку', self.telegram.sent[0][1])
+        self.assertIn('поняв оценку записав', self.telegram.sent[0][1])
 
     def test_confirmed_parody_send_is_marked_learnable_with_source_request(self):
         job = {'chat_id': -100, 'reply_to': 50, 'text': 'опять интернет отвалился',
