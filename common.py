@@ -116,7 +116,8 @@ def surzhyk_text(text):
                   else m.group(), text, flags=re.I)
     text = re.sub(r'(?<!\S)i(?=$|[\s,.!?;:])', lambda m: m.group().translate(latin_i), text, flags=re.I)
     spellings = {'ты': 'ти', 'это': 'ето', 'ещё': 'ещо', 'еще': 'ещо',
-                 'было': 'било', 'бы': 'би', 'сейчас': 'сечас'}
+                 'было': 'било', 'бы': 'би', 'сейчас': 'сечас',
+                 'непонятного': 'непонятново'}
 
     def replace(match):
         original = match.group()
