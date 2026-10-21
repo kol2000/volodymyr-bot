@@ -686,6 +686,27 @@ class MonitorTests(unittest.TestCase):
             self.assertIn(title, message)
             self.assertIsInstance(message, HTMLMessage)
 
+    def test_break_live_break_fluctuation_does_not_repeat_halftime_after_restart(self):
+        self.enable()
+        self.poll([fixture('live', (0, 0))])
+        self.poll([fixture('break', (0, 0))])
+        self.poll([fixture('live', (0, 0))])
+        self.football = Football(Store(Path(self.temp.name) / 'bot.sqlite3'), self.source, clock=lambda: self.now[0])
+        self.poll([fixture('break', (0, 0))])
+        self.poll([fixture('finished', (0, 0))])
+        self.assertEqual(sum('⏸ Перерыв' in msg for _, msg in self.sent), 1)
+        self.assertEqual(sum('Матч завершён' in msg for _, msg in self.sent), 1)
+
+    def test_uncertain_halftime_send_is_not_repeated_after_status_fluctuation(self):
+        self.enable()
+        self.poll([fixture('live', (0, 0))])
+        with self.assertRaises(APIError):
+            self.poll([fixture('break', (0, 0))], fail=True)
+        self.poll([fixture('live', (0, 0))])
+        self.football = Football(Store(Path(self.temp.name) / 'bot.sqlite3'), self.source, clock=lambda: self.now[0])
+        self.poll([fixture('break', (0, 0))])
+        self.assertEqual(sum('⏸ Перерыв' in msg for _, msg in self.sent), 1)
+
     def test_correction_decreases_score_without_claiming_another_goal(self):
         self.enable()
         self.now[0] = START

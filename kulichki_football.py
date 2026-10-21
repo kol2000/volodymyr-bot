@@ -122,26 +122,36 @@ def parse_broadcast(html, selected):
     if feed is None:
         raise FootballError('missing_broadcast')
     events = []
+    phase_icons = {'end2.gif', 'end1.gif', '1t.gif', '2t.gif'}
     for row in (n for n in feed.walk() if n.tag == 'tr'):
         cells = [n for n in row.children if isinstance(n, Node) and n.tag == 'td']
         if len(cells) != 3:
             continue
         clock = text(cells[0])
-        if not re.fullmatch(r'\d{1,3}(?:\+\d{1,2})?|\+\d{1,2}', clock):
-            continue
         icons = [urlsplit(n.attrs.get('src', '')).path.rsplit('/', 1)[-1].lower()
                  for n in cells[1].walk() if n.tag == 'img']
+        timed = re.fullmatch(r'\d{1,3}(?:\+\d{1,2})?|\+\d{1,2}', clock)
+        # FNK also posts period whistles with an empty minute cell.
+        if not timed and not (clock in ('', '-', '—') and phase_icons.intersection(icons)):
+            continue
         events.append((clock, icons, text(cells[2])))
+    # A stale/mislabelled end1 icon must not reopen halftime after the second
+    # half. Use source markers/minutes, never elapsed wall time or score alone.
+    second_half = any('2t.gif' in icons or
+                      (re.match(r'^\d', clock) and int(clock.split('+')[0]) > 45)
+                      for clock, icons, _ in events)
+    eligible = {'end2.gif', '2t.gif'} if second_half else phase_icons
     phase = next((icon for _, icons, _ in events for icon in icons
-                  if icon in {'end2.gif', 'end1.gif', '1t.gif', '2t.gif'}), '')
+                  if icon in eligible), '2t.gif' if second_half else '')
     status = {'end2.gif': FINISHED, 'end1.gif': 'break', '1t.gif': 'live', '2t.gif': 'live'}.get(
         phase, 'live' if events else 'scheduled')
     label = {FINISHED: 'Матч завершён', 'break': 'Перерыв', 'scheduled': 'Матч ещё не начался'}.get(status, '')
     if status == 'live':
-        clock = events[0][0]
+        clock = next((clock for clock, _, _ in events
+                      if re.fullmatch(r'\d{1,3}(?:\+\d{1,2})?|\+\d{1,2}', clock)), '')
         if clock.startswith('+'):
             clock = ('90' if phase == '2t.gif' else '45') + clock
-        label = clock + '′ · матч идёт'
+        label = clock + '′ · матч идёт' if clock else 'Матч идёт'
     goals = broadcast_goals(root, events, selected['id'])
     home, away = (int(n) for n in score.groups())
     if status == 'scheduled':

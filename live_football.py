@@ -622,7 +622,7 @@ def changes(previous, match, now):
     if old_score != current and None not in current and old_score and None not in old_score:
         if match.status in ACTIVE or (match.status == FINISHED and old_status in ACTIVE):
             events.append(('score', '⚽ Счет изменился'))
-    if match.status == 'break' and old_status != 'break':
+    if match.status == 'break' and old_status != 'break' and not previous.get('break_announced'):
         events.append(('break', '⏸ Перерыв'))
     if match.status == 'penalties' and old_status != 'penalties':
         events.append(('penalties', '🥅 Серия пенальти'))
@@ -653,7 +653,8 @@ def remembered_state(previous, match, checked):
     # its confirmed score as well, so the next goal is compared with that score.
     if already_started(previous) and match.status in ('scheduled', 'unknown'):
         return dict(previous, started=True)
-    return dict(match.state(), checked=checked, started=started)
+    return dict(match.state(), checked=checked, started=started,
+                break_announced=bool(previous and previous.get('break_announced')))
 
 
 def event_text(match, event, checked, goals=()):
@@ -823,11 +824,15 @@ class Football:
                     kind = 'score'
                     if match.status == FINISHED:
                         kind, title = 'finish', title + ' · 🏁 Матч завершён'
-                    elif match.status == 'break':
+                    elif match.status == 'break' and not (previous and previous.get('break_announced')):
                         kind, title = 'break', title + ' · ⏸ Перерыв'
                     events = [(kind, title)]
                 latest[match.id] = dict(remembered_state(previous, match, checked), pending_goals=pending,
                                        announced_score=current if events or previous is None else published)
+                if any('⏸ Перерыв' in title for _, title in events):
+                    # Reserve the period notification before Telegram accepts it;
+                    # preserve it across live/break fluctuations and restarts.
+                    latest[match.id]['break_announced'] = True
                 latest = {key: row for key, row in latest.items() if row.get('kickoff', 0) >= now - 2 * 86400}
                 self.store.set(PREFIX + f'seen:{chat_id}', latest)
                 if events:

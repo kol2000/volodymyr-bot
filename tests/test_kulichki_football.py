@@ -33,7 +33,8 @@ def broadcast(status='scheduled', score='0:0', day=13, a='Локомотив', b
     marker = {'scheduled': '', 'live': '1t.gif', 'second': '2t.gif', 'break': 'end1.gif', 'finished': 'end2.gif'}[status]
     rows = ''
     if marker:
-        rows = f'<tr><td>90</td><td><img src="/trans/{marker}"></td><td>Статус игры.</td></tr>'
+        minute = {'live': '1', 'second': '46', 'break': '45', 'finished': '90'}[status]
+        rows = f'<tr><td>{minute}</td><td><img src="/trans/{marker}"></td><td>Статус игры.</td></tr>'
     if goal:
         rows += '<tr><td>+2</td><td><img src="/trans/GOOal.gif"></td><td>ГОООЛ! Игрок! 1:0! Пробил со штрафного в угол.</td></tr>'
     return title + board + summary + '<table id="table15">' + rows + '<tr><td>-</td><td></td><td>Анонс.</td></tr></table>'
@@ -62,6 +63,73 @@ class ParsingTests(unittest.TestCase):
             with self.subTest(status=status):
                 match = parse_broadcast(broadcast(status), parse_home(home())[0])
                 self.assertEqual(match.status, expected)
+
+    def test_period_whistles_with_empty_minutes_are_not_dropped(self):
+        for status, minute in [('break', '45'), ('finished', '90')]:
+            for blank in ['', '-', '—']:
+                with self.subTest(status=status, blank=blank):
+                    html = broadcast(status).replace(f'<td>{minute}</td>', f'<td>{blank}</td>')
+                    match = parse_broadcast(html, parse_home(home())[0])
+                    self.assertEqual(match.status, status)
+
+    def test_stale_first_half_marker_cannot_reopen_break_after_second_half(self):
+        selected = parse_home(home())[0]
+        for head in [('<td>90</td><td><img src="/trans/0.gif"></td><td>Игра продолжается.</td>'),
+                     ('<td>+4</td><td><img src="/trans/end1.gif"></td><td>Статус обновляется.</td>')]:
+            with self.subTest(head=head):
+                # The newest row precedes the second-half kickoff and old halftime.
+                html = broadcast('break', '4:1').replace('<table id="table15">',
+                    '<table id="table15"><tr>' + head + '</tr>'
+                    '<tr><td>46</td><td><img src="/trans/2t.gif"></td><td>Второй тайм.</td></tr>')
+                match = parse_broadcast(html, selected)
+                self.assertEqual(match.status, 'live')
+                self.assertIn('90', match.label)
+
+    def test_second_half_minutes_override_old_break_without_kickoff_marker(self):
+        html = broadcast('break', '4:1').replace('<table id="table15">',
+              '<table id="table15"><tr><td>90+4</td><td></td><td>Игра идёт.</td></tr>')
+        match = parse_broadcast(html, parse_home(home())[0])
+        self.assertEqual((match.status, match.label), ('live', '90+4′ · матч идёт'))
+
+    def test_wrong_end1_at_ninetieth_minute_does_not_infer_final_or_break(self):
+        html = broadcast('break', '4:1').replace('<td>45</td>', '<td>90</td>')
+        match = parse_broadcast(html, parse_home(home())[0])
+        self.assertEqual(match.status, 'live')
+
+    def test_first_half_stoppage_time_is_still_a_real_break(self):
+        html = broadcast('break').replace('<td>45</td>', '<td>45+4</td>')
+        match = parse_broadcast(html, parse_home(home())[0])
+        self.assertEqual(match.status, 'break')
+
+    def test_screenshot_sequence_has_only_one_final_card_after_second_half(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store = Store(Path(folder) / 'bot.sqlite3')
+            store.set('chat_id', -100)
+            store.set(PREFIX + 'enabled', True)
+            now = [START + 6600]
+            selected = parse_home(home())[0]
+            row = parse_broadcast(broadcast('second', '4:1'), selected)
+            store.set(PREFIX + 'seen:-100', {row.id: dict(row.state(), announced_score=[4, 1])})
+            source = KulichkiScoreboard()
+            source.day = lambda day: ([row], now[0])
+            football = Football(store, source, clock=lambda: now[0])
+            sent = []
+            # While the editor posts the final whistle, the old break is still
+            # present, but its second-half kickoff marker is temporarily missing.
+            html = broadcast('break', '4:1').replace('<table id="table15">',
+                   '<table id="table15"><tr><td>90+4</td><td></td><td>Доигрывают.</td></tr>')
+            row = parse_broadcast(html, selected)
+            football.poll(lambda chat, message: sent.append(message), lambda chat: True)
+            self.assertEqual(sent, [])
+            now[0] += 22
+            row = parse_broadcast(broadcast('finished', '4:1'), selected)
+            football.poll(lambda chat, message: sent.append(message), lambda chat: True)
+            now[0] += 301
+            football = Football(Store(Path(folder) / 'bot.sqlite3'), source, clock=lambda: now[0])
+            football.poll(lambda chat, message: sent.append(message), lambda chat: True)
+            self.assertEqual(len(sent), 1)
+            self.assertIn('Матч завершён', sent[0])
+            self.assertNotIn('Перерыв', sent[0])
 
     def test_goal_uses_same_score_header_player_and_added_time_not_prose_guess(self):
         match = parse_broadcast(broadcast('finished', '1:0', goal=True), parse_home(home())[0])
