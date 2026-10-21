@@ -45,7 +45,8 @@ def page_url(value):
     try:
         u = urlsplit(value)
         return u.scheme == 'https' and u.netloc == 't.me' and u.path in {
-            '/s/' + channel for channel in CHANNELS} and not u.query and not u.fragment
+            '/s/' + channel for channel in CHANNELS} and (
+                not u.query or re.fullmatch(r'before=[1-9]\d{0,11}', u.query)) and not u.fragment
     except ValueError:
         return False
 
@@ -174,8 +175,8 @@ ALIASES = {
     'реал мадрид': ('real madrid',), 'лейпциг': ('leipzig', 'rb leipzig', 'leypsiq', 'leyptsiq'),
     'бавария': ('bayern', 'bayern munich', 'bavariya'), 'арсенал': ('arsenal',),
     'псж': ('psg',), 'барселона': ('barselona', 'barcelona'), 'ливерпуль': ('liverpool',),
-    'галатасарай': ('galatasaray', 'qalatasaray'), 'лиль': ('lille',), 'лилль': ('lille',),
-    'манчестер юнайтед': ('manchester united', 'man united', 'му', 'мю'),
+    'галатасарай': ('galatasaray', 'qalatasaray'), 'лиль': ('lille', 'lill'), 'лилль': ('lille', 'lill'),
+    'манчестер юнайтед': ('manchester united', 'man united', 'mançester yunayted', 'му', 'мю'),
     'манчестер сити': ('manchester city', 'man city'), 'челси': ('chelsea', 'celsi'),
     'тоттенхэм': ('tottenham',), 'интер': ('inter',), 'ювентус': ('juventus', 'yuventus'),
     'бенфика': ('benfica', 'benfika'), 'атлетик': ('athletic', 'atletik klub'),
@@ -219,12 +220,16 @@ def matches_goal(clip, job, now):
     target = tuple(job['goal']['score'])
     if scores and scores != {target}:
         return False
+    normalized = norm(text)
+    teams = int(named(normalized, job['home'])) + int(named(normalized, job['away']))
     minutes = minute_values(text)
     target_minute = next(iter(minute_values(job['goal']['minute'])), None)
     if minutes and (target_minute is None or minutes != {target_minute}):
-        return False
-    normalized = norm(text)
-    teams = int(named(normalized, job['home'])) + int(named(normalized, job['away']))
+        # Sources sometimes label the elapsed/started minute differently. Accept
+        # only a one-minute difference with both teams AND the exact goal score.
+        if not (target_minute is not None and len(minutes) == 1 and teams == 2
+                and scores == {target} and abs(next(iter(minutes)) - target_minute) == 1):
+            return False
     surname = norm(job['goal']['player']).split()[-1:]
     scorer = bool(surname and len(surname[0]) >= 4 and surname[0] in normalized.split())
     cue = bool(re.search(r'гол|go+a+l|qol|сравнял|удвоил|выводит.*вперед|вывел.*впер[её]д', text))

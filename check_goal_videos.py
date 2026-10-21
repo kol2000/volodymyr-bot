@@ -4,6 +4,7 @@ import argparse
 import hashlib
 from datetime import datetime
 
+from common import STATE
 from goal_videos import CHANNELS, VideoError, fetch_public, parse_channel
 from live_football import MOSCOW
 
@@ -12,7 +13,17 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--channel', choices=CHANNELS, help='Default: check both sources')
     parser.add_argument('--download-test', action='store_true', help='Download one clip per source to memory; send/save nothing')
+    parser.add_argument('--replay-date', type=lambda s: datetime.strptime(s, '%Y-%m-%d').date(),
+                        help='Replay confirmed bot goal posts for this Moscow kickoff date; never edit Telegram')
+    parser.add_argument('--db', default=str(STATE / 'bot.sqlite3'), help='Bot SQLite path; replay opens it read-only')
+    parser.add_argument('--pages', type=int, default=4, choices=range(1, 9), help='Replay: at most 1–8 public pages per source')
+    parser.add_argument('--team', default='', help='Replay: team name filter')
     args = parser.parse_args()
+    if args.replay_date:
+        if args.channel:
+            parser.error('--replay-date проверяет оба канала; убери --channel.')
+        from replay_goal_videos import run_replay
+        return run_replay(args.replay_date, args.db, args.pages, args.download_test, args.team)
     failed = False
     for channel in ([args.channel] if args.channel else CHANNELS):
         print(f'@{channel}:', flush=True)
