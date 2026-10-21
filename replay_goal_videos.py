@@ -10,8 +10,8 @@ from datetime import datetime, time as daytime, timedelta
 from html import unescape
 from pathlib import Path
 
-from goal_videos import (CHANNELS, TTL, VideoError, fetch_public, matches_goal,
-                         named, norm, parse_channel)
+from goal_videos import (CHANNELS, TTL, VideoError, fetch_public, goal_match_reason,
+                         matches_goal, minute_values, named, norm, parse_channel)
 from kulichki_football import fetch_html, parse_broadcast, valid_url
 from live_football import Document, FootballError, MOSCOW, PREFIX
 
@@ -70,14 +70,14 @@ def jobs_for_posts(match, posts):
     return jobs
 
 
-def channel_history(channel, day, pages, fetch=fetch_public):
+def channel_history(channel, day, pages, fetch=fetch_public, skipped=None):
     """Bounded public pagination; signed media URLs remain in memory only."""
     start = datetime.combine(day, daytime(), MOSCOW).timestamp()
     result, cursor = {}, None
     for _ in range(pages):
         url = 'https://t.me/s/' + channel + (f'?before={cursor}' if cursor else '')
         html = fetch(url)
-        clips = parse_channel(html, channel)
+        clips = parse_channel(html, channel, skipped=skipped)
         for clip in clips:
             result[clip.post_id] = clip
         ids = [int(m[1]) for n in Document(html).root.walk()
@@ -124,10 +124,10 @@ def run_replay(day, path, pages=4, download=False, team='', emit=print):
             if not covered:
                 emit(f'  {goal.minute} · {goal.player} · {goal.score[0]}:{goal.score[1]}: '
                      'пост с подробностями не найден в локальной истории (не доказательство пропуска).')
-    clips = []
+    clips, skipped = [], []
     for channel in CHANNELS:
         try:
-            found = channel_history(channel, day, pages)
+            found = channel_history(channel, day, pages, skipped=skipped)
             clips.extend(found)
             emit(f'\n@{channel}: доступных видеопостов в просмотренных страницах: {len(found)}')
         except VideoError as error:
@@ -144,13 +144,35 @@ def run_replay(day, path, pages=4, download=False, team='', emit=print):
         emit('  Состояние очереди: ' + statuses.get(job['message_id'], 'до включения видео / записи нет'))
         if not options:
             emit('  Подходящее видео в просмотренной части лент не найдено.')
+            reasons = {'protected_post': 'защищённая публикация',
+                       'no_native_video': 'нет отдельного native-видео в превью',
+                       'multiple_videos': 'несколько видео / альбом; выбор ролика неоднозначен',
+                       'unsupported_media_url': 'превью не отдаёт разрешённую прямую MP4-ссылку'}
+            seen = set()
+            for candidate, reason in skipped:
+                if candidate.link not in seen and matches_goal(candidate, job, now):
+                    seen.add(candidate.link)
+                    emit(f'  Подходящая подпись, ролик пропущен: {candidate.link} · {reasons[reason]}.')
+            # Explain near matches without weakening the live matcher or
+            # printing signed media links / unrelated public post contents.
+            score = rf'(?<!\d){goal["score"][0]}\s*:\s*{goal["score"][1]}(?!\d)'
+            for candidate in clips + [c for c, _ in skipped]:
+                text = norm(candidate.text)
+                if (candidate.link not in seen and named(text, job['home']) and named(text, job['away'])
+                        and re.search(score, candidate.text)):
+                    reason = goal_match_reason(candidate, job, now)
+                    if reason:
+                        seen.add(candidate.link)
+                        minutes = ','.join(map(str, sorted(minute_values(candidate.text)))) or 'не указана'
+                        emit(f'  Похожая подпись отклонена: {candidate.link} · причина={reason}; '
+                             f'минута в канале={minutes}; видео относительно поста {candidate.timestamp-job["created"]:+.0f} сек.')
             continue
         matched += 1
         clip = options[0]
         difference = clip.timestamp - job['created']
         emit(f'  Совпадение: {clip.link}')
         emit(f'  Время публикации видео относительно поста Бубуса: {difference:+.0f} сек.')
-        emit('  На момент прогона окно ожидания 30 минут: ' +
+        emit(f'  На момент прогона окно ожидания {TTL // 60} минут: ' +
              ('истекло; боевой обработчик старый пост не изменит.' if now >= job['created'] + TTL else 'ещё открыто.'))
         if clip.timestamp > job['created'] + TTL:
             emit('  Видео опубликовано после окна ожидания; обычная очередь его бы не дождалась.')

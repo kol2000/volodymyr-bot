@@ -21,7 +21,7 @@ LOG = logging.getLogger('volodymyr')
 CHANNELS = ('matchpremier', 'idmanvideo')
 KEY = PREFIX + 'videos:'
 INTERVAL = 30
-TTL = 30 * 60
+TTL = 2 * 60 * 60
 MAX_VIDEO = 45 * 1024 * 1024
 MAX_PAGE = 2 * 1024 * 1024
 
@@ -113,7 +113,7 @@ class Clip:
         return f'https://t.me/{self.channel}/{self.post_id}'
 
 
-def parse_channel(html, channel):
+def parse_channel(html, channel, skipped=None):
     if channel not in CHANNELS or len(html.encode('utf-8')) > MAX_PAGE:
         raise VideoError('invalid_channel_page')
     root = Document(html).root
@@ -123,19 +123,29 @@ def parse_channel(html, channel):
     clips = []
     for post in posts[:100]:
         identifier = re.fullmatch(re.escape(channel) + r'/(\d+)', post.attrs['data-post'])
-        if not identifier or post.attrs.get('data-protected') in ('1', 'true'):
+        if not identifier:
             continue
         body = post.find('tgme_widget_message_text')
         times = [n.attrs['datetime'] for n in post.walk() if n.tag == 'time' and n.attrs.get('datetime')]
         videos = [n.attrs.get('src', '') for n in post.walk() if n.tag == 'video']
-        # Multi-goal albums/compilations cannot be assigned to one goal safely.
-        if len(videos) != 1 or not media_url(videos[0]) or not body or not times:
+        if not body or not times:
             continue
         try:
             stamp = datetime.fromisoformat(times[0].replace('Z', '+00:00'))
             if stamp.tzinfo is None:
                 continue
-            clips.append(Clip(channel, int(identifier[1]), stamp.timestamp(), body.text()[:3000], videos[0]))
+            # Multi-goal albums/compilations cannot be assigned to one goal safely.
+            reason = ('protected_post' if post.attrs.get('data-protected') in ('1', 'true') else
+                      'no_native_video' if not videos else
+                      'multiple_videos' if len(videos) != 1 else
+                      'unsupported_media_url' if not media_url(videos[0]) else '')
+            clip = Clip(channel, int(identifier[1]), stamp.timestamp(), body.text()[:3000],
+                        videos[0] if not reason else '')
+            if reason:
+                if skipped is not None:
+                    skipped.append((clip, reason))
+            else:
+                clips.append(clip)
         except (ValueError, TypeError, OverflowError):
             continue
     return sorted({clip.post_id: clip for clip in clips}.values(), key=lambda clip: clip.post_id, reverse=True)
@@ -208,18 +218,21 @@ def minute_values(text):
     return set(values)
 
 
-def matches_goal(clip, job, now):
-    if not max(job['kickoff'] - 300, job['created'] - 600) <= clip.timestamp <= now + 120:
-        return False
+def goal_match_reason(clip, job, now):
+    """Empty for a match; fixed codes for diagnostic use, never signed URLs."""
+    if clip.timestamp < max(job['kickoff'] - 300, job['created'] - 600):
+        return 'publication_before_window'
+    if clip.timestamp > now + 120:
+        return 'future_publication'
     text = clip.text.casefold()
     if re.search(r'отмен[её]н|отмена|офсайд|вне игры|disallowed|no goal|l[eə]ğv|обзор|highlights|все голы', text):
-        return False
+        return 'cancelled_or_compilation'
     # An aggregate score in parentheses is not the score of this fixture.
     scoring = re.sub(r'\(\s*\d{1,2}\s*:\s*\d{1,2}\s*\)', '', text)
     scores = {tuple(map(int, m)) for m in re.findall(r'(?<!\d)(\d{1,2})\s*[:–-]\s*(\d{1,2})(?!\d)', scoring)}
     target = tuple(job['goal']['score'])
     if scores and scores != {target}:
-        return False
+        return 'score_mismatch'
     normalized = norm(text)
     teams = int(named(normalized, job['home'])) + int(named(normalized, job['away']))
     minutes = minute_values(text)
@@ -229,13 +242,18 @@ def matches_goal(clip, job, now):
         # only a one-minute difference with both teams AND the exact goal score.
         if not (target_minute is not None and len(minutes) == 1 and teams == 2
                 and scores == {target} and abs(next(iter(minutes)) - target_minute) == 1):
-            return False
+            return 'minute_mismatch'
     surname = norm(job['goal']['player']).split()[-1:]
     scorer = bool(surname and len(surname[0]) >= 4 and surname[0] in normalized.split())
     cue = bool(re.search(r'гол|go+a+l|qol|сравнял|удвоил|выводит.*вперед|вывел.*впер[её]д', text))
-    return bool((teams == 2 and (scores or minutes)) or
-                (teams >= 1 and scorer and (scores or minutes)) or
-                (teams >= 1 and minutes and cue) or (scorer and scores and minutes))
+    matched = ((teams == 2 and (scores or minutes)) or
+               (teams >= 1 and scorer and (scores or minutes)) or
+               (teams >= 1 and minutes and cue) or (scorer and scores and minutes))
+    return '' if matched else 'insufficient_goal_identity'
+
+
+def matches_goal(clip, job, now):
+    return not goal_match_reason(clip, job, now)
 
 
 def caption(job, clip):
@@ -291,7 +309,7 @@ class GoalVideos:
         return ('Видео голов: ' + ('включены' if self.enabled() else 'выключены') +
                 '\nИсточники: @matchpremier, @idmanvideo\n'
                 f'Ожидают ролик: {waiting}\nПоследняя ошибка: {self.store.get(KEY + "error", "") or "нет"}\n'
-                'Проверка каждые 30 секунд при ожидающих голах; ожидание до 30 минут.\n'
+                f'Проверка каждые 30 секунд при ожидающих голах; ожидание до {TTL // 60} минут.\n'
                 'Видео добавляется в исходное сообщение без пересылки и нового поста.')
 
     def cancel(self):

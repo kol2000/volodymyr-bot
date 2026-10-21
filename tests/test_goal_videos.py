@@ -11,8 +11,8 @@ from unittest.mock import patch
 
 from bot import Bot, Store
 from common import APIError, MODEL, Telegram, http_video_edit
-from goal_videos import (Clip, GoalVideos, INTERVAL, KEY, PublicClips, VideoError,
-                         caption, fetch_public, matches_goal, media_url, parse_channel)
+from goal_videos import (Clip, GoalVideos, INTERVAL, KEY, TTL, PublicClips, VideoError,
+                         caption, fetch_public, goal_match_reason, matches_goal, media_url, parse_channel)
 from live_football import Football, PREFIX, football_request
 from test_bot import FakeTelegram
 from test_live_football import START, fixture, goal
@@ -61,6 +61,17 @@ class ParserTests(unittest.TestCase):
                       'https://cdn4.telesco.pe.evil/file/x', 'https://x@cdn4.telesco.pe/file/x',
                       'https://cdn4.telesco.pe:444/file/x', 'https://cdn4.telesco.pe/private/x']:
             self.assertFalse(media_url(value))
+
+    def test_skipped_goal_diagnostics_have_only_public_links_and_fixed_reasons(self):
+        skipped = []
+        html = post(number=1).replace('<video', '<video src="' + MEDIA + '"></video><video', 1)
+        html += post(number=2).replace('<video src="' + MEDIA + '"></video>', '')
+        html += post(number=3, video='https://elsewhere.example/private.mp4?secret=abc')
+        html += post(number=4).replace('data-post=', 'data-protected="1" data-post=')
+        self.assertEqual(parse_channel(html, 'matchpremier', skipped), [])
+        self.assertEqual([r for _, r in skipped], ['multiple_videos', 'no_native_video',
+                                                 'unsupported_media_url', 'protected_post'])
+        self.assertTrue(all(c.url == '' and c.link.startswith('https://t.me/matchpremier/') for c, _ in skipped))
 
     def test_one_source_failure_does_not_hide_other_channel(self):
         calls, now = [], [START]
@@ -147,9 +158,18 @@ class WorkerTests(VideoFixture):
         self.videos.answer(dict(kind='football_video_switch', enabled=False), -100)
         self.videos.answer(dict(kind='football_video_switch', enabled=True), -100)
         self.queue(57)
-        self.now[0] += 1801
+        self.now[0] += TTL + 1
         self.poll()
         self.assertFalse(self.edits)
+
+    def test_video_published_after_sixty_four_minutes_is_still_attached(self):
+        self.queue()
+        self.now[0] += 3849
+        self.clip = dataclasses.replace(self.clip, timestamp=self.now[0])
+        self.source.recent = lambda: [self.clip]
+        self.poll()
+        self.assertEqual(len(self.edits), 1)
+        self.assertEqual(self.row()[-1], 'attached')
 
     def test_cancellation_while_downloading_is_rechecked_before_edit(self):
         self.queue()

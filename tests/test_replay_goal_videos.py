@@ -90,7 +90,7 @@ class ReplayTests(unittest.TestCase):
                     'Локомотив Акрон 1:0 Иван Игрок 45+2′', MEDIA)
         before, output = self.path.read_bytes(), []
         with patch('replay_goal_videos.fetch_html', return_value=broadcast('finished', '1:0', goal=True)), \
-             patch('replay_goal_videos.channel_history', side_effect=lambda c, *a: [clip] if c == 'idmanvideo' else []), \
+             patch('replay_goal_videos.channel_history', side_effect=lambda c, *a, **kw: [clip] if c == 'idmanvideo' else []), \
              patch('replay_goal_videos.fetch_public', return_value=MP4) as download, \
              patch('common.Telegram.call', side_effect=AssertionError('No Telegram calls')), \
              patch('common.http_video_edit', side_effect=AssertionError('No edits')):
@@ -105,6 +105,27 @@ class ReplayTests(unittest.TestCase):
         with patch('replay_goal_videos.fetch_html', side_effect=AssertionError('No fallback')):
             self.assertEqual(run_replay(DAY + timedelta(days=1), self.path, emit=output.append), 1)
         self.assertIn('Другая дата не подставляется', '\n'.join(output))
+
+    def test_missing_video_reports_album_and_minute_rejection_without_media_urls(self):
+        goal = self.match.goals[0]
+        album = Clip('idmanvideo', 7201, self.stamp + 20,
+                     'Локомотив Акрон 1:0 Иван Игрок 45+2′', '')
+        wrong_minute = dataclasses.replace(album, post_id=7211, text='Локомотив Акрон 1:0 Иван Игрок 55′', url=MEDIA)
+        def history(channel, *args, skipped=None):
+            if channel == 'idmanvideo':
+                skipped.append((album, 'multiple_videos'))
+                return [wrong_minute]
+            return []
+        output = []
+        with patch('replay_goal_videos.fetch_html', return_value=broadcast('finished', '1:0', goal=True)), \
+             patch('replay_goal_videos.channel_history', side_effect=history):
+            self.assertEqual(run_replay(DAY, self.path, emit=output.append), 0)
+        result = '\n'.join(output)
+        self.assertIn('https://t.me/idmanvideo/7201', result)
+        self.assertIn('несколько видео / альбом', result)
+        self.assertIn('minute_mismatch', result)
+        self.assertIn('минута в канале=55', result)
+        self.assertNotIn(MEDIA, result)
 
     def test_real_azerbaijani_team_spellings_match_even_when_scorer_transliteration_differs(self):
         examples = [
