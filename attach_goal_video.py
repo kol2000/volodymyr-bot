@@ -35,7 +35,7 @@ def setting(db, key, default=None):
     return json.loads(row[0]) if row else default
 
 
-def check_target(db, message_id, original, expected_chat=None):
+def check_target(db, message_id, original, expected_chat=None, expected_status=None):
     chat = setting(db, 'chat_id')
     if type(chat) is not int or (expected_chat is not None and chat != expected_chat):
         raise AttachError('Подключённый чат изменился или не настроен.')
@@ -49,7 +49,9 @@ def check_target(db, message_id, original, expected_chat=None):
         raise AttachError('Исходный пост бота не найден или изменился после проверки.')
     previous = db.execute('SELECT status FROM goal_video_jobs WHERE chat_id=? AND message_id=?',
                           (chat, message_id)).fetchone()
-    if previous:
+    if expected_status is not None and (not previous or previous[0] != expected_status):
+        raise AttachError('Состояние выбранного поста изменилось; операция отменена.')
+    if previous and expected_status is None:
         raise AttachError('Для этого поста уже есть задание: ' + previous[0] + '. Повторное редактирование не выполняется.')
     return chat
 
@@ -84,8 +86,6 @@ def verified_plan(day, path, message_id, source_post, pages):
     clips = [c for c in channel_history(channel, day, pages) if c.post_id == int(number)]
     if len(clips) != 1 or not matches_goal(clips[0], job, time.time()):
         raise AttachError('Указанный видеопост не найден или не совпадает с голом по командам, счёту, минуте и времени.')
-    # Restore a source link that Telegram's plain-text message history omits.
-    job['original'] = job['original'] + '\nФНК: ' + match.url
     return match, job, selection, clips[0], target[0][2]
 
 
@@ -112,9 +112,26 @@ def finish(path, chat, message_id, status, text=None):
                        (text[:1000], text[:3000], chat, message_id))
 
 
-def run(day, path, config_path, message_id, source_post, pages=4, apply=False, emit=print):
+def connected_telegram(config_path, emit=print):
     try:
-        match, job, selection, clip, original = verified_plan(day, path, message_id, source_post, pages)
+        config = json.loads(Path(config_path).read_text())
+        token = config['token']
+        if not isinstance(token, str) or not token:
+            raise ValueError
+    except (OSError, ValueError, KeyError, TypeError):
+        raise AttachError('Не удалось прочитать токен из локальной конфигурации бота.') from None
+    telegram = Telegram(token)
+    me = telegram.call('getMe')
+    if not isinstance(me, dict) or not me.get('is_bot'):
+        raise AttachError('Telegram не подтвердил учётную запись бота.')
+    emit('Telegram доступен: @' + str(me.get('username', 'бот')))
+    return telegram
+
+
+def run(day, path, config_path, message_id, source_post, pages=4, apply=False, emit=print,
+        prepared=None, telegram=None):
+    try:
+        match, job, selection, clip, original = prepared or verified_plan(day, path, message_id, source_post, pages)
         goal = job['goal']
         text = caption(job, clip)
         emit(f'Пост Бубуса №{message_id}: {match.home} — {match.away} · '
@@ -127,18 +144,7 @@ def run(day, path, config_path, message_id, source_post, pages=4, apply=False, e
         # Preflight before downloading; repeat all local checks atomically after it.
         with database(path) as db:
             chat = check_target(db, message_id, original)
-        try:
-            config = json.loads(Path(config_path).read_text())
-            token = config['token']
-            if not isinstance(token, str) or not token:
-                raise ValueError
-        except (OSError, ValueError, KeyError, TypeError):
-            raise AttachError('Не удалось прочитать токен из локальной конфигурации бота.') from None
-        telegram = Telegram(token)
-        me = telegram.call('getMe')
-        if not isinstance(me, dict) or not me.get('is_bot'):
-            raise AttachError('Telegram не подтвердил учётную запись бота.')
-        emit('Telegram доступен: @' + str(me.get('username', 'бот')))
+        telegram = telegram or connected_telegram(config_path, emit)
         data = fetch_public(clip.url, video=True)
         emit(f'MP4 получен: {len(data)/1024/1024:.2f} МБ.')
         # Recheck FNK after the potentially slow download, before reserving/editing.
@@ -157,6 +163,10 @@ def run(day, path, config_path, message_id, source_post, pages=4, apply=False, e
         except Exception as error:
             code = error.code if isinstance(error, APIError) else 0
             finish(path, chat, message_id, 'uncertain' if not code or code >= 500 else 'failed')
+            if isinstance(error, APIError) and error.retry_after:
+                with database(path) as db:
+                    db.execute('INSERT OR REPLACE INTO settings VALUES (?,?)',
+                               ('blocked_until', json.dumps(time.time() + error.retry_after)))
             emit(f'Редактирование не подтверждено: HTTP={code}. Автоматического повтора нет; проверь исходный пост в чате.')
             return 1
         finish(path, chat, message_id, 'attached', text)

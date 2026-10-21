@@ -211,7 +211,8 @@ class WorkerTests(VideoFixture):
         self.poll()
         self.assertEqual(self.edits[0][:3], (-100, 55, MP4))
         self.assertIn('Иван Игрок', self.edits[0][3])
-        self.assertIn('https://t.me/matchpremier/1', self.edits[0][3])
+        self.assertNotIn('https://', self.edits[0][3])
+        self.assertIn('Футбол на Куличках', self.edits[0][3])
         self.assertEqual(self.row()[-1], 'attached')
         self.videos = GoalVideos(Store(self.path), self.source, download=lambda url: MP4, clock=lambda: self.now[0])
         self.now[0] += 31
@@ -327,7 +328,8 @@ class WorkerTests(VideoFixture):
         self.source.recent = lambda: [dataclasses.replace(self.clip, channel='idmanvideo')]
         self.source.errors = {'matchpremier': 'network_error'}
         self.poll()
-        self.assertIn('@idmanvideo', self.edits[0][3])
+        self.assertEqual(len(self.edits), 1)
+        self.assertNotIn('@idmanvideo', self.edits[0][3])
 
     def test_long_caption_is_bounded_and_retains_match_goal_and_source(self):
         self.queue(original='полное описание ' * 300)
@@ -337,7 +339,8 @@ class WorkerTests(VideoFixture):
         self.assertLessEqual(len(text.encode('utf-16-le')) // 2, 1024)
         self.assertIn('Ростов — Акрон', text)
         self.assertIn('Иван Игрок', text)
-        self.assertIn(self.clip.link, text)
+        self.assertIn('Футбол на Куличках', text)
+        self.assertNotIn('https://', text)
 
     def test_goals_are_queued_only_after_confirmed_fnk_card_send(self):
         self.store.set(PREFIX + 'seen:-100', {self.match.id: fixture('live', (0, 0)).state()})

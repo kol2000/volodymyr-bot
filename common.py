@@ -127,6 +127,16 @@ class Telegram:
         # a potentially slow video upload.
         return http_video_edit(self.base + 'editMessageMedia', chat_id, message_id, video, caption)
 
+    def edit_caption(self, chat_id, message_id, caption):
+        if len(caption.encode('utf-16-le')) // 2 > 1024:
+            raise APIError('Слишком длинная подпись')
+        with self.send_lock:
+            delay = 1.1 - (time.monotonic() - self.last_send)
+            if delay > 0:
+                time.sleep(delay)
+            self.last_send = time.monotonic()
+            return self.call('editMessageCaption', chat_id=chat_id, message_id=message_id, caption=caption)
+
     @contextlib.contextmanager
     def typing(self, chat_id):
         stopped = threading.Event()

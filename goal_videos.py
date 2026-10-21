@@ -273,9 +273,20 @@ def matches_goal(clip, job, now):
     return not goal_match_reason(clip, job, now)
 
 
-def caption(job, clip):
-    source = f'\n\nВидео: @{clip.channel}\n{clip.link}'
+def caption(job, clip=None):
+    """Keep the original goal card and one short source footer; no service links."""
     plain = unescape(re.sub(r'<[^>]+>', '', job['original']))
+    lines, footer = [], 'Футбол на Куличках'
+    for line in plain.splitlines():
+        line = line.rstrip()
+        if re.match(r'^\s*(?:ФНК:|Видео:\s*@|https?://)', line):
+            continue
+        if re.match(r'^\s*(?:Футбол на Куличках|Спорт-Экспресс)\s*·\s*проверено\b', line):
+            footer = line.strip()
+            continue
+        lines.append(line)
+    plain = re.sub(r'\n{3,}', '\n\n', '\n'.join(lines)).strip()
+    source = '\n\n' + footer
     units = lambda s: len(s.encode('utf-16-le')) // 2
     if units(plain + source) <= 1024:
         return plain + source
@@ -283,7 +294,7 @@ def caption(job, clip):
     plain = (f'⚽ {job["home"]} — {job["away"]} · {goal["score"][0]}:{goal["score"][1]}\n'
              f'{job["competition"]}\n' + '\n'.join(
                  f'{g["minute"]} · {g["player"]} · {g["score"][0]}:{g["score"][1]}' for g in job['goals'])
-             + '\n' + goal['description'] + '\nФНК: ' + job['match_url'])
+             + '\n' + goal['description'])
     while units(plain + source) > 1024:
         plain = plain[:-2]
     return plain.rstrip() + source
