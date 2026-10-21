@@ -72,6 +72,14 @@ class ReplayTests(unittest.TestCase):
         self.assertEqual(jobs[0]['goal']['score'], (2, 0))
         self.assertEqual(len(jobs[0]['goals']), 2)
 
+    def test_old_bot_goal_minute_can_differ_by_one_after_source_correction(self):
+        goal = self.match.goals[0]
+        changed = dataclasses.replace(goal, minute='8′')
+        match = dataclasses.replace(self.match, goals=(changed,))
+        body = event_text(match, ('goal', 'Гол!'), self.stamp, (dataclasses.replace(goal, minute='7′'),))
+        self.assertEqual(card_goals(match, body), [changed])
+        self.assertEqual(card_goals(match, body.replace('7′', '6′')), [])
+
     def test_public_pagination_is_bounded_and_stops_at_repeated_cursor(self):
         calls = []
         def fetch(url):

@@ -53,8 +53,12 @@ def card_goals(match, body):
     found = []
     for goal in match.goals:
         score = rf'{goal.score[0]}\s*:\s*{goal.score[1]}'
-        minute = re.escape(goal.minute.rstrip('′’\x27`')) + r'\s*[′’\x27`]'
-        if re.search(r'(?<!\d)' + minute + r'\s*·\s*(?:Автогол|Гол(?: с пенальти)?)\s*·\s*' + score + r'(?!\d)', plain, re.I):
+        pattern = (r'(?<!\d)(\d{1,3}(?:\s*\+\s*\d{1,2})?\s*[′’\x27`])'
+                   r'\s*·\s*(?:Автогол|Гол(?: с пенальти)?)\s*·\s*' + score + r'(?!\d)')
+        expected = next(iter(minute_values(goal.minute)), None)
+        recorded = [next(iter(minute_values(m[1])), None) for m in re.finditer(pattern, plain, re.I)]
+        # An old bot card may retain the original minute after FNK corrects it.
+        if expected is not None and any(v is not None and abs(v-expected) <= 1 for v in recorded):
             found.append(goal)
     return sorted(found, key=lambda g: sum(g.score))
 
@@ -145,6 +149,7 @@ def run_replay(day, path, pages=4, download=False, team='', emit=print):
         if not options:
             emit('  Подходящее видео в просмотренной части лент не найдено.')
             reasons = {'protected_post': 'защищённая публикация',
+                       'ambiguous_caption': 'несколько подписей вне цитат; нельзя однозначно выбрать подпись видео',
                        'no_native_video': 'нет отдельного native-видео в превью',
                        'multiple_videos': 'несколько видео / альбом; выбор ролика неоднозначен',
                        'unsupported_media_url': 'превью не отдаёт разрешённую прямую MP4-ссылку'}

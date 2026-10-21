@@ -15,7 +15,7 @@ from html import unescape
 from urllib.parse import urlsplit
 
 from common import APIError
-from live_football import Document, FootballError, PREFIX
+from live_football import Document, FootballError, Node, PREFIX
 
 LOG = logging.getLogger('volodymyr')
 CHANNELS = ('matchpremier', 'idmanvideo')
@@ -113,6 +113,21 @@ class Clip:
         return f'https://t.me/{self.channel}/{self.post_id}'
 
 
+def own_post_nodes(post):
+    """Telegram reuses message_text inside replies: keep only this post's content."""
+    def walk(node):
+        if node is not post and (node.attrs.get('data-post') or node.tag == 'blockquote' or any(
+                cls.startswith(('tgme_widget_message_reply', 'tgme_widget_message_quote',
+                                'tgme_widget_message_link_preview'))
+                for cls in node.attrs.get('class', '').split())):
+            return
+        yield node
+        for child in node.children:
+            if isinstance(child, Node):
+                yield from walk(child)
+    return walk(post)
+
+
 def parse_channel(html, channel, skipped=None):
     if channel not in CHANNELS or len(html.encode('utf-8')) > MAX_PAGE:
         raise VideoError('invalid_channel_page')
@@ -125,10 +140,11 @@ def parse_channel(html, channel, skipped=None):
         identifier = re.fullmatch(re.escape(channel) + r'/(\d+)', post.attrs['data-post'])
         if not identifier:
             continue
-        body = post.find('tgme_widget_message_text')
-        times = [n.attrs['datetime'] for n in post.walk() if n.tag == 'time' and n.attrs.get('datetime')]
-        videos = [n.attrs.get('src', '') for n in post.walk() if n.tag == 'video']
-        if not body or not times:
+        own = list(own_post_nodes(post))
+        bodies = [n for n in own if n.has('tgme_widget_message_text')]
+        times = [n.attrs['datetime'] for n in own if n.tag == 'time' and n.attrs.get('datetime')]
+        videos = [n.attrs.get('src', '') for n in own if n.tag == 'video']
+        if not bodies or len(set(times)) != 1:
             continue
         try:
             stamp = datetime.fromisoformat(times[0].replace('Z', '+00:00'))
@@ -136,10 +152,11 @@ def parse_channel(html, channel, skipped=None):
                 continue
             # Multi-goal albums/compilations cannot be assigned to one goal safely.
             reason = ('protected_post' if post.attrs.get('data-protected') in ('1', 'true') else
+                      'ambiguous_caption' if len(bodies) != 1 else
                       'no_native_video' if not videos else
                       'multiple_videos' if len(videos) != 1 else
                       'unsupported_media_url' if not media_url(videos[0]) else '')
-            clip = Clip(channel, int(identifier[1]), stamp.timestamp(), body.text()[:3000],
+            clip = Clip(channel, int(identifier[1]), stamp.timestamp(), bodies[-1].text()[:3000],
                         videos[0] if not reason else '')
             if reason:
                 if skipped is not None:

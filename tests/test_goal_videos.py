@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from email.message import Message
+from html import escape
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -29,7 +30,78 @@ def post(channel='matchpremier', number=1, body='Ростов — Акрон 1:0
             f'<video src="{video}"></video><time datetime="{date}"></time></div>')
 
 
+def quoted_post(row):
+    quote = ''.join('<a class="tgme_widget_message_reply js-widget_message_reply">'
+                    '<div class="tgme_widget_message_text js-message_text">' + escape(text) + '</div>'
+                    '</a>' for text in row['quotes'])
+    return (f'<div class="tgme_widget_message text_not_supported_wrap js-widget_message" data-post="idmanvideo/{row["id"]}">'
+            + quote + '<div class="tgme_widget_message_text js-message_text">' + escape(row['caption']) + '</div>'
+            + f'<video src="{MEDIA}?clip={row["id"]}"></video><time></time><time datetime="{row["timestamp"]}"></time></div>')
+
+
 class ParserTests(unittest.TestCase):
+    def test_reply_quote_cannot_label_current_video_or_supply_its_date(self):
+        current = '"Real Madrid" 4:1 "Leypsiq" Yan Diomande, 87`'
+        quoted = '"Real Madrid" 3:1 "Leypsiq" Tidiam Gomis, 85`'
+        quote = ('<a class="tgme_widget_message_reply js-widget_message_reply">'
+                 '<div class="tgme_widget_message_text js-message_text">' + quoted + '</div>'
+                 '<video src="' + MEDIA + '?quoted=1"></video>'
+                 '<time datetime="2000-01-01T00:00:00Z"></time></a>')
+        html = post(channel='idmanvideo', number=7210, body=current).replace(
+            '<div class="tgme_widget_message_text js-message_text">', quote +
+            '<div class="tgme_widget_message_text js-message_text">', 1)
+        clips = parse_channel(html, 'idmanvideo')
+        self.assertEqual(len(clips), 1)
+        self.assertEqual((clips[0].text, clips[0].timestamp, clips[0].url), (current, START + 1800, MEDIA))
+
+    def test_quote_without_own_caption_never_becomes_video_caption(self):
+        html = post(body='').replace('<div class="tgme_widget_message_text js-message_text"></div>',
+            '<a class="tgme_widget_message_reply"><div class="tgme_widget_message_text">Ростов Акрон 1:0 30′</div></a>')
+        self.assertEqual(parse_channel(html, 'matchpremier'), [])
+
+    def test_multiple_nonquoted_captions_fail_closed(self):
+        html = post().replace('<video', '<div class="tgme_widget_message_text">Ростов Акрон 2:0 40′</div><video', 1)
+        skipped = []
+        self.assertEqual(parse_channel(html, 'matchpremier', skipped), [])
+        self.assertEqual(skipped[0][1], 'ambiguous_caption')
+
+    def test_all_twenty_observed_goal_captions_match_own_video_and_never_previous_goal(self):
+        rows = json.loads((Path(__file__).parent / 'fixtures/idmanvideo_goal_posts_20261021.json').read_text())
+        expected = {
+            7190: ('Лилль', 'Галатасарай', (0, 1), '2′'),
+            7191: ('Комо', 'Манчестер Юнайтед', (1, 0), '3′'),
+            7192: ('Лилль', 'Галатасарай', (1, 1), '8′'),
+            7193: ('Лилль', 'Галатасарай', (2, 1), '39′'),
+            7194: ('Лилль', 'Галатасарай', (2, 2), '44′'),
+            7195: ('Комо', 'Манчестер Юнайтед', (2, 0), '49′'),
+            7196: ('Лилль', 'Галатасарай', (2, 3), '52′'),
+            7197: ('Комо', 'Манчестер Юнайтед', (3, 0), '57′'),
+            7198: ('Лилль', 'Галатасарай', (2, 4), '61′'),
+            7199: ('Комо', 'Манчестер Юнайтед', (4, 0), '76′'),
+            7200: ('Комо', 'Манчестер Юнайтед', (4, 1), '90+1′'),
+            7201: ('Бавария', 'Арсенал', (0, 1), '25′'),
+            7202: ('Бавария', 'Арсенал', (1, 1), '35′'),
+            7203: ('Реал Мадрид', 'Лейпциг', (1, 0), '44′'),
+            7204: ('Реал Мадрид', 'Лейпциг', (2, 0), '52′'),
+            7205: ('Бавария', 'Арсенал', (2, 1), '61′'),
+            7207: ('Бавария', 'Арсенал', (2, 2), '82′'),
+            7208: ('Реал Мадрид', 'Лейпциг', (3, 0), '83′'),
+            7209: ('Реал Мадрид', 'Лейпциг', (3, 1), '85′'),
+            7210: ('Реал Мадрид', 'Лейпциг', (4, 1), '87′')}
+        clips = parse_channel(''.join(map(quoted_post, rows)), 'idmanvideo')
+        self.assertEqual(len(clips), 20)
+        jobs = {}
+        for clip in clips:
+            home, away, score, minute = expected[clip.post_id]
+            jobs[clip.post_id] = dict(home=home, away=away, kickoff=clip.timestamp-7200,
+                                     created=clip.timestamp, goal=dict(score=score, minute=minute, player='Игрок ФНК'))
+        for clip in clips:
+            with self.subTest(post=clip.post_id):
+                self.assertEqual(clip.text, next(r['caption'] for r in rows if r['id'] == clip.post_id))
+                self.assertEqual(clip.url, MEDIA + f'?clip={clip.post_id}')
+                accepted = [n for n, j in jobs.items() if matches_goal(clip, j, max(c.timestamp for c in clips))]
+                self.assertEqual(accepted, [clip.post_id])
+
     def test_reads_native_clip_date_caption_and_id(self):
         clips = parse_channel(post(), 'matchpremier')
         self.assertEqual(len(clips), 1)
@@ -118,6 +190,22 @@ class VideoFixture(unittest.TestCase):
 
 
 class WorkerTests(VideoFixture):
+    def test_two_real_goal_posts_attach_their_own_videos_not_quoted_predecessors(self):
+        rows = json.loads((Path(__file__).parent / 'fixtures/idmanvideo_goal_posts_20261021.json').read_text())
+        clips = parse_channel(''.join(quoted_post(r) for r in rows if r['id'] in (7209, 7210)), 'idmanvideo')
+        self.now[0] = max(c.timestamp for c in clips) + 30
+        first = dataclasses.replace(goal(), score=(3, 1), minute='85′', player='Тидьям Гомис')
+        last = dataclasses.replace(goal(), id='last', score=(4, 1), minute='87′', player='Ян Дьоманде')
+        match = dataclasses.replace(self.match, home='Реал Мадрид', away='Лейпциг',
+                                    kickoff=self.now[0]-7200, home_score=4, away_score=1, goals=(first,last))
+        self.store.set(PREFIX + 'seen:-100', {match.id: match.state()})
+        self.source.recent = lambda: clips
+        self.videos.download = lambda url: MP4 + url.rsplit('=', 1)[-1].encode()
+        self.queue(55, match=match, goals=(first,), original='Реал Мадрид — Лейпциг 3:1')
+        self.queue(56, match=match, goals=(last,), original='Реал Мадрид — Лейпциг 4:1')
+        self.poll()
+        self.assertEqual([(e[1], e[2]) for e in self.edits], [(55, MP4+b'7209'), (56, MP4+b'7210')])
+
     def test_attaches_to_original_id_once_across_restart(self):
         self.queue()
         self.poll()
