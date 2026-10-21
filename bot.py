@@ -25,6 +25,7 @@ from assistant_features import (FeatureStore, FEATURE_COMMANDS, FOLLOWUP, CALL a
                                 negative_reason, memory_context)
 from style_profile import profile_for_request
 from fact_check import FactChecker, FactError
+from goal_videos import GoalVideos
 from live_football import (Football, FootballError, PREFIX as FOOTBALL_PREFIX,
                            COMMANDS as FOOTBALL_COMMANDS, football_request, football_correction,
                            error_reply as football_error_reply)
@@ -143,6 +144,9 @@ COMMANDS = [('/bubus', 'случайная фраза; с текстом — о�
             ('/football_on', 'владельцу: включить футбольные уведомления'),
             ('/football_off', 'владельцу: выключить футбольные уведомления'),
             ('/football_status', 'состояние футбольного источника'),
+            ('/football_videos_status', 'видео голов: источники и ожидание'),
+            ('/football_videos_on', 'добавлять видео в посты о голах'),
+            ('/football_videos_off', 'выключить добавление видео'),
             ('/summary', 'пересказ чата: сегодня, неделю, месяц'),
             ('/stats', 'статистика чата'), ('/top', 'топ сообщений: /top неделю'),
             ('/choose', 'выбор: /choose пицца | шаурма'), ('/rules', 'правила чата'),
@@ -611,6 +615,7 @@ class Bot:
         self.services = ChatServices()
         self.fact_checker = FactChecker()
         self.football = Football(self.store)
+        self.goal_videos = GoalVideos(self.store)
         self.lock = threading.Lock()
         self.auto_pending = False
         self.active_job = False
@@ -968,7 +973,7 @@ class Bot:
             utility = None
             dialogue_id = reply.get('message_id') if reply_to_bot else session_id
             addressed = True
-        if utility and utility['kind'] == 'football_switch' and not owner:
+        if utility and utility['kind'] in ('football_switch', 'football_video_switch') and not owner:
             utility = {'kind': 'fixed', 'text': 'футбольные уведомления включает и выключает только владелец'}
         if not utility:
             utility = community_request(argument, command, addressed=addressed)
@@ -1236,8 +1241,12 @@ class Bot:
                     answer = self.summarize(job)
                 elif utility['kind'] in ('weather', 'currency'):
                     answer = self.services.answer(utility)
+                elif utility['kind'].startswith('football_video'):
+                    answer = self.goal_videos.answer(utility, chat_id)
                 elif utility['kind'].startswith('football'):
                     answer = self.football.answer(utility, chat_id)
+                    if utility['kind'] == 'football_switch' and not utility['enabled']:
+                        self.goal_videos.cancel()
                 else:
                     answer = self.community_answer(utility, chat_id)
             except ServiceError as error:
@@ -1396,6 +1405,7 @@ class Bot:
             LOG.info('Футбольное уведомление отправлено: Telegram=%s; отправка=%.3f сек.',
                      datetime.fromtimestamp(sent.get('date', time.time()), MOSCOW).isoformat(),
                      time.monotonic() - started)
+            return sent
         except APIError as error:
             if error.retry_after:
                 self.store.set('blocked_until', time.time() + error.retry_after)
@@ -1407,11 +1417,19 @@ class Bot:
         # Separate from CPU-heavy generation and the hourly parody scheduler.
         while True:
             try:
-                self.football.poll(self.send_football, self.allowed)
+                self.football.poll(self.send_football, self.allowed, self.goal_videos.enqueue)
             except Exception as error:
                 LOG.error('Футбольная проверка не выполнена: %s', type(error).__name__)
                 self.store.set(FOOTBALL_PREFIX + 'next_poll', time.time() + 30)
             time.sleep(1)
+
+    def goal_video_worker(self):
+        while True:
+            try:
+                self.goal_videos.poll(self.telegram.edit_video, self.allowed)
+            except Exception as error:
+                LOG.error('Проверка видео голов не выполнена: %s', type(error).__name__)
+            time.sleep(5)
 
     def run(self):
         identity = self.telegram.call('getMe')
@@ -1424,6 +1442,7 @@ class Bot:
         threading.Thread(target=self.utility_worker, daemon=True).start()
         threading.Thread(target=self.scheduler, daemon=True).start()
         threading.Thread(target=self.football_worker, daemon=True).start()
+        threading.Thread(target=self.goal_video_worker, daemon=True).start()
         offset = self.store.get('offset', self.config.get('initial_offset', 0))
         LOG.info('Бот @%s запущен; периодический режим=%s', self.username, self.store.get('automatic', False))
         backoff = 2

@@ -20,7 +20,8 @@ LOG = logging.getLogger('volodymyr')
 MOSCOW = ZoneInfo('Europe/Moscow')
 BASE = 'https://www.sport-express.net'
 PREFIX = 'livefootball:'
-COMMANDS = {'/football', '/football_on', '/football_off', '/football_status'}
+COMMANDS = {'/football', '/football_on', '/football_off', '/football_status',
+            '/football_videos_on', '/football_videos_off', '/football_videos_status'}
 MONTHS = ('января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
           'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря')
 ACTIVE = {'live', 'break', 'penalties'}
@@ -484,6 +485,10 @@ class Scoreboard:
 def football_request(value, command='', addressed=False, now=None):
     if command and command not in COMMANDS | {'/check', '/bubus'}:
         return None
+    if command in ('/football_videos_on', '/football_videos_off'):
+        return dict(kind='football_video_switch', enabled=command.endswith('_on'))
+    if command == '/football_videos_status':
+        return dict(kind='football_video_status')
     body = value.strip()
     if command == '/check':
         body = body.split(maxsplit=1)[1] if len(body.split(maxsplit=1)) > 1 else ''
@@ -738,7 +743,7 @@ class Football:
                                + scoreboard_text(matches, day, checked))
         return scoreboard_text(matches, day, checked, request.get('filter', ''))
 
-    def poll(self, send, allowed):
+    def poll(self, send, allowed, on_goal=None):
         """Single poll; state reserved before send, including uncertain Telegram sends."""
         now = self.clock()
         chat_id = self.store.get('chat_id')
@@ -840,7 +845,10 @@ class Football:
                     LOG.info('Футбольное событие: матч=%s; событие=%s; получено=%s; до отправки=%.3f сек.',
                              match.id, events[0][0], datetime.fromtimestamp(checked, MOSCOW).isoformat(),
                              max(0, self.clock() - checked))
-                    send(chat_id, event_text(match, events[0], checked, goals))
+                    message = event_text(match, events[0], checked, goals)
+                    sent = send(chat_id, message)
+                    if goals and on_goal and isinstance(sent, dict) and type(sent.get('message_id')) is int:
+                        on_goal(chat_id, match, goals, sent['message_id'], message)
 
 
 def error_reply():

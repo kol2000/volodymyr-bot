@@ -129,7 +129,9 @@ def help_text(owner=False):
                  '/rules_set текст — задать правила, также можно ответить на текст правил\n'
                  '/settings — настройки; /status — состояние бота')
         text += ('\n/football_on, /football_off — футбольные уведомления в подключённой группе\n'
-                 '/football_status — доступность источника и последняя проверка')
+                 '/football_status — доступность источника и последняя проверка\n'
+                 '/football_videos_on, /football_videos_off — видео в постах о голах\n'
+                 '/football_videos_status — доступность каналов и ожидающие видео')
     return HTMLMessage(text)
 
 

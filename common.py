@@ -2,6 +2,7 @@
 import json
 import contextlib
 import re
+import secrets
 import threading
 import time
 import urllib.error
@@ -47,6 +48,45 @@ def http_json(url, payload, timeout=60):
         raise APIError('Некорректный JSON от сервера') from None
 
 
+def http_video_edit(url, chat_id, message_id, video, caption):
+    """Bounded multipart edit; URLs and exception bodies may contain credentials."""
+    if not isinstance(video, bytes) or not 12 <= len(video) <= 45 * 1024 * 1024 or video[4:8] != b'ftyp':
+        raise APIError('Некорректное видео')
+    if len(caption.encode('utf-16-le')) // 2 > 1024:
+        raise APIError('Слишком длинная подпись')
+    boundary = 'bubus' + secrets.token_hex(16)
+    fields = {'chat_id': str(chat_id), 'message_id': str(message_id),
+              'media': json.dumps({'type': 'video', 'media': 'attach://clip',
+                                   'caption': caption, 'supports_streaming': True}, ensure_ascii=False)}
+    parts = [f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n{value}\r\n'.encode()
+             for key, value in fields.items()]
+    parts.extend([f'--{boundary}\r\nContent-Disposition: form-data; name="clip"; filename="goal.mp4"\r\n'
+                  'Content-Type: video/mp4\r\n\r\n'.encode(), video,
+                  f'\r\n--{boundary}--\r\n'.encode()])
+    request = urllib.request.Request(url, data=b''.join(parts), headers={
+        'Content-Type': 'multipart/form-data; boundary=' + boundary})
+    try:
+        with urllib.request.urlopen(request, timeout=90) as response:
+            result = json.load(response)
+    except urllib.error.HTTPError as error:
+        try:
+            retry = json.loads(error.read()).get('parameters', {}).get('retry_after', 0)
+        except (ValueError, AttributeError):
+            retry = 0
+        raise APIError(f'HTTP {error.code}', error.code, retry) from None
+    except (urllib.error.URLError, TimeoutError, OSError):
+        raise APIError('Сетевая ошибка или тайм-аут') from None
+    except ValueError:
+        raise APIError('Некорректный JSON от сервера') from None
+    if not isinstance(result, dict) or not result.get('ok'):
+        result = result if isinstance(result, dict) else {}
+        raise APIError('Добавление видео не подтверждено', result.get('error_code', 0),
+                       result.get('parameters', {}).get('retry_after', 0))
+    if 'result' not in result:
+        raise APIError('Некорректный ответ при добавлении видео')
+    return result['result']
+
+
 class Telegram:
     def __init__(self, token):
         self.base = f'https://api.telegram.org/bot{token}/'
@@ -76,6 +116,16 @@ class Telegram:
             self.last_send = time.monotonic()
             # Deliberately no blind retry: a timeout can mean Telegram accepted it.
             return self.call('sendMessage', **payload)
+
+    def edit_video(self, chat_id, message_id, video, caption):
+        with self.send_lock:
+            delay = 1.1 - (time.monotonic() - self.last_send)
+            if delay > 0:
+                time.sleep(delay)
+            self.last_send = time.monotonic()
+        # Reserve request spacing, but do not hold the text-send lock throughout
+        # a potentially slow video upload.
+        return http_video_edit(self.base + 'editMessageMedia', chat_id, message_id, video, caption)
 
     @contextlib.contextmanager
     def typing(self, chat_id):
