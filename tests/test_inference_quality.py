@@ -47,6 +47,74 @@ class InferenceQualityTests(unittest.TestCase):
                       'Короче: WiFi тормозит из-за помех перегрузки сети или проблем с роутером. '
                       'Проверь сигнал перезагрузи устройство и роутер — и всё будет норм.', 83, 120))
 
+    def test_second_vm_run_rephrased_guarantees_are_rejected(self):
+        cases = {case['id']: case for case in json.loads((ROOT / 'dialogue_cases.json').read_text())}
+        self.assertIn('unsupported_certainty', assess(cases['serious'],
+                      'Сервер теряет соединение из-за проблем с сетью. '
+                      'Проверь кабель роутер нагрузку на сервер и логи — там будет точная причина.', 10, 120))
+        self.assertIn('unsupported_certainty', assess(cases['pending-correction'],
+                      'Сделай пробное восстановление в отдельную папку. '
+                      'Если выдаёт ошибку — значит битая. Просто и надёжно.', 11, 120))
+        for text in ['В журналах найдёш точную причину сбоя.',
+                     'Логи покажут причину точно.',
+                     'При восстановлении возникла ошибка. Следовательно резервная копия повреждена.',
+                     'Восстановить не получилось — значит она испорчена.']:
+            self.assertEqual(grounding_problem(text, 'Как проверить резервную копию сервера?'),
+                             'unsupported_certainty', text)
+        for text in ['В журналах может быть точная причина сбоя.',
+                     'Попробуй найти точную причину в логах.',
+                     'Ошибка восстановления не означает что копия битая.',
+                     'Ошибка восстановления может означать что копия повреждена.',
+                     'Если выдаёт ошибку проверь доступ совместимость и настройки.',
+                     'Если проверка пройдена значит она не повреждена.']:
+            self.assertIsNone(grounding_problem(text, 'Как проверить резервную копию сервера?'), text)
+
+    def test_short_parody_instruction_has_bounded_size_and_two_selected_examples(self):
+        examples = [dict(context='роутер тормозит', response=text) for text in [
+            'ти провод сначала проверь', 'ну шо опять случилось', 'интернет опять отдыхает',
+            'да выключи включи етот роутер', 'скоко можно провода дёргать', 'ти его ещо уговаривай']]
+        with patch('bot.find_examples', return_value=examples), \
+                patch('bot.http_json', return_value=self.result('ти опять роутер уговариваеш')) as model:
+            self.bot.generate(self.job('интернет опять пропал', thoughtful=False))
+        payload = model.call_args.args[1]
+        self.assertLessEqual(len(payload['messages'][0]['content']), 2800)
+        self.assertIn('3–12', payload['messages'][0]['content'])
+        data = json.loads(payload['messages'][1]['content'])
+        self.assertEqual(data['style_examples'], examples[:2])
+
+    def test_concise_mode_has_one_word_budget_instead_of_default_brief_budget(self):
+        source = 'Помехи и слабый сигнал могут снижать скорость. Сравни соединение по кабелю и рядом с роутером.'
+        with patch('bot.http_json', return_value=self.result('слабый сигнал и помехи проверь кабель.')) as model:
+            self.bot.generate(self.job('короче', response_control='concise', quoted_message=source))
+        data = json.loads(model.call_args.args[1]['messages'][1]['content'])
+        self.assertEqual(data['detail'], 'concise')
+        self.assertLess(data['max_words'], len(source.split()))
+        self.assertIn('max_words', model.call_args.args[1]['messages'][0]['content'])
+
+    def test_shortening_retry_keeps_the_specific_source_after_removing_old_assistant_turns(self):
+        source = 'Помехи и слабый сигнал могут снижать скорость. Сравни соединение по кабелю и рядом с роутером.'
+        self.store.add_message(dict(chat={'id': -100}, message_id=1, date=time.time(), text='Почему WiFi тормозит?'))
+        self.store.add_message(dict(chat={'id': -100}, message_id=2, date=time.time(), text=source,
+                                    _reply_to=1, _answer_mode='question'), human=False)
+        with patch('bot.http_json', side_effect=[self.result('слишком длинный ответ ' * 20),
+                    self.result('помехи и слабый сигнал сравни соединение по кабелю.')]) as model:
+            self.bot.generate(self.job('короче', dialogue_id=2, response_control='concise'))
+        self.assertEqual(model.call_count, 2)
+        data = json.loads(model.call_args.args[1]['messages'][1]['content'])
+        self.assertEqual(data['rewrite_source'], source)
+        self.assertTrue(all(row['human'] for row in data['dialogue']))
+
+    def test_standalone_control_retains_diagnostic_scope_for_certainty_checks(self):
+        self.store.add_message(dict(chat={'id': -100}, message_id=1, date=time.time(), text='Почему сервер теряет соединение?'))
+        self.store.add_message(dict(chat={'id': -100}, message_id=2, date=time.time(),
+                                    text='проверь логи сервера и сетевое соединение.',
+                                    _reply_to=1, _answer_mode='question'), human=False)
+        with patch('bot.http_json', side_effect=[self.result('там будет точная причина.'),
+                    self.result('логи могут помочь проверить версии но нужна диагностика.')]) as model:
+            answer = self.bot.generate(self.job('без приколов', dialogue_id=2, response_control='serious'))
+        self.assertEqual(model.call_count, 2)
+        self.assertIn('могут помочь', answer)
+
     def test_uncertainty_negation_and_quoted_claims_are_not_rejected(self):
         for text in ['Возможны помехи проверь скорость по кабелю.',
                      'Логи не всегда показывают причину сбоя.',

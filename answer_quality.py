@@ -101,10 +101,30 @@ def grounding_problem(text, subject):
                      r'резерв\w*|б[эе]кап\w*|копи\w*)\b', subject, re.I):
         return None
     prose = re.sub(r'```.*?```|`[^`]*`|«[^»]*»|"[^"]*"', ' ', text, flags=re.S)
-    for clause in re.split(r'[.!?;\n]', prose.casefold()):
+    prose = prose.casefold().replace('ё', 'е')
+    backup = bool(re.search(r'\b(?:резерв\w*|б[эе]кап\w*|копи\w*)\b', subject + ' ' + prose, re.I))
+    clauses = re.split(r'[.!?;\n]|\b(?:но|однако|зато)\b', prose)
+    for index, clause in enumerate(clauses):
         if re.search(r'\b(?:не (?:факт|всегда|обязательно|гарантиру\w*|означает|доказ\w*)|'
-                     r'нельзя (?:гарантировать|утверждать))\b', clause):
+                     r'нельзя (?:гарантировать|утверждать)|недостаточно|не доказывает)\b', clause):
             continue
+        if re.search(r'\b(?:возможно|вероятно|может|могут|могла|могло|скорее|попробуй)\b', clause):
+            continue
+        log_reference = re.search(r'\b(?:там|логи|логах|логов|журнал\w*)\b', clause)
+        exact_reason = re.search(r'\b(?:точн\w*.{0,16}причин\w*|причин\w*.{0,16}точн\w*)\b', clause)
+        assertion = re.search(r'\b(?:будет|есть|найд\w*|укаж\w*|покаж\w*|содерж\w*|написан\w*|'
+                              r'даст|дадут|видно|всегда|обязательно)\b', clause)
+        if log_reference and exact_reason and assertion:
+            return 'unsupported_certainty'
+        # Restoration failure is not proof of corrupt media. Handle conclusions
+        # with an implicit noun too: "ошибка — значит битая".
+        evidence = ' '.join(clauses[max(0, index - 1):index + 1])
+        failed_restore = re.search(r'\b(?:ошиб\w*|неудач\w*|не (?:получ\w*|восстан\w*|откр\w*))\b', evidence)
+        verdict = re.search(r'\b(?:значит|следовательно|поэтому|выходит|тогда)\b'
+                            r'(?:(?!\bне\b)[^.!?;\n]){0,40}\b'
+                            r'(?:бит(?:ая|ый|ые|ое|ую|а|ы)?|поврежден\w*|испорчен\w*|сломан\w*)\b', clause)
+        if backup and failed_restore and verdict:
+            return 'unsupported_certainty'
         if re.search(r'\bтам точно (?:написано|видно|будет)|'
                      r'\b(?:логи|журнал\w*)[^.!?\n]{0,40}\b(?:точно|всегда)\b|'
                      r'\bвс[её] будет норм\w*|\bточно (?:решит|поможет)\b|'

@@ -50,7 +50,8 @@ def assess(case, answer, elapsed, max_seconds):
         errors.append('clarification_not_asked')
     if case.get('require_clarification') and not specific_clarification(answer):
         errors.append('missing_specific_clarification')
-    problem = grounding_problem(answer, case['request'] + ' ' + ' '.join(case.get('updates', [])))
+    reference = case.get('dialogue', []) if case.get('control') else []
+    problem = grounding_problem(answer, ' '.join([case['request']] + case.get('updates', []) + reference))
     if problem:
         errors.append(problem)
     if elapsed > max_seconds:

@@ -1125,7 +1125,7 @@ class Bot:
         data['participant_profiles'] = self.store.participant_profiles(job['chat_id'], job['text'])
         data['approved_corrections'] = self.store.correction_examples(job['chat_id'], subject, 'parody')
         rejected = self.store.rejected_keys(job['chat_id'])
-        data['style_examples'] = [row for row in data['style_examples'] if answer_key(row['response']) not in rejected]
+        data['style_examples'] = [row for row in data['style_examples'] if answer_key(row['response']) not in rejected][:2]
         data['speech_profile'] = profile_for_request(subject)
         data['speech_profile']['examples'] = [text for text in data['speech_profile']['examples'] if answer_key(text) not in rejected]
         data['quality_feedback'] = self.store.issue_patterns(job['chat_id'])
@@ -1248,6 +1248,8 @@ class Bot:
         if control or job.get('detailed'):
             rewrite_source = quoted or next((row['text'] for row in reversed(dialogue) if not row['human']), '')
         word_limit = concise_word_limit(rewrite_source) if control == 'concise' else 45
+        if control == 'concise':
+            data.update(detail='concise', max_words=word_limit)
         reason = None
         for attempt in range(2):
             if self.superseded(job):
@@ -1267,6 +1269,8 @@ class Bot:
                            'задай одно конкретное уточнение. Без анализа задания.')
             retry_data=dict(data,dialogue=[row for row in dialogue if row['human']],
                             previous_failure=reason) if attempt else data
+            if attempt and rewrite_source:
+                retry_data['rewrite_source'] = rewrite_source
             try:
                 result = self.call_model(job, {
                     'model': self.config['model'], 'stream': False, 'keep_alive': '24h',
@@ -1297,7 +1301,7 @@ class Bot:
                 if not reason:
                     reason = explanation_problem(answer,previous,subject,reference=rewrite_source)
                 if not reason:
-                    reason = grounding_problem(answer, subject)
+                    reason = grounding_problem(answer, subject + ' ' + rewrite_source)
                 if not reason and answer_key(answer) in rejected:
                     reason = 'negative_feedback'
                 if not reason and control == 'concise' and len(answer.split()) > word_limit:
