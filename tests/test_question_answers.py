@@ -100,7 +100,7 @@ class QuestionTests(unittest.TestCase):
                 self.assertFalse(job['thoughtful'])
                 self.assertTrue(self.bot.jobs.empty())
 
-    def test_reply_text_and_live_human_and_bot_context_are_passed_as_data(self):
+    def test_explicit_reply_uses_quoted_text_without_ambient_human_or_bot_context(self):
         self.store.add_message(self.message('по кабелю 100 мегабит', 2)['message'])
         self.store.add_message(dict(chat={'id': -100}, message_id=3, date=time.time(),
                                     text='проверь диапазон WiFi'), human=False)
@@ -116,7 +116,7 @@ class QuestionTests(unittest.TestCase):
         data = json.loads(model.call_args.args[1]['messages'][1]['content'])
         self.assertEqual(data['quoted_message'], 'роутер ограничен старым стандартом')
         self.assertEqual(data['current_request'], 'Почему?')
-        self.assertEqual([row['human'] for row in data['live_context']], [True, False])
+        self.assertEqual(data['live_context'], [])
         self.assertNotIn('style_examples', data)
         archive.assert_not_called()
         approved.assert_not_called()

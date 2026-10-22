@@ -19,11 +19,12 @@ from community import (COMMUNITY_COMMANDS, GREETINGS, OWNER_FEATURES, community_
                        help_text, period_start, statistics_text, summary_excerpt, summary_text)
 from retrieval import build_index, find_examples, random_candidates
 from feedback import praise_signal, rating_signal, relevant_approved, salary_acknowledgement
-from question_answers import (PROMPT as QUESTION_PROMPT, FALLBACK as QUESTION_FALLBACK,
+from question_answers import (PROMPT as QUESTION_PROMPT, FALLBACKS as QUESTION_FALLBACKS,
                               ends_question, thoughtful_request, answer_style)
 from assistant_features import (FeatureStore, FEATURE_COMMANDS, FOLLOWUP, CALL as FEATURE_CALL, feature_request,
                                 negative_reason, memory_context)
 from style_profile import profile_for_request
+from answer_quality import contextual_request, explanation_problem, question_context
 from fact_check import FactChecker, FactError
 from goal_videos import GoalVideos
 from football_posts import FootballPosts
@@ -294,11 +295,19 @@ class Store(FeatureStore):
                                      (chat_id, now - 60, now)).fetchone()
         return count >= 8 and users >= 2
 
-    def context(self, chat_id, limit=10):
+    def context(self, chat_id, limit=10, *, before=None, before_id=None, max_age=7200, human_only=False):
+        before=time.time() if before is None else before
+        where='chat_id=? AND timestamp>? AND timestamp<=?'
+        args=[chat_id,before-max_age,before]
+        if human_only:
+            where+=' AND human=1'
+        if type(before_id) is int and before_id>0:
+            where+=' AND message_id<?'
+            args.append(before_id)
         with self.db() as db:
-            rows = db.execute('SELECT speaker,text,human FROM messages WHERE chat_id=? AND timestamp>? '
+            rows = db.execute('SELECT speaker,text,human FROM messages WHERE '+where+' '
                               'ORDER BY timestamp DESC,message_id DESC LIMIT ?',
-                              (chat_id, time.time() - 7200, limit)).fetchall()
+                              (*args,limit)).fetchall()
         return [{'speaker': speaker, 'text': text[:250], 'human': bool(human)}
                 for speaker, text, human in reversed(rows)]
 
@@ -312,6 +321,17 @@ class Store(FeatureStore):
             rows = db.execute('SELECT text FROM messages WHERE chat_id=? AND human=0 '
                               'ORDER BY timestamp DESC,message_id DESC LIMIT ?',
                               (chat_id, limit)).fetchall()
+        return [row[0] for row in rows]
+
+    def recent_model_answers(self, chat_id, limit=30):
+        with self.db() as db:
+            rows=db.execute('SELECT coalesce(body,text) FROM messages WHERE chat_id=? AND human=0 '
+                            "AND (answer_mode IN ('parody','question') OR (answer_mode IS NULL "
+                            'AND NOT (coalesce(learnable,0)=0 AND coalesce(rateable,0)=0 '
+                            "AND (coalesce(body,text) LIKE '%Футбол на Куличках%' "
+                            "OR coalesce(body,text) LIKE '%Спорт-Экспресс%')))) AND timestamp>? "
+                            'ORDER BY timestamp DESC,message_id DESC LIMIT ?',
+                            (chat_id,time.time()-86400,limit)).fetchall()
         return [row[0] for row in rows]
 
     @staticmethod
@@ -962,6 +982,8 @@ class Bot:
         question_call = not command and ends_question(argument)
         session_id = self.store.session(chat_id, user_id)
         followup = bool(FOLLOWUP.match(FEATURE_CALL.sub('', argument)))
+        if session_id and ends_question(argument) and re.match(r'^а\s+',FEATURE_CALL.sub('',argument),re.I):
+            followup=followup or contextual_request(argument)
         explanation_reply = reply_to_bot and self.store.answer_mode(chat_id, reply.get('message_id')) in ('question', 'factcheck')
         dialogue_id = reply.get('message_id') if reply_to_bot else session_id if followup else None
         addressed = private or mentioned or reply_to_bot or question_call or bool(session_id and followup)
@@ -1006,7 +1028,7 @@ class Bot:
     def generate(self, job):
         if self.is_thoughtful(job):
             return self.generate_thoughtful(job)
-        previous = self.store.recent_answers(job['chat_id'], limit=30)
+        previous = self.store.recent_model_answers(job['chat_id'], limit=30)
         if job.get('tease_target'):
             previous = [re.sub(r'^@' + TEASE_USERNAME + r',?\s*', '', text) for text in previous]
         if job.get('random_quote'):
@@ -1050,7 +1072,7 @@ class Bot:
         data['style_examples'] = [row for row in data['style_examples'] if answer_key(row['response']) not in rejected]
         data['speech_profile'] = profile_for_request(subject)
         data['speech_profile']['examples'] = [text for text in data['speech_profile']['examples'] if answer_key(text) not in rejected]
-        data['quality_feedback'] = [dict(reason=row['reason'], request=row['request']) for row in issues[:3]]
+        data['quality_feedback'] = [dict(reason=row['reason']) for row in issues[:3]]
         if job.get('tease_target'):
             data['proactive_tease'] = {'username': TEASE_USERNAME, 'nickname': 'франки'}
         reason = None
@@ -1123,44 +1145,49 @@ class Bot:
         # Separate prompt and validation: short parody examples and the 35-word
         # filter must never replace an explanation with a random angry phrase.
         LOG.info('Начата генерация содержательного ответа')
-        context, budget = [], 1800
-        for row in reversed(self.store.context(job['chat_id'], limit=12)):
-            if row['text'].startswith('/') or row['text'] == job['text']:
-                continue
-            item = dict(row, text=clean_text(row['text'])[:500])
-            cost = len(json.dumps(item, ensure_ascii=False))
-            if cost > budget:
-                break
-            context.append(item)
-            budget -= cost
+        dialogue=self.store.dialogue(job['chat_id'],job.get('dialogue_id'))
+        called=answer_key(job['text']).split()
+        fresh_call=bool(called) and all(word in TRIGGER_FORMS for word in called)
+        quoted='' if fresh_call else clean_text(job.get('quoted_message',''))[:1000]
+        if fresh_call:
+            dialogue=[]
+        context=question_context(self.store.context(job['chat_id'],limit=20,before=job['queued_at'],
+                                 before_id=job.get('reply_to'),max_age=600,human_only=True),
+                                 job['text'],quoted,dialogue,fresh_call)
         data = {'mode': 'question', 'current_request': clean_text(job['text'])[:2000],
-                'quoted_message': clean_text(job.get('quoted_message', ''))[:1000],
-                'live_context': list(reversed(context))}
-        data['dialogue'] = self.store.dialogue(job['chat_id'], job.get('dialogue_id'))
+                'quoted_message':quoted,'live_context':context,'dialogue':dialogue,
+                'context_scope':'reply' if quoted or dialogue else 'followup' if context and contextual_request(job['text']) else 'current_request'}
         data['detail'] = 'detailed' if job.get('detailed') else 'brief'
-        subject = job['text'] + ' ' + ' '.join(row['text'] for row in data['dialogue'][-2:])
+        reference=( [quoted]+[row['text'] for row in dialogue if row['human']][-2:]
+                   +[row['text'] for row in context]) if contextual_request(job['text']) else []
+        subject=' '.join([job['text']]+reference)
         data['speech_profile'] = profile_for_request(subject)
         data['chat_memories'] = memory_context(self.store.memories(job['chat_id'], subject, limit=3))
         issues = self.store.issues(job['chat_id'])
         rejected = self.store.rejected_keys(job['chat_id'])
         data['speech_profile']['examples'] = [text for text in data['speech_profile']['examples'] if answer_key(text) not in rejected]
-        data['quality_feedback'] = [dict(reason=row['reason'], request=row['request']) for row in issues[:3]]
-        previous = {answer_key(text) for text in self.store.recent_answers(job['chat_id'], limit=5)}
+        data['quality_feedback'] = [dict(reason=row['reason']) for row in issues[:3]]
+        previous = self.store.recent_model_answers(job['chat_id'],limit=30)
         num_ctx = 8192 if data['dialogue'] or data['chat_memories'] or len(json.dumps(data, ensure_ascii=False)) > 3500 else 4096
         reason = None
         for attempt in range(2):
             prompt = QUESTION_PROMPT
             if attempt:
                 prompt += ('\nПредыдущий ответ отклонён: ' + reason
-                           + '. Дай законченный ответ короче, без анализа задания и повторов.')
+                           + '. Ответь заново именно на current_request. Не продолжай старую тему '
+                           'при смене вопроса и не повторяй вступление. Если предмет вопроса неясен '
+                           'задай одно конкретное уточнение. Без анализа задания.')
+            retry_data=dict(data,dialogue=[row for row in dialogue if row['human']],
+                            previous_failure=reason) if attempt else data
             try:
                 result = self.call_model(job, {
                     'model': self.config['model'], 'stream': False, 'keep_alive': '24h',
                     'messages': [{'role': 'system', 'content': prompt},
-                                 {'role': 'user', 'content': json.dumps(data, ensure_ascii=False)}],
+                                 {'role': 'user', 'content': json.dumps(retry_data, ensure_ascii=False)}],
                     'options': {'num_ctx': num_ctx, 'num_thread': 16,
                                 'num_predict': 768 if reason == 'length_limit' else 512 if job.get('detailed') else 256,
-                                'temperature': 0.35, 'repeat_penalty': 1.08},
+                                'temperature': 0.6 if reason in ('repeated_response','stale_context','repeated_opening') else 0.35,
+                                'repeat_penalty': 1.08},
                 }, timeout=120)
             except APIError as error:
                 LOG.warning('Ответ на вопрос недоступен: HTTP=%s; попытка=%s/2', error.code, attempt + 1)
@@ -1176,11 +1203,12 @@ class Bot:
             elif result.get('done_reason') == 'length':
                 reason = 'length_limit'
             else:
+                answer=answer_style(answer.strip())
                 reason = answer_problem(answer, thoughtful=True)
                 if not reason and answer.strip() == '__SILENCE__':
                     reason = 'silence_on_direct_request'
-                if not reason and answer_key(answer) in previous:
-                    reason = 'repeated_response'
+                if not reason:
+                    reason = explanation_problem(answer,previous,subject)
                 if not reason and answer_key(answer) in rejected:
                     reason = 'negative_feedback'
             if not reason:
@@ -1189,7 +1217,7 @@ class Bot:
         return None
 
     def fallback_answer(self, job):
-        previous = self.store.recent_answers(job['chat_id'], limit=30)
+        previous = self.store.recent_model_answers(job['chat_id'], limit=30)
         previous_keys = {answer_key(text) for text in previous}
         pools = [replies for pattern, replies in FALLBACK_TOPICS if pattern.search(job.get('text', ''))]
         pools.append(FALLBACK_REPLIES)
@@ -1200,6 +1228,16 @@ class Bot:
                 varied = [text for text in available if not repeated_answer(text, previous)]
                 return self.random.choice(varied or available)
         return None
+
+    def question_fallback(self, job):
+        previous=self.store.recent_model_answers(job['chat_id'],limit=30)
+        for text in QUESTION_FALLBACKS:
+            if not explanation_problem(text,previous,job['text']):
+                return text
+        # If the service stays unavailable, rotate the least recently used
+        # clarification rather than pretending to have a substantive answer.
+        keys=[answer_key(text) for text in previous]
+        return max(QUESTION_FALLBACKS,key=lambda text:keys.index(answer_key(text)) if answer_key(text) in keys else len(keys))
 
     def process_job(self, job):
         started = time.monotonic()
@@ -1276,7 +1314,7 @@ class Bot:
         if not answer:
             if job['automatic']:
                 return
-            answer = QUESTION_FALLBACK if thoughtful else self.fallback_answer(job)
+            answer = self.question_fallback(job) if thoughtful else self.fallback_answer(job)
             if not answer:
                 return
             LOG.info('Использована резервная реплика, режим=manual')
@@ -1403,7 +1441,7 @@ class Bot:
         try:
             started = time.monotonic()
             sent = self.telegram.send(chat_id, answer)
-            self.store.add_message(sent, human=False, learnable=False, rateable=False)
+            self.store.add_message(dict(sent,_answer_mode='football'), human=False, learnable=False, rateable=False)
             LOG.info('Футбольное уведомление отправлено: Telegram=%s; отправка=%.3f сек.',
                      datetime.fromtimestamp(sent.get('date', time.time()), MOSCOW).isoformat(),
                      time.monotonic() - started)

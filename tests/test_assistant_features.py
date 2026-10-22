@@ -89,6 +89,17 @@ class FeatureTests(unittest.TestCase):
         self.bot.handle(self.update('цацик', 1, reply={'message_id': 10, 'text': 'шо опять надо'}))
         self.assertFalse(self.bot.jobs.get_nowait()['thoughtful'])
 
+    def test_pronoun_followup_uses_only_own_recent_session_and_new_subject_does_not(self):
+        first=self.answer('Где продают коллекционные карточки?','поищи профильные магазины.',number=1,user=7)
+        self.answer('Почему WiFi медленный?','проверь кабель роутера.',number=2,user=8)
+        self.store.set('request:-100',0)
+        self.bot.handle(self.update('А сколько они стоят сейчас?',3,user=7))
+        followup=self.bot.jobs.get_nowait()
+        self.assertEqual(followup['dialogue_id'],first['message_id'])
+        self.store.set('request:-100',0)
+        self.bot.handle(self.update('где мой цаца свиноголовин?',4,user=7))
+        self.assertIsNone(self.bot.jobs.get_nowait()['dialogue_id'])
+
     def test_dialogue_never_crosses_chat_and_cycles_are_bounded(self):
         answer = self.answer()
         self.assertFalse(self.store.dialogue(-200, answer['message_id']))

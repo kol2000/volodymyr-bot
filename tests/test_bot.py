@@ -473,9 +473,9 @@ class BotTests(unittest.TestCase):
         reply = self.bot.fallback_answer(self.manual_job(text='ordinary message'))
         self.assertNotIn(reply, FALLBACK_REPLIES[:30])
         _, topic = FALLBACK_TOPICS[0]
-        with patch.object(self.store, 'recent_answers', return_value=list(topic)):
+        with patch.object(self.store, 'recent_model_answers', return_value=list(topic)):
             self.assertIn(self.bot.fallback_answer(self.manual_job(text='война')), FALLBACK_REPLIES)
-        with patch.object(self.store, 'recent_answers', return_value=[]):
+        with patch.object(self.store, 'recent_model_answers', return_value=[]):
             self.assertIn(self.bot.fallback_answer(self.manual_job(text='война')), topic)
 
     def test_fallback_obeys_quota_cooldown_rebinding_and_age(self):
