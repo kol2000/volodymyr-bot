@@ -82,6 +82,38 @@ class InferenceQualityTests(unittest.TestCase):
         data = json.loads(payload['messages'][1]['content'])
         self.assertEqual(data['style_examples'], examples[:2])
 
+    def test_third_vm_run_implicit_backup_verdict_is_rejected_without_false_positives(self):
+        cases = {case['id']: case for case in json.loads((ROOT / 'dialogue_cases.json').read_text())}
+        actual = ('Проверяеш резервную копию не по скорости а восстанавливаеш её в отдельное место. '
+                  'Смотриш читается ли файл работает ли приложение нет ли ошибок. '
+                  'Если всё как надо — копия живая. Если нет — битая. Просто.')
+        self.assertIn('unsupported_certainty', assess(cases['pending-correction'], actual, 11, 120))
+        for text in [actual, 'Восстанови копию. Иначе повреждена.',
+                     'Проверь читается ли файл. В противном случае копия испорчена.',
+                     'Если не открывается — она повреждена.',
+                     'Если приложение не работает то копия сломана.']:
+            self.assertEqual(grounding_problem(text, 'Как проверить резервную копию?'),
+                             'unsupported_certainty', text)
+        for text in ['Если нет — проверь доступ совместимость и настройки.',
+                     'Если не читается — она не обязательно повреждена.',
+                     'Если проверка не прошла статус копии не подтверждён.',
+                     'Если нет — возможно повреждена но сначала проверь доступ.',
+                     'Файл может быть битым. Если нет — проверь настройки.',
+                     'Если повреждение подтверждено контрольными суммами копия повреждена.']:
+            self.assertIsNone(grounding_problem(text, 'Как проверить резервную копию?'), text)
+
+    def test_implicit_backup_verdict_retries_with_specific_guidance_before_returning(self):
+        job = self.job('Как проверить резервную копию?')
+        good = 'восстанови отдельно и проверь файлы при ошибке проверь доступ совместимость и настройки.'
+        with patch('bot.http_json', side_effect=[self.result('Восстанови копию. Если нет — битая.'),
+                                                self.result(good)]) as model:
+            answer = self.bot.generate(job)
+        self.assertEqual(answer, good)
+        self.assertEqual(model.call_count, 2)
+        self.assertEqual(job['_rejections'], ['unsupported_certainty'])
+        self.assertIn('Сбой восстановления сам по себе не доказывает',
+                      model.call_args.args[1]['messages'][0]['content'])
+
     def test_concise_mode_has_one_word_budget_instead_of_default_brief_budget(self):
         source = 'Помехи и слабый сигнал могут снижать скорость. Сравни соединение по кабелю и рядом с роутером.'
         with patch('bot.http_json', return_value=self.result('слабый сигнал и помехи проверь кабель.')) as model:
@@ -178,6 +210,9 @@ class InferenceQualityTests(unittest.TestCase):
         self.assertNotIn('точно', answer)
         self.assertEqual(job['_rejections'], ['unsupported_certainty'])
         self.assertEqual(job['_metrics']['model_calls'], 2)
+        retry_prompt = model.call_args.args[1]['messages'][0]['content']
+        self.assertIn('Назови возможные причины', retry_prompt)
+        self.assertNotIn('Сбой восстановления сам по себе не доказывает', retry_prompt)
 
     def test_runner_context_stays_the_same_for_question_parody_warmup_summary_and_factcheck(self):
         options = []

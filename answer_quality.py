@@ -119,10 +119,18 @@ def grounding_problem(text, subject):
         # Restoration failure is not proof of corrupt media. Handle conclusions
         # with an implicit noun too: "ошибка — значит битая".
         evidence = ' '.join(clauses[max(0, index - 1):index + 1])
-        failed_restore = re.search(r'\b(?:ошиб\w*|неудач\w*|не (?:получ\w*|восстан\w*|откр\w*))\b', evidence)
+        failed_restore = re.search(r'\b(?:ошиб\w*|неудач\w*|не (?:получ\w*|восстан\w*|откр\w*|чита\w*|работа\w*))\b', evidence)
+        # "Если нет — битая" refers to the preceding successful check. A
+        # connective such as "значит" is optional in this conditional verdict.
+        negative_condition = re.search(r'\b(?:если нет|иначе|в противном случае)\b', clause)
+        if negative_condition and re.search(r'\b(?:восстан\w*|чита\w*|работа\w*|проверк\w*|ошиб\w*|копи\w*)\b', prose):
+            failed_restore = True
+        corruption = r'(?:бит(?:ая|ый|ые|ое|ую|а|ы)?|поврежден\w*|испорчен\w*|сломан\w*)\b'
         verdict = re.search(r'\b(?:значит|следовательно|поэтому|выходит|тогда)\b'
-                            r'(?:(?!\bне\b)[^.!?;\n]){0,40}\b'
-                            r'(?:бит(?:ая|ый|ые|ое|ую|а|ы)?|поврежден\w*|испорчен\w*|сломан\w*)\b', clause)
+                            r'(?:(?!\bне\b)[^.!?;\n]){0,40}\b' + corruption, clause)
+        if not verdict and (failed_restore or negative_condition):
+            verdict = re.search(r'(?:[—–-]|\bто\b|\bиначе\b|\bв противном случае\b)\s*'
+                                r'(?:(?:копия|б[эе]кап|она|он)\s+)?' + corruption, clause)
         if backup and failed_restore and verdict:
             return 'unsupported_certainty'
         if re.search(r'\bтам точно (?:написано|видно|будет)|'

@@ -1267,6 +1267,12 @@ class Bot:
                            + '. Ответь заново именно на current_request. Не продолжай старую тему '
                            'при смене вопроса и не повторяй вступление. Если предмет вопроса неясен '
                            'задай одно конкретное уточнение. Без анализа задания.')
+                if reason == 'unsupported_certainty':
+                    prompt += ('\nУбери бездоказательный диагноз и обещания. Назови возможные причины '
+                               'и проверку которая их различит.')
+                    if re.search(r'\b(?:резерв\w*|б[эе]кап\w*|копи\w*)\b', subject + ' ' + rewrite_source, re.I):
+                        prompt += (' Сбой восстановления сам по себе не доказывает повреждение '
+                                   'копии: сначала выясняют ошибку доступа совместимости или настроек.')
             retry_data=dict(data,dialogue=[row for row in dialogue if row['human']],
                             previous_failure=reason) if attempt else data
             if attempt and rewrite_source:
