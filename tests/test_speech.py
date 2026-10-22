@@ -8,10 +8,34 @@ from bot import Bot, Store, answer_key, repeated_answer
 from common import MODEL, parody_text
 from feedback import salary_acknowledgement
 from question_answers import answer_style
+from question_answers import PROMPT as QUESTION_PROMPT
+from common import ROOT
 from test_bot import FakeTelegram
 
 
 class SpeechTests(unittest.TestCase):
+    def test_genitive_spelling_is_a_replacement_and_not_an_added_catchphrase(self):
+        for text,expected in [('чего тут непонятного','чего тут непонятново'),
+                              ('ничего непонятного нет','ничего непонятново нет'),
+                              ('Непонятного человека привели','Непонятново человека привели'),
+                              ('непонятно шо ти имееш в виду','непонятно шо ти имееш в виду'),
+                              ('ти сначала текст прочитай','ти сначала текст прочитай')]:
+            with self.subTest(text=text):
+                self.assertEqual(parody_text(text),expected)
+
+    def test_screenshot_adverb_misuse_is_fixed_without_changing_valid_genitive(self):
+        text='Если не читаеш текст — брать его некуда. Непонятново шо ти имееш в виду.'
+        self.assertEqual(parody_text(text),text.replace('Непонятново','Непонятно'))
+        self.assertEqual(parody_text('мне непонятново как ето работает'),'мне непонятно как ето работает')
+        self.assertEqual(parody_text('НЕПОНЯТНОВО что делать'),'НЕПОНЯТНО что делать')
+        self.assertEqual(parody_text('чего тут непонятново шо делать дальше'),'чего тут непонятново шо делать дальше')
+        self.assertEqual(parody_text('цитата «Непонятново шо ти имееш в виду»'),
+                         'цитата «Непонятново шо ти имееш в виду»')
+
+    def test_model_prompts_do_not_prime_the_optional_spelling_word(self):
+        for prompt in ((ROOT/'prompt.txt').read_text(),QUESTION_PROMPT):
+            self.assertNotIn('непонятново',prompt.lower())
+
     def test_screenshot_politeness_and_commas_are_removed(self):
         self.assertEqual(parody_text('Если ты про кого-то из реальных людей — уточни, пожалуйста.'),
                          'Если ти про кого-то из реальных людей — уточни.')

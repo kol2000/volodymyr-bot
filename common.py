@@ -222,7 +222,16 @@ def surzhyk_text(text):
             return changed.upper()
         return changed.capitalize() if original[0].isupper() else changed
 
-    return re.sub(r'\b[а-яё]+\b', replace, text, flags=re.I)
+    text = re.sub(r'\b[а-яё]+\b', replace, text, flags=re.I)
+    # A genitive adjective spelling must not replace an introductory adverb:
+    # "непонятно шо ..." is different from "чего тут непонятново".
+    def adverb(match):
+        original = match[3]
+        changed = 'НЕПОНЯТНО' if original.isupper() else 'Непонятно' if original[0].isupper() else 'непонятно'
+        return match[1]+match[2]+changed
+    return re.sub(r'(^|[.!?\n]\s*)((?:(?:мне|нам|ему|ей|им|тут|здесь|сечас|пока)\s+){0,2})'
+                  r'(непонятново)(?=\s*[,—:–-]?\s*(?:шо|что|как|где|куда|откуда|зачем|почему|когда|какой|какая|какие)\b)',
+                  adverb,text,flags=re.I)
 
 
 def parody_text(text):
