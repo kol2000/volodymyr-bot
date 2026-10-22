@@ -40,7 +40,38 @@ def broadcast(status='scheduled', score='0:0', day=13, a='Локомотив', b
     return title + board + summary + '<table id="table15">' + rows + '<tr><td>-</td><td></td><td>Анонс.</td></tr></table>'
 
 
+def mixed_scorers_broadcast():
+    # Foreign players are plain text; only the home scorer has a profile link.
+    entries = [('Таборда', 'Висенте Таборда', 6, '0:1'),
+               ('Дессерс', 'Сириль Дессерс', 24, '0:2'),
+               ('Дессерс', 'Сириль Дессерс', 47, '0:3'),
+               ('Кангва', 'Кингс Кангва', 57, '0:4'),
+               ('Растодер', 'Эльмин Растодер', 75, '0:5'),
+               ('<a href="/players/32657.htm">Бекболат</a>', 'Исмаил Бекболат', 79, '1:5')]
+    summary, rows = [], []
+    for name, full, minute, score in entries:
+        penalty = minute == 24
+        qualifier = ' - с пенальти' if penalty else ''
+        summary.append(f'{name}, {minute}{qualifier} ({score})')
+        icon = 'pengoal.gif' if penalty else 'GOOal.gif'
+        rows.append(f'<tr><td>{minute}</td><td><img src="/trans/{icon}"></td>'
+                    f'<td>!!! ГООООЛ! {full}, {score}! Описание эпизода {score}.</td></tr>')
+    header = '<table><tr><td><img src="/trans/goal.gif">' + '; '.join(summary) + '</td></tr></table>'
+    return broadcast('second', '1:5').replace('<table id="table15">',
+              header + '<table id="table15">' + ''.join(rows))
+
+
 class ParsingTests(unittest.TestCase):
+    def test_plain_and_linked_scorers_and_repeated_penalty_scorer(self):
+        match = parse_broadcast(mixed_scorers_broadcast(), parse_home(home())[0])
+        self.assertEqual([g.score for g in match.goals],
+                         [(0, 1), (0, 2), (0, 3), (0, 4), (0, 5), (1, 5)])
+        self.assertEqual([g.player for g in match.goals],
+                         ['Висенте Таборда', 'Сириль Дессерс', 'Сириль Дессерс',
+                          'Кингс Кангва', 'Эльмин Растодер', 'Исмаил Бекболат'])
+        self.assertEqual(match.goals[1].kind, 'penalty-goal')
+        self.assertEqual(len(goals_between(match, [0, 0])), 6)
+
     def test_var_verdict_reason_and_added_minute_are_read_from_broadcast(self):
         description='После VAR гол Игрока отменён — офсайд перед передачей.'
         html=broadcast('second').replace('<table id="table15">',
@@ -382,4 +413,5 @@ class FetchTests(unittest.TestCase):
         with patch('kulichki_football.urllib.request.urlopen', return_value=response):
             with self.assertRaisesRegex(FootballError, 'unexpected_redirect'):
                 fetch_html(BASE + '/')
+
 

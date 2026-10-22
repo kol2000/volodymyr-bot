@@ -193,23 +193,37 @@ def broadcast_goals(root, events, match_id):
         return ()
     summary = min(summaries, key=lambda n: len(list(n.walk())))
     flat = text(summary)
-    for anchor in (n for n in summary.walk() if n.tag == 'a' and re.fullmatch(r'/players/\d+\.htm', n.attrs.get('href', ''))):
-        name = text(anchor)
-        pattern = (re.escape(name) + r'\s*(?:\(([^)]+)\))?\s*,\s*(\d{1,3})(?:\+(\d{1,2}))?'
-                   r'(?:\s*[-–]\s*([^()]+?))?\s*\((\d{1,2}):(\d{1,2})\)')
-        for found in re.finditer(pattern, flat):
-            qualifier, minute, bonus, suffix, home, away = found.groups()
-            score = (int(home), int(away))
-            description = descriptions.get(score, [])
-            if len(description) != 1 or not 1 <= int(minute) <= 120:
-                continue
-            names = {text(n) for n in root.walk() if n.tag == 'a' and n.attrs.get('href') == anchor.attrs['href'] and 0 < len(text(n)) <= 120}
-            player = max(names, key=len) if names else name
-            qualifier = ((qualifier or '') + ' ' + (suffix or '')).casefold()
-            kind = 'own-goal' if 'авт' in qualifier else 'penalty-goal' if 'пен' in qualifier else 'goal'
-            when = minute + (f'+{bonus}' if bonus else '') + '′'
-            goals.append(Goal(f'{match_id}:{home}:{away}:{when}', score, when, player, kind,
-                              description[0][:600]))
+    # Some scorers have no player profile/link (notably foreign teams).
+    # Parse every summary entry, then require the matching broadcast goal row.
+    pattern = (r'(?:^|;)\s*([^;]+?)\s*(?:\(([^)]+)\))?\s*,\s*(\d{1,3})(?:\+(\d{1,2}))?'
+               r'(?:\s*[-–]\s*([^()]+?))?\s*\((\d{1,2}):(\d{1,2})\)')
+    for found in re.finditer(pattern, flat):
+        name, qualifier, minute, bonus, suffix, home, away = found.groups()
+        name = name.strip()
+        score = (int(home), int(away))
+        description = descriptions.get(score, [])
+        if len(description) != 1 or not 1 <= int(minute) <= 120:
+            continue
+        names = {name}
+        for anchor in summary.walk():
+            if anchor.tag == 'a' and text(anchor) == name:
+                names.update(text(n) for n in root.walk() if n.tag == 'a'
+                             and n.attrs.get('href') == anchor.attrs.get('href')
+                             and 0 < len(text(n)) <= 120)
+        player = max(names, key=len)
+        # The goal announcement supplies the full name even without a profile.
+        announcement = re.search(r'Г[ОO]+Л[!\s]*([^!,:]+)[!,]\s*'
+                                 + re.escape(f'{home}:{away}'), description[0], re.I)
+        if announcement:
+            full_name = announcement.group(1).strip()
+            if len(full_name) > len(player) and (full_name.casefold() == name.casefold()
+                    or full_name.casefold().endswith(' ' + name.casefold())):
+                player = full_name
+        qualifier = ((qualifier or '') + ' ' + (suffix or '')).casefold()
+        kind = 'own-goal' if 'авт' in qualifier else 'penalty-goal' if 'пен' in qualifier else 'goal'
+        when = minute + (f'+{bonus}' if bonus else '') + '′'
+        goals.append(Goal(f'{match_id}:{home}:{away}:{when}', score, when, player, kind,
+                          description[0][:600]))
     return tuple({goal.id: goal for goal in goals}.values())
 
 
@@ -298,3 +312,4 @@ class KulichkiScoreboard:
         return dict(id=match.id, url=match.url, home=match.home, away=match.away,
                     competition=match.competition,
                     clock=datetime.fromtimestamp(match.kickoff, MOSCOW).strftime('%H:%M'))
+

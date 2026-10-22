@@ -74,6 +74,23 @@ class PostTests(unittest.TestCase):
             return dict(chat=dict(id=chat),message_id=number,video=dict(file_id='one'))
         self.videos.poll(upload,lambda c:c==-100)
 
+    def test_unlinked_scorers_fill_all_existing_posts_without_new_messages(self):
+        from test_kulichki_football import mixed_scorers_broadcast, home
+        from kulichki_football import parse_broadcast, parse_home
+        parsed = parse_broadcast(mixed_scorers_broadcast(), parse_home(home())[0])
+        for score in [(0, 1), (0, 2), (0, 3), (0, 4), (0, 5), (1, 5)]:
+            self.tick(score, goals=())
+        self.assertEqual(len(self.telegram.sent), 6)
+        self.tick(goals=parsed.goals)
+        self.assertEqual(len(self.telegram.sent), 6)
+        self.assertEqual(len(self.edits), 6)
+        for edit, goal in zip(self.edits, parsed.goals):
+            self.assertIn(goal.player, edit[3])
+            self.assertIn(goal.description, edit[3])
+            self.assertNotIn('Подробности гола появятся', edit[3])
+        self.tick(goals=parsed.goals)
+        self.assertEqual(len(self.edits), 6)
+
     def test_immediate_score_then_description_and_video_share_one_post(self):
         self.tick((1,0),goals=())
         self.assertEqual(len(self.telegram.sent),1)
@@ -294,4 +311,5 @@ class PostTests(unittest.TestCase):
         self.store.set(PREFIX+'enabled',False)
         self.posts.poll(lambda c:True)
         self.assertEqual(self.edits,[])
+
 
