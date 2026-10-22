@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from bot import Bot, Store, answer_problem
 from common import APIError, MODEL
+from inference import MODEL_CONTEXT
 from question_answers import FALLBACK, PROMPT, answer_style, ends_question, thoughtful_request
 from test_bot import FakeTelegram
 
@@ -121,7 +122,7 @@ class QuestionTests(unittest.TestCase):
         archive.assert_not_called()
         approved.assert_not_called()
         self.assertEqual(model.call_args.args[1]['messages'][0]['content'], PROMPT)
-        self.assertEqual(model.call_args.args[1]['options']['num_ctx'], 4096)
+        self.assertEqual(model.call_args.args[1]['options']['num_ctx'], MODEL_CONTEXT)
         self.assertEqual(model.call_args.args[1]['options']['num_predict'], 256)
         self.assertEqual(model.call_args.kwargs['timeout'], 120)
 

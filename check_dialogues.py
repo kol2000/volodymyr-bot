@@ -7,8 +7,10 @@ import time
 from pathlib import Path
 
 from bot import Bot, Store, answer_problem
-from common import APIError, CONFIG, MODEL, ROOT
-from conversation import inline_control, verification_query
+from common import APIError, CONFIG, MODEL, ROOT, http_json
+from answer_quality import concise_word_limit, grounding_problem, specific_clarification
+from conversation import ambiguous_subject, inline_control, verification_query
+from inference import generation_stats, runner_options
 from question_answers import ends_question, thoughtful_request
 
 
@@ -20,6 +22,11 @@ class NoTelegram:
 def route(case):
     thoughtful = bool(case.get('control') or case.get('dialogue') or case.get('updates') or thoughtful_request(case['request']))
     return 'web' if thoughtful and verification_query(case['request']) else 'question' if thoughtful else 'parody'
+
+
+def uses_model(case):
+    return route(case) != 'web' and not (ambiguous_subject(case['request'])
+        and not (case.get('history') or case.get('dialogue') or case.get('updates')))
 
 
 def assess(case, answer, elapsed, max_seconds):
@@ -36,8 +43,16 @@ def assess(case, answer, elapsed, max_seconds):
         errors.append('missing_expected_subject')
     if case.get('max_words') and len(answer.split()) > case['max_words']:
         errors.append('too_many_words')
+    if case.get('control') == 'concise' and case.get('dialogue'):
+        if len(answer.split()) > concise_word_limit(case['dialogue'][-1]):
+            errors.append('not_shorter_than_source')
     if case.get('require_question') and not ends_question(answer):
         errors.append('clarification_not_asked')
+    if case.get('require_clarification') and not specific_clarification(answer):
+        errors.append('missing_specific_clarification')
+    problem = grounding_problem(answer, case['request'] + ' ' + ' '.join(case.get('updates', [])))
+    if problem:
+        errors.append(problem)
     if elapsed > max_seconds:
         errors.append('slow_answer')
     return errors
@@ -73,9 +88,45 @@ def evaluate(case, config, run_model=False, max_seconds=120):
         except (APIError, OSError, ValueError):
             answer = None
         elapsed = round(time.monotonic() - started, 3)
-        result.update(model_checked=True, seconds=elapsed, answer=answer)
+        result.update(model_checked=bool(job.get('_inference_calls')), answer_checked=True,
+                      seconds=elapsed, answer=answer, local_reply=job.get('_local_reply'),
+                      metrics=job.get('_metrics', {}), calls=job.get('_inference_calls', []),
+                      rejections=job.get('_rejections', []))
         result['errors'].extend(assess(case, answer, elapsed, max_seconds))
     return result
+
+
+def warm_model(config):
+    started = time.monotonic()
+    result = http_json(config['ollama_url'] + '/api/chat',
+                       dict(model=config['model'], messages=[], stream=False, keep_alive='24h',
+                            options=runner_options()), timeout=180)
+    if not isinstance(result, dict) or result.get('error'):
+        raise APIError('Модель не загрузилась')
+    return generation_stats(result, time.monotonic() - started)
+
+
+def timing_text(result):
+    if not result.get('answer_checked'):
+        return 'только маршрут'
+    if result.get('local_reply'):
+        return f'локальное уточнение · {result["seconds"]:.2f} сек. · без Ollama'
+    calls = result.get('calls', [])
+    metrics = result.get('metrics', {})
+    parts = [f'{result["seconds"]:.2f} сек.', f'запросов к модели: {len(calls)}']
+    for key, label in [('load_seconds', 'загрузка'), ('prompt_seconds', 'чтение запроса'),
+                       ('generation_seconds', 'ответ'), ('other_seconds', 'прочее/ожидание')]:
+        if key in metrics:
+            parts.append(f'{label}: {metrics[key]:.2f} сек.')
+    if metrics.get('generation_seconds', 0) > 0 and 'output_tokens' in metrics:
+        parts.append(f'{metrics["output_tokens"] / metrics["generation_seconds"]:.2f} ток/сек')
+    if 'prompt_tokens' in metrics:
+        parts.append(f'вход: {metrics["prompt_tokens"]} ток.')
+    if 'cached_prompt_tokens' in metrics:
+        parts.append(f'из кэша: {metrics["cached_prompt_tokens"]} ток.')
+    if 'load_seconds' not in metrics:
+        parts.append('Ollama не вернула подробные метрики')
+    return ' · '.join(parts)
 
 
 def main(argv=None):
@@ -100,22 +151,32 @@ def main(argv=None):
             parser.error('unknown case id')
     results = []
     print('Telegram отключён. Основная база и банк не изменяются. Веб-поиск отключён.', flush=True)
+    if args.run_model and any(uses_model(case) for case in cases):
+        try:
+            initial = warm_model(config)
+        except APIError as error:
+            print(f'Не удалось подготовить Ollama; HTTP={error.code}. Тест ответов не запускался.', flush=True)
+            return 1
+        print(f'Подготовка модели отдельно от сценариев: {initial["seconds"]:.2f} сек. '
+              f'· постоянный контекст {initial["context"]} ток.', flush=True)
     for case in cases:
         result = evaluate(case, config, args.run_model, args.max_seconds)
         results.append(result)
         status = 'FAIL' if result['errors'] else 'OK'
-        timing = f' · {result["seconds"]:.2f} сек.' if result['model_checked'] else ' · только маршрут'
-        print(f'{status} {case["id"]}: {result["actual_mode"]}{timing}', flush=True)
+        print(f'{status} {case["id"]}: {result["actual_mode"]} · {timing_text(result)}', flush=True)
         if result.get('answer'):
             print(result['answer'], flush=True)
         if result['errors']:
             print('Причины: ' + ', '.join(result['errors']), flush=True)
+        if result.get('rejections'):
+            print('Отклонения до готового ответа: ' + ', '.join(result['rejections']), flush=True)
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps(results, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     failures = sum(bool(result['errors']) for result in results)
     checked = sum(result['model_checked'] for result in results)
-    print(f'Проверено: {len(results)}; с моделью: {checked}; ошибок: {failures}. '
+    local = sum(bool(result.get('local_reply')) for result in results)
+    print(f'Проверено: {len(results)}; с моделью: {checked}; локальных уточнений: {local}; ошибок: {failures}. '
           'Автопроверки не заменяют оценку смысла ответов человеком.')
     return int(bool(failures))
 

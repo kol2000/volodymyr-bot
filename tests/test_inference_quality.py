@@ -1,0 +1,197 @@
+import json
+import contextlib
+import io
+import tempfile
+import time
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+from answer_quality import explanation_problem, grounding_problem, specific_clarification
+from bot import Bot, Store
+from check_dialogues import assess, evaluate, main, timing_text, warm_model
+from common import APIError, MODEL, ROOT
+from community import summary_text
+from fact_check import FactChecker
+from inference import MODEL_CONTEXT, generation_stats, record_generation, runner_options
+from test_bot import FakeTelegram
+
+
+class InferenceQualityTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.store = Store(Path(self.temp.name) / 'bot.sqlite3')
+        self.store.set('chat_id', -100)
+        self.config = dict(owner_id=42, model=MODEL, ollama_url='http://localhost:11434')
+        self.bot = Bot(self.config, telegram=FakeTelegram(), store=self.store)
+
+    def job(self, text, **extra):
+        return dict(dict(chat_id=-100, text=text, reply_to=10, automatic=False,
+                         queued_at=time.time(), thoughtful=True), **extra)
+
+    def result(self, text):
+        return {'message': {'content': text}}
+
+    def test_real_bad_answers_from_first_vm_run_fail_stronger_checks(self):
+        cases = {case['id']: case for case in json.loads((ROOT / 'dialogue_cases.json').read_text())}
+        bad = 'Жёлтые — ето когда не зелёные но и не оранжевые. Шо за вопрос?'
+        self.assertIn('missing_specific_clarification', assess(cases['ambiguous-subject'], bad, 6, 120))
+        self.assertIn('unsupported_certainty', assess(cases['private-current'],
+                      'Проверь логи на сервере — там точно написано шо сломалось.', 74, 120))
+        self.assertIn('unsupported_certainty', assess(cases['real-question'],
+                      'WiFi медленнее из-за помех. Кабель передаёт данные напрямую без потерь.', 31, 120))
+        self.assertIn('unsupported_certainty', assess(cases['pending-correction'],
+                      'Если не получается — копия сломана.', 12, 120))
+        self.assertIn('not_shorter_than_source', assess(cases['shorter'],
+                      'Короче: WiFi тормозит из-за помех перегрузки сети или проблем с роутером. '
+                      'Проверь сигнал перезагрузи устройство и роутер — и всё будет норм.', 83, 120))
+
+    def test_uncertainty_negation_and_quoted_claims_are_not_rejected(self):
+        for text in ['Возможны помехи проверь скорость по кабелю.',
+                     'Логи не всегда показывают причину сбоя.',
+                     'Кабель не гарантирует передачу без потерь.',
+                     'Не факт что там точно написано шо сломалось.',
+                     'Неудачное восстановление не означает что копия сломана.',
+                     'Фразу «там точно написано» нельзя считать диагнозом.']:
+            self.assertIsNone(grounding_problem(text, 'Почему сервер теряет соединение и как проверить резервную копию?'), text)
+
+    def test_ambiguous_subject_without_context_asks_specific_question_without_inference(self):
+        job = self.job('Жёлтые?')
+        with patch('bot.http_json') as model:
+            answer = self.bot.generate(job)
+        model.assert_not_called()
+        self.assertTrue(specific_clarification(answer))
+        self.assertIn('жёлтые', answer)
+        self.assertEqual(job['_local_reply'], 'clarification')
+        self.assertTrue(answer.endswith('?'))
+
+    def test_all_local_clarification_variants_are_specific_and_rotate(self):
+        replies = []
+        for number in range(3):
+            reply = self.bot.generate(self.job('Жёлтые?'))
+            replies.append(reply)
+            self.store.add_message(dict(chat={'id': -100}, message_id=100 + number,
+                                        date=time.time(), text=reply, _answer_mode='question'), human=False)
+        self.assertEqual(len(set(replies)), 3)
+        self.assertTrue(all(specific_clarification(reply) for reply in replies))
+
+    def test_ambiguous_word_with_actual_reply_context_keeps_model_explanation(self):
+        with patch('bot.http_json', return_value=self.result('жёлтые карточки ето предупреждения игрокам.')) as model:
+            answer = self.bot.generate(self.job('Жёлтые?', quoted_message='Судья показал несколько карточек игрокам.'))
+        self.assertIn('карточки', answer)
+        model.assert_called_once()
+
+    def test_rewrite_may_reuse_own_source_but_other_answer_still_cannot_repeat(self):
+        source = 'Помехи и слабый сигнал могут снижать скорость. Сравни соединение по кабелю и рядом с роутером.'
+        shorter = 'помехи и слабый сигнал снижают скорость. сравни соединение по кабелю.'
+        self.assertTrue(explanation_problem(shorter, [source], 'Почему WiFi тормозит?'))
+        self.assertIsNone(explanation_problem(shorter, [source], 'Почему WiFi тормозит?', reference=source))
+        self.assertEqual(explanation_problem(source, [source], 'короче', reference=source), 'repeated_response')
+        unrelated = 'Карточки продаются на eBay и TCGPlayer доставка в Россию ограничена.'
+        self.assertEqual(explanation_problem(unrelated, [source, unrelated], 'короче', reference=source), 'repeated_response')
+
+    def test_shorter_request_does_not_trigger_a_second_inference_for_legitimate_rewording(self):
+        source = 'Помехи и слабый сигнал могут снижать скорость. Сравни соединение по кабелю и рядом с роутером.'
+        self.store.add_message(dict(chat={'id': -100}, message_id=1, date=time.time(), text='Почему WiFi тормозит?'))
+        self.store.add_message(dict(chat={'id': -100}, message_id=2, date=time.time(), text=source,
+                                    _reply_to=1, _answer_mode='question'), human=False)
+        reply = 'помехи и слабый сигнал снижают скорость. сравни соединение по кабелю.'
+        with patch('bot.http_json', return_value=self.result(reply)) as model:
+            self.assertEqual(self.bot.generate(self.job('короче', dialogue_id=2, response_control='concise')), reply)
+        model.assert_called_once()
+
+    def test_bad_diagnostic_guarantee_retries_with_reason_and_no_guarantee_is_sent(self):
+        job = self.job('Почему мой сервер теряет соединение?')
+        with patch('bot.http_json', side_effect=[self.result('в логах там точно написано шо сломалось.'),
+                    self.result('без логов причину не определить проверь ошибки сети.')]) as model:
+            answer = self.bot.generate(job)
+        self.assertEqual(model.call_count, 2)
+        self.assertNotIn('точно', answer)
+        self.assertEqual(job['_rejections'], ['unsupported_certainty'])
+        self.assertEqual(job['_metrics']['model_calls'], 2)
+
+    def test_runner_context_stays_the_same_for_question_parody_warmup_summary_and_factcheck(self):
+        options = []
+        for text, extra in [('Почему небо синее?', {}), ('цацик', {'thoughtful': False}),
+                            ('короче', {'response_control': 'concise'})]:
+            with patch('bot.find_examples', return_value=[]), \
+                    patch('bot.http_json', return_value=self.result('ти ещо громче поори')) as call:
+                self.bot.generate(self.job(text, **extra))
+            options.append(call.call_args.args[1]['options'])
+        with patch('check_dialogues.http_json', return_value={}) as call:
+            warm_model(self.config)
+        options.append(call.call_args.args[1]['options'])
+        data = dict(topics=[dict(title='Тема', text='Обсудили выбор.', quip='ну выбирайте', sources=[1])],
+                    decisions=[], open_questions=[])
+        with patch('community.http_json', return_value=self.result(json.dumps(data))) as call:
+            summary_text(self.config, [dict(speaker='Участник', text='выбираем', timestamp=time.time())], 1, 1)
+        options.append(call.call_args.args[1]['options'])
+        checker = FactChecker()
+        data = dict(verdict='unclear', answer='подтвердить пока не получается.', sources=[1])
+        with patch.object(checker, 'evidence', return_value=([dict(id=1, title='Источник', text='текст', url='https://www.python.org/')], time.time())), \
+                patch('fact_check.http_json', return_value=self.result(json.dumps(data))) as call:
+            checker.answer('проверка факта', self.config)
+        options.append(call.call_args.args[1]['options'])
+        self.assertEqual({option['num_ctx'] for option in options}, {MODEL_CONTEXT})
+        self.assertEqual({option['num_thread'] for option in options}, {16})
+
+    def test_nanosecond_stats_and_retries_are_summed_without_prompts(self):
+        result = dict(load_duration=30_000_000_000, prompt_eval_duration=2_000_000_000,
+                      eval_duration=5_000_000_000, total_duration=38_000_000_000,
+                      prompt_eval_count=100, prompt_eval_cached_count=70, eval_count=50)
+        result['message'] = {'content': 'private-question-sentinel'}
+        stats = generation_stats(result, 40)
+        self.assertEqual(stats['load_seconds'], 30)
+        self.assertEqual(stats['tokens_per_second'], 10)
+        self.assertEqual(stats['other_seconds'], 3)
+        job = {}
+        record_generation(job, result, 40)
+        record_generation(job, result, 40)
+        self.assertEqual(job['_metrics']['model_calls'], 2)
+        self.assertEqual(job['_metrics']['load_seconds'], 60)
+        self.assertEqual(job['_metrics']['output_tokens'], 100)
+        self.assertNotIn('private-question-sentinel', str(job))
+        self.assertNotIn('message', job['_metrics'])
+
+    def test_missing_and_invalid_stats_are_unknown_instead_of_fabricated_zero(self):
+        stats = generation_stats(dict(load_duration=True, eval_duration=-1,
+                                     prompt_eval_duration=float('nan'), total_duration=10 ** 1000), 1)
+        self.assertEqual(stats, dict(seconds=1, context=MODEL_CONTEXT))
+        result = dict(answer_checked=True, seconds=1, calls=[stats], metrics={})
+        self.assertIn('не вернула подробные метрики', timing_text(result))
+        self.assertNotIn('загрузка: 0', timing_text(result))
+
+    def test_replay_distinguishes_local_clarification_from_actual_model_calls(self):
+        case = dict(id='ambiguous', mode='question', request='Жёлтые?', require_clarification=True)
+        with patch('bot.http_json') as model:
+            result = evaluate(case, self.config, run_model=True)
+        model.assert_not_called()
+        self.assertFalse(result['model_checked'])
+        self.assertTrue(result['answer_checked'])
+        self.assertFalse(result['errors'])
+        self.assertIn('без Ollama', timing_text(result))
+
+    def test_cli_local_only_check_never_loads_model_and_writes_honest_report(self):
+        report = Path(self.temp.name) / 'report.json'
+        output = io.StringIO()
+        with patch('check_dialogues.CONFIG', Path(self.temp.name) / 'missing.json'), \
+                patch('check_dialogues.http_json') as warmup, patch('bot.http_json') as model, \
+                contextlib.redirect_stdout(output):
+            result = main(['--run-model', '--case', 'ambiguous-subject', '--report', str(report)])
+        self.assertEqual(result, 0)
+        warmup.assert_not_called()
+        model.assert_not_called()
+        self.assertIn('локальных уточнений: 1', output.getvalue())
+        self.assertFalse(json.loads(report.read_text())[0]['model_checked'])
+
+    def test_cli_model_unavailable_exits_before_scenarios_without_leaking_url(self):
+        output = io.StringIO()
+        with patch('check_dialogues.CONFIG', Path(self.temp.name) / 'missing.json'), \
+                patch('check_dialogues.http_json', side_effect=APIError('private-url-token', 503)), \
+                patch('check_dialogues.evaluate') as evaluate, contextlib.redirect_stdout(output):
+            result = main(['--run-model', '--case', 'real-question'])
+        self.assertEqual(result, 1)
+        self.assertIn('HTTP=503', output.getvalue())
+        self.assertNotIn('private-url-token', output.getvalue())
+        evaluate.assert_not_called()

@@ -17,6 +17,7 @@ import urllib.request
 from zoneinfo import ZoneInfo
 
 from common import APIError, HTMLMessage, clean_text, http_json, parody_text
+from inference import runner_options
 
 
 class FactError(Exception):
@@ -241,7 +242,7 @@ class FactChecker:
                 'model': config['model'], 'stream': False, 'keep_alive': '24h', 'format': schema,
                 'messages': [{'role': 'system', 'content': prompt}, {'role': 'user', 'content': json.dumps(
                     {'claim': query, 'sources': rows, 'style': profile or {}}, ensure_ascii=False)}],
-                'options': {'num_ctx': 8192, 'num_thread': 16, 'num_predict': 512, 'temperature': 0.1}}, timeout=120)
+                'options': runner_options(num_predict=512, temperature=0.1)}, timeout=120)
             if not isinstance(result, dict) or result.get('error') or result.get('done_reason') == 'length':
                 raise ValueError()
             data = json.loads(result['message']['content'])

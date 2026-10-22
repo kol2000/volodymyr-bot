@@ -83,19 +83,54 @@ def question_context(rows,request,quoted='',dialogue=(),fresh_call=False):
     return list(reversed(selected))
 
 
-def explanation_problem(text,previous,subject=''):
+def specific_clarification(text):
+    body = ' '.join(words(text))
+    return bool(re.search(r'(?:что|шо)(?: именно)?(?: ти)? (?:называ\w*|име\w* в виду)|'
+                          r'каки\w* именно|о чем (?:именно )?речь|про (?:что|шо|кого) (?:именно )?речь|'
+                          r'про (?:что|шо|кого) именно (?:ти )?(?:говор\w*|спраш\w*)|'
+                          r'каки\w* (?:ти )?име\w* в виду|уточни (?:предмет|что|шо|про)', body))
+
+
+def concise_word_limit(source):
+    return max(8, min(45, int(len(source.split()) * 0.7))) if source else 45
+
+
+def grounding_problem(text, subject):
+    """Reject narrow, unsupported diagnostic guarantees, not ordinary advice."""
+    if not re.search(r'\b(?:сервер\w*|роутер\w*|wifi|вайфай|кабел\w*|соединени\w*|'
+                     r'резерв\w*|б[эе]кап\w*|копи\w*)\b', subject, re.I):
+        return None
+    prose = re.sub(r'```.*?```|`[^`]*`|«[^»]*»|"[^"]*"', ' ', text, flags=re.S)
+    for clause in re.split(r'[.!?;\n]', prose.casefold()):
+        if re.search(r'\b(?:не (?:факт|всегда|обязательно|гарантиру\w*|означает|доказ\w*)|'
+                     r'нельзя (?:гарантировать|утверждать))\b', clause):
+            continue
+        if re.search(r'\bтам точно (?:написано|видно|будет)|'
+                     r'\b(?:логи|журнал\w*)[^.!?\n]{0,40}\b(?:точно|всегда)\b|'
+                     r'\bвс[её] будет норм\w*|\bточно (?:решит|поможет)\b|'
+                     r'\b(?:кабел\w*|провод\w*)[^.!?\n]{0,60}\bбез (?:любых )?потерь\b|'
+                     r'\b(?:копия|б[эе]кап) (?:сломана?|испорчен\w*|битый)\b', clause):
+            return 'unsupported_certainty'
+    return None
+
+
+def explanation_problem(text,previous,subject='',reference=''):
     candidate=words(text)
     # Repeated literal code/commands are often needed in a useful explanation;
     # compare prose for partial-copy checks, and the whole answer for exact ones.
     prose=lambda value:re.sub(r'```.*?```|`[^`]*`',' ',value,flags=re.S)
     current=words(prose(text))
     content=topics(prose(text))
-    requested=topics(subject)
+    requested=topics(subject) | topics(prose(reference))
     opening=words(re.split(r'[.!?\n]',text,maxsplit=1)[0])
     repeated_openings=0
     for old in previous:
         if candidate==words(old):
             return 'repeated_response'
+        # An explicit rewrite may reuse its source's ideas and wording. Other
+        # answers still get full repeat checks; a verbatim source is rejected.
+        if reference and words(old) == words(reference):
+            continue
         other=words(prose(old))
         match=SequenceMatcher(None,current,other,autojunk=False)
         if min(len(current),len(other))>=8 and match.ratio()>=0.82:

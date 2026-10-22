@@ -8,6 +8,7 @@ from html import escape, unescape
 from zoneinfo import ZoneInfo
 
 from common import APIError, HTMLMessage, clean_text, http_json, parody_text, visible_text
+from inference import runner_options
 
 LOG = logging.getLogger('volodymyr')
 
@@ -354,8 +355,7 @@ def summary_text(config, rows, total, days, time_budget=150, chat_id=None):
                 'model': config['model'], 'stream': False, 'format': schema, 'keep_alive': '24h',
                 'messages': [{'role': 'system', 'content': instruction + json.dumps(schema, ensure_ascii=False)},
                              {'role': 'user', 'content': json.dumps({'messages': selected}, ensure_ascii=False)}],
-                'options': {'num_ctx': 12288, 'num_thread': 16, 'num_predict': 800 if compact else 1400,
-                            'temperature': 0.15},
+                'options': runner_options(num_predict=800 if compact else 1400, temperature=0.15),
             }, timeout=min(140, remaining))
         except APIError as error:
             # A timed-out generation may still be running; do not start another one.

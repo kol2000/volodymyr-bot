@@ -21,6 +21,13 @@ PUBLIC_SUBJECT = re.compile(r'\b(?:президент\w*|премьер[- ]ми�
                             r'openai|chatgpt|apple|microsoft|google|nvidia|amd|intel|'
                             r'bitcoin|ethereum|btc|eth|bnb|usdt|биткоин\w*|доллар\w*|'
                             r'инфляци\w*|центробанк\w*|цб|наса|nasa|spacex|мкс)\b', re.I)
+UNSPECIFIED = set(('жёлтые желтые зелёные зеленые красные белые чёрные черные синие '
+                   'большие маленькие старые новые дорогие дешёвые дешевые непонятные').split())
+
+
+def ambiguous_subject(text):
+    match = re.fullmatch(r'[«"“]?([а-яё]+)\s*\?+[!?.»”"\s]*', control_remainder(text), re.I)
+    return match[1].casefold() if match and match[1].casefold() in UNSPECIFIED else None
 
 
 def response_control(text):

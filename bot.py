@@ -24,12 +24,14 @@ from question_answers import (PROMPT as QUESTION_PROMPT, FALLBACKS as QUESTION_F
 from assistant_features import (FeatureStore, FEATURE_COMMANDS, FOLLOWUP, CALL as FEATURE_CALL, feature_request,
                                 negative_reason, memory_context)
 from style_profile import profile_for_request
-from answer_quality import answer_problem, contextual_request, explanation_problem, question_context
-from conversation import (amendment_request, banter_request, control_remainder, inline_control,
+from answer_quality import (answer_problem, concise_word_limit, contextual_request, explanation_problem,
+                            grounding_problem, question_context)
+from conversation import (ambiguous_subject, amendment_request, banter_request, control_remainder, inline_control,
                           response_control as standalone_control, verification_query)
 from learning import LearningStore, LEARNING_COMMANDS, correction_request
 from participants import ParticipantStore, PARTICIPANT_COMMANDS, participant_request
 from fact_check import FactChecker, FactError
+from inference import record_generation, runner_options
 from goal_videos import GoalVideos
 from football_posts import FootballPosts
 from live_football import (Football, FootballError, PREFIX as FOOTBALL_PREFIX,
@@ -1148,9 +1150,8 @@ class Bot:
                     'model': self.config['model'], 'stream': False, 'keep_alive': '24h',
                     'messages': [{'role': 'system', 'content': prompt},
                                  {'role': 'user', 'content': json.dumps(retry_data, ensure_ascii=False)}],
-                    'options': {'num_ctx': 4096, 'num_thread': 16,
-                                'num_predict': 160 if attempt and reason == 'length_limit' else 100,
-                                'temperature': 0.75, 'repeat_penalty': 1.08},
+                    'options': runner_options(num_predict=160 if attempt and reason == 'length_limit' else 100,
+                                              temperature=0.75, repeat_penalty=1.08),
                 }, timeout=90)
             except APIError as error:
                 # A timed-out local generation may still be running. Do not pile
@@ -1182,15 +1183,17 @@ class Bot:
                 return parody_text(answer)
             # Log only a fixed reason code, never generated text or requests.
             LOG.warning('Ответ модели отклонён: причина=%s; попытка=%s/2', reason, attempt + 1)
+            job.setdefault('_rejections', []).append(reason)
         return None
 
     def call_model(self, job, payload, timeout):
         started = time.monotonic()
+        result = None
         try:
-            return http_json(self.config['ollama_url'] + '/api/chat', payload, timeout=timeout)
+            result = http_json(self.config['ollama_url'] + '/api/chat', payload, timeout=timeout)
+            return result
         finally:
-            metrics = job.setdefault('_metrics', {})
-            metrics['model_seconds'] = round(metrics.get('model_seconds', 0) + time.monotonic() - started, 3)
+            record_generation(job, result, time.monotonic() - started, payload['options']['num_ctx'])
 
     @staticmethod
     def is_thoughtful(job):
@@ -1231,7 +1234,20 @@ class Bot:
         data['speech_profile']['examples'] = [text for text in data['speech_profile']['examples'] if answer_key(text) not in rejected]
         data['quality_feedback'] = self.store.issue_patterns(job['chat_id'])
         previous = self.store.recent_model_answers(job['chat_id'],limit=30)
-        num_ctx = 8192 if data['dialogue'] or data['chat_memories'] or len(json.dumps(data, ensure_ascii=False)) > 3500 else 4096
+        unclear = ambiguous_subject(job['text'])
+        if unclear and not (quoted or dialogue or context or data['chat_memories'] or data['participant_profiles']):
+            choices = (f'шо именно ти называеш «{unclear}»?',
+                       f'какие именно «{unclear}» ти имееш в виду?',
+                       f'«{unclear}» — ето про шо именно ти говориш?')
+            keys = [answer_key(text) for text in previous]
+            available = [text for text in choices if answer_key(text) not in keys]
+            answer = available[0] if available else max(choices, key=lambda text: keys.index(answer_key(text)))
+            job['_local_reply'] = 'clarification'
+            return answer
+        rewrite_source = ''
+        if control or job.get('detailed'):
+            rewrite_source = quoted or next((row['text'] for row in reversed(dialogue) if not row['human']), '')
+        word_limit = concise_word_limit(rewrite_source) if control == 'concise' else 45
         reason = None
         for attempt in range(2):
             if self.superseded(job):
@@ -1239,7 +1255,7 @@ class Bot:
             prompt = QUESTION_PROMPT
             if control:
                 prompt += '\n' + {
-                    'concise': 'Сейчас сократи предыдущий ответ до 1–2 коротких предложений максимум 45 слов.',
+                    'concise': f'Сейчас сократи предыдущий ответ до 1–2 коротких предложений максимум {word_limit} слов. Сохрани главное без новых советов и гарантий.',
                     'plain': 'Сейчас объясни тот же предмет простыми словами без жаргона. Не ругай читателя за непонимание.',
                     'serious': 'Сейчас отвечай только по делу без подколов и шуток. Прямая разговорная речь остаётся.',
                     'example': 'Сейчас приведи один конкретный пример к вопросу или предыдущему объяснению.'
@@ -1256,10 +1272,9 @@ class Bot:
                     'model': self.config['model'], 'stream': False, 'keep_alive': '24h',
                     'messages': [{'role': 'system', 'content': prompt},
                                  {'role': 'user', 'content': json.dumps(retry_data, ensure_ascii=False)}],
-                    'options': {'num_ctx': num_ctx, 'num_thread': 16,
-                                'num_predict': 768 if reason == 'length_limit' else 160 if control == 'concise' else 512 if job.get('detailed') else 256,
-                                'temperature': 0.6 if reason in ('repeated_response','stale_context','repeated_opening') else 0.35,
-                                'repeat_penalty': 1.08},
+                    'options': runner_options(num_predict=768 if reason == 'length_limit' else 160 if control == 'concise' else 512 if job.get('detailed') else 256,
+                                              temperature=0.6 if reason in ('repeated_response','stale_context','repeated_opening') else 0.35,
+                                              repeat_penalty=1.08),
                 }, timeout=120)
             except APIError as error:
                 LOG.warning('Ответ на вопрос недоступен: HTTP=%s; попытка=%s/2', error.code, attempt + 1)
@@ -1280,14 +1295,17 @@ class Bot:
                 if not reason and answer.strip() == '__SILENCE__':
                     reason = 'silence_on_direct_request'
                 if not reason:
-                    reason = explanation_problem(answer,previous,subject)
+                    reason = explanation_problem(answer,previous,subject,reference=rewrite_source)
+                if not reason:
+                    reason = grounding_problem(answer, subject)
                 if not reason and answer_key(answer) in rejected:
                     reason = 'negative_feedback'
-                if not reason and control == 'concise' and len(answer.split()) > 45:
+                if not reason and control == 'concise' and len(answer.split()) > word_limit:
                     reason = 'response_too_long'
             if not reason:
                 return answer_style(answer.strip())
             LOG.warning('Ответ на вопрос отклонён: причина=%s; попытка=%s/2', reason, attempt + 1)
+            job.setdefault('_rejections', []).append(reason)
         return None
 
     def fallback_answer(self, job):
@@ -1536,7 +1554,7 @@ class Bot:
         try:
             http_json(self.config['ollama_url'] + '/api/chat',
                       {'model': self.config['model'], 'messages': [], 'keep_alive': '24h',
-                       'stream': False, 'options': {'num_ctx': 4096, 'num_thread': 16}}, timeout=180)
+                       'stream': False, 'options': runner_options()}, timeout=180)
             LOG.info('Модель загружена в память')
         except APIError as error:
             LOG.warning('Предзагрузка модели не удалась: %s', error)
