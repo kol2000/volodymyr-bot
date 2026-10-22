@@ -26,6 +26,7 @@ from assistant_features import (FeatureStore, FEATURE_COMMANDS, FOLLOWUP, CALL a
 from style_profile import profile_for_request
 from fact_check import FactChecker, FactError
 from goal_videos import GoalVideos
+from football_posts import FootballPosts
 from live_football import (Football, FootballError, PREFIX as FOOTBALL_PREFIX,
                            COMMANDS as FOOTBALL_COMMANDS, football_request, football_correction,
                            error_reply as football_error_reply)
@@ -616,6 +617,7 @@ class Bot:
         self.fact_checker = FactChecker()
         self.football = Football(self.store)
         self.goal_videos = GoalVideos(self.store)
+        self.football_posts = FootballPosts(self.store, self.goal_videos, self.telegram)
         self.lock = threading.Lock()
         self.auto_pending = False
         self.active_job = False
@@ -1417,11 +1419,19 @@ class Bot:
         # Separate from CPU-heavy generation and the hourly parody scheduler.
         while True:
             try:
-                self.football.poll(self.send_football, self.allowed, self.goal_videos.enqueue)
+                self.football.poll(self.send_football, self.allowed, staged=self.football_posts)
             except Exception as error:
                 LOG.error('Футбольная проверка не выполнена: %s', type(error).__name__)
                 self.store.set(FOOTBALL_PREFIX + 'next_poll', time.time() + 30)
             time.sleep(1)
+
+    def football_post_worker(self):
+        while True:
+            try:
+                self.football_posts.poll(self.allowed)
+            except Exception as error:
+                LOG.error('Обновление постов голов не выполнено: %s', type(error).__name__)
+            time.sleep(2)
 
     def goal_video_worker(self):
         while True:
@@ -1442,6 +1452,7 @@ class Bot:
         threading.Thread(target=self.utility_worker, daemon=True).start()
         threading.Thread(target=self.scheduler, daemon=True).start()
         threading.Thread(target=self.football_worker, daemon=True).start()
+        threading.Thread(target=self.football_post_worker, daemon=True).start()
         threading.Thread(target=self.goal_video_worker, daemon=True).start()
         offset = self.store.get('offset', self.config.get('initial_offset', 0))
         LOG.info('Бот @%s запущен; периодический режим=%s', self.username, self.store.get('automatic', False))

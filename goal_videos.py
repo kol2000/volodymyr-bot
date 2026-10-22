@@ -11,10 +11,10 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from datetime import datetime
-from html import unescape
+from html import escape, unescape
 from urllib.parse import urlsplit
 
-from common import APIError
+from common import APIError, HTMLMessage, visible_text
 from live_football import Document, FootballError, Node, PREFIX
 
 LOG = logging.getLogger('volodymyr')
@@ -275,7 +275,7 @@ def matches_goal(clip, job, now):
 
 def caption(job, clip=None):
     """Keep the original goal card and one short source footer; no service links."""
-    plain = unescape(re.sub(r'<[^>]+>', '', job['original']))
+    plain = unescape(re.sub(r'<[^>]+>', '', job.get('render_original', job['original'])))
     lines, footer = [], 'Футбол на Куличках'
     for line in plain.splitlines():
         line = line.rstrip()
@@ -288,8 +288,24 @@ def caption(job, clip=None):
     plain = re.sub(r'\n{3,}', '\n\n', '\n'.join(lines)).strip()
     source = '\n\n' + footer
     units = lambda s: len(s.encode('utf-16-le')) // 2
+    def formatted(body):
+        url = job.get('match_url', '')
+        parsed = urlsplit(url)
+        name, _, rest = footer.partition(' · ')
+        label = escape(name)
+        if parsed.scheme == 'https' and parsed.netloc == 'football.kulichki.net' and parsed.path.startswith('/trans/'):
+            label = f'<a href="{escape(url, quote=True)}">{label}</a>'
+        tail = label + (' · ' + escape(rest) if rest else '')
+        lines = []
+        teams = job.get('home', '') + ' — ' + job.get('away', '')
+        for line in body.splitlines():
+            value = escape(line)
+            if line.startswith('⚽') or (teams.strip(' —') and line.startswith(teams)) or re.match(r'^\d+(?:\+\d+)?′ · (?:Гол|Автогол)', line):
+                value = '<b>' + value + '</b>'
+            lines.append(value)
+        return HTMLMessage('\n'.join(lines) + '\n\n<i>' + tail + '</i>')
     if units(plain + source) <= 1024:
-        return plain + source
+        return formatted(plain)
     goal = job['goal']
     plain = (f'⚽ {job["home"]} — {job["away"]} · {goal["score"][0]}:{goal["score"][1]}\n'
              f'{job["competition"]}\n' + '\n'.join(
@@ -297,7 +313,7 @@ def caption(job, clip=None):
              + '\n' + goal['description'])
     while units(plain + source) > 1024:
         plain = plain[:-2]
-    return plain.rstrip() + source
+    return formatted(plain.rstrip())
 
 
 class GoalVideos:
@@ -344,17 +360,19 @@ class GoalVideos:
         with self.store.db() as db:
             db.execute("UPDATE goal_video_jobs SET status='cancelled' WHERE status='pending'")
 
-    def enqueue(self, chat_id, match, goals, message_id, original):
+    def enqueue(self, chat_id, match, goals, message_id, original, created=None):
         if not goals or not self.enabled():
             return
-        now = self.clock()
+        now = self.clock() if created is None else created
         # Telegram permits one media in a formerly textual message. If several
         # goals share one FNK card, attach the latest goal; never replace it later.
         payload = dict(home=match.home, away=match.away, competition=match.competition,
                        kickoff=match.kickoff, match_url=match.url, original=str(original),
                        goals=[asdict(g) for g in goals], goal=asdict(goals[-1]), created=now)
         with self.store.db() as db:
-            db.execute('INSERT OR IGNORE INTO goal_video_jobs VALUES (?,?,?,?,?,?,?)',
+            db.execute('INSERT INTO goal_video_jobs VALUES (?,?,?,?,?,?,?) '
+                       'ON CONFLICT(chat_id,message_id) DO UPDATE SET payload=excluded.payload '
+                       "WHERE goal_video_jobs.status='pending'",
                        (chat_id, message_id, match.id, now, now + TTL, json.dumps(payload, ensure_ascii=False), 'pending'))
 
     def current(self, row, allowed):
@@ -407,6 +425,14 @@ class GoalVideos:
                     continue
                 digest = hashlib.sha256(data).hexdigest()
                 with self.lock:
+                    # Description may have grown while the video was downloading.
+                    with self.store.db() as db:
+                        fresh = db.execute('SELECT * FROM goal_video_jobs WHERE chat_id=? AND message_id=?', (row[0], row[1])).fetchone()
+                    if not fresh or fresh[-1] != 'pending':
+                        break
+                    row, job = fresh, json.loads(fresh[5])
+                    if not matches_goal(clip, job, self.clock()):
+                        break
                     if not self.current(row, allowed) or self.clock() < self.store.get('blocked_until', 0):
                         break
                     with self.store.db() as db:
@@ -436,6 +462,12 @@ class GoalVideos:
                         LOG.warning('Добавление видео не подтверждено: HTTP=%s; пост=%s', error.code, row[1])
                     else:
                         self.mark(row, 'attached')
+                        with self.store.db() as db:
+                            columns = {r[1] for r in db.execute('PRAGMA table_info(messages)')}
+                            if 'body' in columns:
+                                plain = visible_text(caption(job, clip))
+                                db.execute('UPDATE messages SET text=?,body=? WHERE chat_id=? AND message_id=? AND human=0',
+                                           (plain[:1000], plain[:3000], row[0], row[1]))
                         self.store.set(KEY + 'error', '')
                         LOG.info('Видео гола добавлено в исходный пост=%s; источник=@%s/%s', row[1], clip.channel, clip.post_id)
                     break

@@ -8,6 +8,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from html import unescape
 
 ROOT = Path(__file__).resolve().parent
 STATE = ROOT / 'state'
@@ -19,11 +20,21 @@ class HTMLMessage(str):
     """Explicitly formatted text produced by a trusted local template."""
 
 
+def visible_text(value):
+    return unescape(re.sub(r'<[^>]+>', '', str(value))) if isinstance(value, HTMLMessage) else str(value)
+
+
 class APIError(Exception):
-    def __init__(self, message, code=0, retry_after=0):
+    def __init__(self, message, code=0, retry_after=0, not_modified=False):
         super().__init__(message)
         self.code = code
         self.retry_after = retry_after
+        self.not_modified = not_modified
+
+
+def unchanged_message(body):
+    return (isinstance(body,dict) and body.get('error_code')==400 and
+            str(body.get('description','')).lower().startswith('bad request: message is not modified'))
 
 
 def http_json(url, payload, timeout=60):
@@ -41,7 +52,8 @@ def http_json(url, payload, timeout=60):
             wait = body.get('parameters', {}).get('retry_after', 0)
         except (ValueError, AttributeError):
             wait = 0
-        raise APIError(f'HTTP {code}', code, wait) from None
+            body = {}
+        raise APIError(f'HTTP {code}', code, wait, unchanged_message(body)) from None
     except (urllib.error.URLError, TimeoutError, OSError):
         raise APIError('Сетевая ошибка или тайм-аут') from None
     except ValueError:
@@ -52,12 +64,16 @@ def http_video_edit(url, chat_id, message_id, video, caption):
     """Bounded multipart edit; URLs and exception bodies may contain credentials."""
     if not isinstance(video, bytes) or not 12 <= len(video) <= 45 * 1024 * 1024 or video[4:8] != b'ftyp':
         raise APIError('Некорректное видео')
-    if len(caption.encode('utf-16-le')) // 2 > 1024:
+    if len(visible_text(caption).encode('utf-16-le')) // 2 > 1024:
         raise APIError('Слишком длинная подпись')
     boundary = 'bubus' + secrets.token_hex(16)
     fields = {'chat_id': str(chat_id), 'message_id': str(message_id),
               'media': json.dumps({'type': 'video', 'media': 'attach://clip',
                                    'caption': caption, 'supports_streaming': True}, ensure_ascii=False)}
+    if isinstance(caption, HTMLMessage):
+        media = json.loads(fields['media'])
+        media['parse_mode'] = 'HTML'
+        fields['media'] = json.dumps(media, ensure_ascii=False)
     parts = [f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n{value}\r\n'.encode()
              for key, value in fields.items()]
     parts.extend([f'--{boundary}\r\nContent-Disposition: form-data; name="clip"; filename="goal.mp4"\r\n'
@@ -98,7 +114,7 @@ class Telegram:
         if not result.get('ok'):
             raise APIError(f'Telegram API {result.get("error_code", "error")}',
                            result.get('error_code', 0),
-                           result.get('parameters', {}).get('retry_after', 0))
+                           result.get('parameters', {}).get('retry_after', 0), unchanged_message(result))
         return result['result']
 
     def send(self, chat_id, text, reply_to=None):
@@ -128,14 +144,29 @@ class Telegram:
         return http_video_edit(self.base + 'editMessageMedia', chat_id, message_id, video, caption)
 
     def edit_caption(self, chat_id, message_id, caption):
-        if len(caption.encode('utf-16-le')) // 2 > 1024:
+        if len(visible_text(caption).encode('utf-16-le')) // 2 > 1024:
             raise APIError('Слишком длинная подпись')
         with self.send_lock:
             delay = 1.1 - (time.monotonic() - self.last_send)
             if delay > 0:
                 time.sleep(delay)
             self.last_send = time.monotonic()
-            return self.call('editMessageCaption', chat_id=chat_id, message_id=message_id, caption=caption)
+            payload = dict(chat_id=chat_id, message_id=message_id, caption=caption)
+            if isinstance(caption, HTMLMessage):
+                payload['parse_mode'] = 'HTML'
+            return self.call('editMessageCaption', **payload)
+
+    def edit_text(self, chat_id, message_id, text):
+        with self.send_lock:
+            delay = 1.1 - (time.monotonic() - self.last_send)
+            if delay > 0:
+                time.sleep(delay)
+            self.last_send = time.monotonic()
+            payload = dict(chat_id=chat_id, message_id=message_id, text=text,
+                           link_preview_options={'is_disabled': True})
+            if isinstance(text, HTMLMessage):
+                payload['parse_mode'] = 'HTML'
+            return self.call('editMessageText', **payload)
 
     @contextlib.contextmanager
     def typing(self, chat_id):

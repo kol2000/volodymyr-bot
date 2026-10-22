@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from bot import Bot, Store
-from common import APIError, MODEL, Telegram, http_video_edit
+from common import APIError, HTMLMessage, MODEL, Telegram, http_video_edit, visible_text
 from goal_videos import (Clip, GoalVideos, INTERVAL, KEY, TTL, PublicClips, VideoError,
                          caption, fetch_public, goal_match_reason, matches_goal, media_url, parse_channel)
 from live_football import Football, PREFIX, football_request
@@ -190,6 +190,25 @@ class VideoFixture(unittest.TestCase):
 
 
 class WorkerTests(VideoFixture):
+    def test_description_refreshed_during_download_is_used_for_video_caption(self):
+        self.queue()
+        def download(url):
+            self.queue(original='Ростов — Акрон · 1:0\n30′ · Иван Игрок\nНовое подробное описание эпизода.')
+            return MP4
+        self.videos.download=download
+        self.poll()
+        self.assertIn('Новое подробное описание',self.edits[0][3])
+
+    def test_var_cancellation_during_download_prevents_video_edit(self):
+        self.queue()
+        def download(url):
+            self.videos.cancel()
+            return MP4
+        self.videos.download=download
+        self.poll()
+        self.assertEqual(self.edits,[])
+        self.assertEqual(self.row()[-1],'cancelled')
+
     def test_two_real_goal_posts_attach_their_own_videos_not_quoted_predecessors(self):
         rows = json.loads((Path(__file__).parent / 'fixtures/idmanvideo_goal_posts_20261021.json').read_text())
         clips = parse_channel(''.join(quoted_post(r) for r in rows if r['id'] in (7209, 7210)), 'idmanvideo')
@@ -336,7 +355,7 @@ class WorkerTests(VideoFixture):
         job = json.loads(self.row()[5])
         job['goal']['description'] = 'очень длинное описание ' * 100
         text = caption(job, self.clip)
-        self.assertLessEqual(len(text.encode('utf-16-le')) // 2, 1024)
+        self.assertLessEqual(len(visible_text(text).encode('utf-16-le')) // 2, 1024)
         self.assertIn('Ростов — Акрон', text)
         self.assertIn('Иван Игрок', text)
         self.assertIn('Футбол на Куличках', text)
@@ -407,6 +426,13 @@ class UploadTests(unittest.TestCase):
         self.assertIn(b'attach://clip', req.data)
         self.assertIn(MP4, req.data)
         self.assertNotIn(b'forwardMessage', req.data)
+
+    def test_multipart_html_caption_counts_visible_characters_and_preserves_link(self):
+        text=HTMLMessage('<b>'+'x'*970+'</b>\n<a href="https://football.kulichki.net/trans/'+ 'a'*120+'.htm">ФНК</a>')
+        response=io.BytesIO(b'{"ok":true,"result":{"message_id":55}}')
+        with patch('common.urllib.request.urlopen',return_value=response) as request:
+            Telegram('test-token').edit_video(-100,55,MP4,text)
+        self.assertIn(b'"parse_mode": "HTML"',request.call_args.args[0].data)
 
     def test_upload_rejects_invalid_file_and_oversized_caption_before_network(self):
         with patch('common.urllib.request.urlopen') as network:

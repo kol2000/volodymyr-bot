@@ -147,6 +147,7 @@ class Match:
     goals: tuple[Goal, ...] = ()
     source: str = 'Спорт-Экспресс'
     checked: float = 0
+    cancellations: tuple = ()
 
     def state(self):
         return {'status': self.status, 'score': [self.home_score, self.away_score],
@@ -743,7 +744,7 @@ class Football:
                                + scoreboard_text(matches, day, checked))
         return scoreboard_text(matches, day, checked, request.get('filter', ''))
 
-    def poll(self, send, allowed, on_goal=None):
+    def poll(self, send, allowed, on_goal=None, staged=None):
         """Single poll; state reserved before send, including uncertain Telegram sends."""
         now = self.clock()
         chat_id = self.store.get('chat_id')
@@ -762,7 +763,9 @@ class Football:
                 self.store.set(PREFIX + f'seen:{chat_id}', current)
             seen = current
         days = [day]
-        if any(row.get('status') in ACTIVE | {'scheduled'} and 0 <= now - row.get('kickoff', 0) < 6 * 3600
+        if staged is not None:
+            self.source.follow_updates = True
+        if any((row.get('status') in ACTIVE | {'scheduled'} or staged is not None and row.get('status') == FINISHED) and 0 <= now - row.get('kickoff', 0) < 6 * 3600
                and datetime.fromtimestamp(row['kickoff'], MOSCOW).date() < day for row in seen.values()):
             days.insert(0, day - timedelta(days=1))
         snapshots = []
@@ -780,6 +783,8 @@ class Football:
         active = any(match.status in ACTIVE or (match.status in ('scheduled', 'paused', 'unknown')
                      and near_match(match, now)) for match, _ in snapshots)
         interval = LIVE_INTERVAL if active else IDLE_INTERVAL
+        if staged is not None and any(m.status == FINISHED and 0 <= now-m.kickoff < 6*3600 for m, _ in snapshots):
+            interval = LIVE_INTERVAL
         if getattr(self.source, 'last_error', ''):
             interval = min(interval, LIVE_INTERVAL)
         # An idle check must not sleep through the next match's warm-up window.
@@ -798,6 +803,13 @@ class Football:
                 latest = self.store.get(PREFIX + f'seen:{chat_id}', {})
                 previous = latest.get(match.id)
                 if previous and previous.get('checked', 0) > checked:
+                    continue
+                if staged is not None:
+                    if previous and previous.get('status') == FINISHED and match.status != FINISHED:
+                        continue
+                    if already_started(previous) and match.status in ('scheduled', 'unknown'):
+                        continue
+                    staged.observe(chat_id, previous, match, checked, send, allowed)
                     continue
                 # A source can briefly regress a final status to live. Never replay it.
                 if (previous and previous.get('status') == FINISHED and not previous.get('pending_goals')

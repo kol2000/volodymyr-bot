@@ -132,9 +132,11 @@ def parse_broadcast(html, selected):
                  for n in cells[1].walk() if n.tag == 'img']
         timed = re.fullmatch(r'\d{1,3}(?:\+\d{1,2})?|\+\d{1,2}', clock)
         # FNK also posts period whistles with an empty minute cell.
-        if not timed and not (clock in ('', '-', '—') and phase_icons.intersection(icons)):
+        description = text(cells[2])
+        if not timed and not (clock in ('', '-', '—') and
+                              (phase_icons.intersection(icons) or cancelled_goal(description))):
             continue
-        events.append((clock, icons, text(cells[2])))
+        events.append((clock if timed else '', icons, description))
     # A stale/mislabelled end1 icon must not reopen halftime after the second
     # half. Use source markers/minutes, never elapsed wall time or score alone.
     second_half = any('2t.gif' in icons or
@@ -153,11 +155,27 @@ def parse_broadcast(html, selected):
             clock = ('90' if phase == '2t.gif' else '45') + clock
         label = clock + '′ · матч идёт' if clock else 'Матч идёт'
     goals = broadcast_goals(root, events, selected['id'])
+    cancellations = []
+    for minute, icons, description in events:
+        if cancelled_goal(description):
+            if minute.startswith('+'):
+                minute = ('90' if second_half else '45')+minute
+            cancellations.append(dict(minute=minute+'′' if minute else '', description=description[:1600],
+                                      var='var.gif' in icons or bool(re.search(r'\bVAR\b|\bВАР\b|видеоповтор|видеоассист', description, re.I))))
     home, away = (int(n) for n in score.groups())
     if status == 'scheduled':
         home = away = None  # A preview's 0:0 is not a confirmed live score.
     return Match(selected['id'], selected['competition'], selected['home'], selected['away'],
-                 kickoff, status, label, home, away, selected['url'], goals=goals, source=NAME)
+                 kickoff, status, label, home, away, selected['url'], goals=goals, source=NAME,
+                 cancellations=tuple(cancellations))
+
+
+def cancelled_goal(description):
+    if re.search(r'\bне\s+отмен|не\s+стал.{0,20}отмен',description,re.I):
+        return False
+    # Completed decisions only; "могут отменить" or "VAR проверяет" is not a verdict.
+    return bool(re.search(r'гол.{0,100}отмен[её]н|отмен(?:[её]н|ил[аи]?|яет).{0,50}(?:гол|взятие ворот)|'
+                          r'гола не будет|(?:гол|мяч|взятие ворот).{0,60}не засчит(?:ан|ал)',description,re.I))
 
 
 def broadcast_goals(root, events, match_id):
@@ -226,9 +244,11 @@ class KulichkiScoreboard:
             selected = {row['id']: row for row in self.home_list}
             for match in self.matches.values():
                 # Keep previously selected ongoing games across the midnight homepage rollover.
-                if match.id not in selected and match.status in ACTIVE and 0 <= now - match.kickoff < 6 * 3600:
+                if match.id not in selected and (match.status in ACTIVE or
+                        getattr(self, 'follow_updates', False) and match.status == FINISHED) and 0 <= now - match.kickoff < 6 * 3600:
                     selected[match.id] = self.selection(match)
-            candidates = [row for key, row in selected.items() if key not in self.final and
+            candidates = [row for key, row in selected.items() if (key not in self.final or
+                          getattr(self, 'follow_updates', False) and 0 <= now-self.matches[key].kickoff < 6*3600) and
                           (due or key not in self.matches or near_match(self.matches[key], now))]
             def refresh(row):
                 try:

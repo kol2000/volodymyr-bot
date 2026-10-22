@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from attach_goal_videos import run
 from bot import Store
-from common import APIError, Telegram
+from common import APIError, HTMLMessage, Telegram, visible_text
 from goal_videos import GoalVideos, caption, parse_channel, VideoError
 from live_football import Goal, Match, MOSCOW, PREFIX, event_text
 from test_goal_videos import MP4, quoted_post
@@ -102,7 +102,8 @@ class BatchTests(unittest.TestCase):
         self.assertEqual(len(self.downloads),19)
         for number,data,text in self.edits:
             self.assertEqual(data, MP4+str(number).encode())
-            self.assertNotIn('https://',text)
+            self.assertNotIn('https://',visible_text(text))
+            self.assertEqual(text.count('<a href="https://football.kulichki.net/trans/'),1)
             self.assertNotIn('Видео:',text)
             self.assertEqual(text.count('проверено'),1)
         self.assertEqual(self.execute(),0)
@@ -118,6 +119,21 @@ class BatchTests(unittest.TestCase):
         self.mocks[0].assert_not_called()
         with self.store.db() as db:
             self.assertEqual(db.execute('SELECT count(*) FROM goal_video_jobs').fetchone()[0],1)
+
+    def test_new_fnk_description_updates_existing_video_caption_without_upload(self):
+        self.assertEqual(self.execute(),0)
+        before=len(self.caption_edits)
+        for url,match in self.matches.items():
+            if any(g.id=='7208' for g in match.goals):
+                self.matches[url]=dataclasses.replace(match,goals=tuple(
+                    dataclasses.replace(g,description='Мбаппе закрутил мяч в правый угол после паса Дьоманде.')
+                    if g.id=='7208' else g for g in match.goals))
+        self.assertEqual(self.execute(),0)
+        self.assertEqual(len(self.caption_edits),before+1)
+        self.assertEqual(self.caption_edits[-1][0],7208)
+        self.assertIn('после паса Дьоманде',self.caption_edits[-1][1])
+        self.assertIn('<a href="https://football.kulichki.net/trans/',self.caption_edits[-1][1])
+        self.assertEqual(len(self.downloads),19)
 
     def test_one_cdn_failure_allows_other_goals_then_rerun_only_missing_post(self):
         failed = [False]
@@ -152,8 +168,8 @@ class CaptionTests(unittest.TestCase):
                     'Футбол на Куличках · проверено 23:48:24 МСК\nФНК: https://football.kulichki.net/trans/file.htm\n\n'
                     'Видео: @idmanvideo\nhttps://t.me/idmanvideo/7210')
         text = caption(dict(original=original))
-        self.assertIn('87′ · Гол · 4:1\nЯн Дьоманде\nОписание гола.',text)
-        self.assertTrue(text.endswith('Футбол на Куличках · проверено 23:48:24 МСК'))
+        self.assertIn('87′ · Гол · 4:1\nЯн Дьоманде\nОписание гола.',visible_text(text))
+        self.assertTrue(visible_text(text).endswith('Футбол на Куличках · проверено 23:48:24 МСК'))
         self.assertNotIn('https://',text)
         self.assertNotIn('Видео:',text)
         self.assertNotIn('ФНК:',text)
@@ -164,3 +180,19 @@ class CaptionTests(unittest.TestCase):
         with patch.object(client,'call',return_value={'message_id':55}) as call:
             self.assertEqual(client.edit_caption(-100,55,'короткая подпись'),{'message_id':55})
             call.assert_called_once_with('editMessageCaption',chat_id=-100,message_id=55,caption='короткая подпись')
+
+    def test_formatted_var_caption_uses_html_and_preserves_strike_and_source_link(self):
+        client=Telegram('unused-token')
+        text=HTMLMessage('<s>83′ · Гол · 3:0</s>\n📺 VAR\n<a href="https://football.kulichki.net/trans/25766.htm">ФНК</a>')
+        with patch.object(client,'call',return_value={'message_id':55}) as call:
+            client.edit_caption(-100,55,text)
+        call.assert_called_once_with('editMessageCaption',chat_id=-100,message_id=55,caption=text,parse_mode='HTML')
+
+    def test_telegram_identifies_an_already_applied_edit_without_echoing_api_description(self):
+        client=Telegram('unused-token')
+        result=dict(ok=False,error_code=400,description='Bad Request: message is not modified: private detail')
+        with patch('common.http_json',return_value=result):
+            with self.assertRaises(APIError) as caught:
+                client.edit_text(-100,55,HTMLMessage('<s>83′ · Гол</s>'))
+        self.assertTrue(caught.exception.not_modified)
+        self.assertNotIn('private detail',str(caught.exception))

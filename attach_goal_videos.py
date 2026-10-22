@@ -5,6 +5,7 @@ import hashlib
 import json
 import sqlite3
 import time
+from dataclasses import replace
 from datetime import datetime
 
 from common import APIError, CONFIG, STATE
@@ -12,7 +13,7 @@ from attach_goal_video import (AttachError, check_target, connected_telegram,
                                database, run as attach_one, setting)
 from goal_videos import CHANNELS, VideoError, caption, matches_goal
 from kulichki_football import fetch_html, parse_broadcast
-from live_football import FootballError, MOSCOW
+from live_football import FootballError, Goal, MOSCOW, event_text
 from replay_goal_videos import channel_history, jobs_for_posts, read_history
 
 
@@ -29,6 +30,12 @@ def prepare(day, path, pages, emit):
             jobs = jobs_for_posts(match, posts)
             for job in jobs:
                 job.update(competition=match.competition, match_url=match.url)
+                # Re-read descriptions too: an early final snapshot may contain
+                # only "ГОООЛ!". Keep original for check_target's concurrency guard.
+                goals=tuple(Goal(**dict(g,score=tuple(g['score']))) for g in job['goals'])
+                card=replace(match,home_score=goals[-1].score[0],away_score=goals[-1].score[1],
+                             status='live',label=goals[-1].minute+' · матч идёт')
+                job['render_original']=str(event_text(card,('score','⚽ Счет изменился'),job['created'],goals))
                 plans.append((match, job, selection))
         except (FootballError, KeyError, ValueError) as error:
             failed += 1

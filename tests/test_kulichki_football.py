@@ -41,6 +41,35 @@ def broadcast(status='scheduled', score='0:0', day=13, a='Локомотив', b
 
 
 class ParsingTests(unittest.TestCase):
+    def test_var_verdict_reason_and_added_minute_are_read_from_broadcast(self):
+        description='После VAR гол Игрока отменён — офсайд перед передачей.'
+        html=broadcast('second').replace('<table id="table15">',
+             '<table id="table15"><tr><td>+2</td><td></td><td>'+description+'</td></tr>')
+        match=parse_broadcast(html,parse_home(home())[0])
+        self.assertEqual(match.cancellations,(dict(minute='90+2′',description=description,var=True),))
+
+    def test_var_check_or_non_cancellation_is_not_treated_as_cancelled_goal(self):
+        for description in ['VAR проверяет гол на офсайд.', 'Гол не отменён после VAR.',
+                            'Гол могут отменить после проверки VAR.', 'Судья не стал отменять гол.']:
+            with self.subTest(description=description):
+                html=broadcast('live').replace('<table id="table15">',
+                     '<table id="table15"><tr><td>32</td><td></td><td>'+description+'</td></tr>')
+                self.assertEqual(parse_broadcast(html,parse_home(home())[0]).cancellations,())
+
+    def test_explicit_cancellation_with_blank_minute_is_preserved(self):
+        html=broadcast('live').replace('<table id="table15">',
+             '<table id="table15"><tr><td>-</td><td></td><td>Гол Игрока отменён после VAR из-за фола.</td></tr>')
+        decision=parse_broadcast(html,parse_home(home())[0]).cancellations[0]
+        self.assertEqual(decision['minute'],'')
+        self.assertTrue(decision['var'])
+
+    def test_var_icon_and_explicit_referee_cancellation_are_used(self):
+        html=broadcast('live').replace('<table id="table15">',
+             '<table id="table15"><tr><td>32</td><td><img src="/trans/VAR.gif"></td>'
+             '<td>Арбитр отменяет гол Игрока из-за офсайда.</td></tr>')
+        decision=parse_broadcast(html,parse_home(home())[0]).cancellations[0]
+        self.assertTrue(decision['var'])
+
     def test_only_homepage_editorial_table_not_news_or_all_cup_games(self):
         rows = parse_home(home())
         self.assertEqual(len(rows), 1)
@@ -248,6 +277,33 @@ class SourceTests(unittest.TestCase):
         self.assertEqual(matches[0].home_score, 1)
         self.assertNotEqual(self.calls[1], self.calls[2])
         self.assertTrue(all(url.startswith(BASE) for url in self.calls))
+
+    def test_final_score_does_not_freeze_short_goal_description_when_following_posts(self):
+        self.now[0]=START+7200
+        self.pages['25707']=broadcast('finished','1:0',goal=True).replace('Пробил со штрафного в угол.','')
+        source=self.source()
+        source.follow_updates=True
+        matches,_=source.day(DAY)
+        self.assertNotIn('со штрафного',matches[0].goals[0].description)
+        self.pages['25707']=broadcast('finished','1:0',goal=True)
+        self.now[0]+=22
+        matches,_=source.day(DAY)
+        self.assertIn('со штрафного',matches[0].goals[0].description)
+        self.assertEqual(len(self.calls),3)
+
+    def test_recent_finished_match_survives_midnight_until_details_can_be_updated(self):
+        self.now[0]=START+7200
+        self.pages['25707']=broadcast('finished','1:0',goal=True)
+        self.source().day(DAY)
+        saved=self.store.get(PREFIX+'fnk_selection')
+        saved[0]['kickoff']=datetime(2026,10,13,23,30,tzinfo=MOSCOW).timestamp()
+        self.store.set(PREFIX+'fnk_selection',saved)
+        self.now[0]=datetime(2026,10,14,0,30,tzinfo=MOSCOW).timestamp()
+        self.html=home([])
+        source=self.source()
+        source.follow_updates=True
+        matches,_=source.day(DAY)
+        self.assertEqual([m.id for m in matches],['fnk:2026:25707'])
 
     def test_list_changes_after_five_minutes_and_old_unstarted_match_is_removed(self):
         source = self.source()
