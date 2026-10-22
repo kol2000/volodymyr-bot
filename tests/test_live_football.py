@@ -86,6 +86,22 @@ def goal(score=(1, 0), identifier='1', **kwargs):
 
 
 class GoalTests(unittest.TestCase):
+    def test_goal_card_has_only_goal_minute_not_snapshot_clock(self):
+        match = dataclasses.replace(fixture('live', (1, 0)), label='78′ · матч идёт')
+        rendered = event_text(match, ('score', '⚽ Счет изменился'), START, (goal(minute='79′'),))
+        self.assertNotIn('78′', rendered)
+        self.assertNotIn('матч идёт', rendered)
+        self.assertIn('79′ · Гол', rendered)
+        self.assertIn('78′ · матч идёт', scoreboard_text([match], DAY, START))
+
+    def test_halftime_is_silent_but_goal_at_halftime_is_kept(self):
+        match = fixture('break', (0, 0))
+        self.assertEqual(changes(None, match, START), [])
+        self.assertEqual(changes(fixture('live', (0, 0)).state(), match, START), [])
+        self.assertEqual(changes(fixture('live', (0, 0)).state(),
+                                 fixture('break', (1, 0)), START),
+                         [('score', '⚽ Счет изменился')])
+
     def test_own_goal_uses_broadcast_author_minute_and_plain_description(self):
         row = goal_row('0:1', type='own-goal', player={'firstName': 'Жахонгир', 'lastName': 'Урозов '})
         match = parse_match_page(scoring_page([row], (0, 1)), fixture())
@@ -681,8 +697,8 @@ class MonitorTests(unittest.TestCase):
         self.poll([fixture('live', (1, 0))])
         self.poll([fixture('finished', (1, 0))])
         self.poll([fixture('finished', (1, 0))], advance=901)
-        self.assertEqual(len(self.sent), 4)
-        for title, (_, message) in zip(['Матч начался', 'Счет изменился', 'Перерыв', 'Матч завершён'], self.sent):
+        self.assertEqual(len(self.sent), 3)
+        for title, (_, message) in zip(['Матч начался', 'Счет изменился', 'Матч завершён'], self.sent):
             self.assertIn(title, message)
             self.assertIsInstance(message, HTMLMessage)
 
@@ -694,18 +710,17 @@ class MonitorTests(unittest.TestCase):
         self.football = Football(Store(Path(self.temp.name) / 'bot.sqlite3'), self.source, clock=lambda: self.now[0])
         self.poll([fixture('break', (0, 0))])
         self.poll([fixture('finished', (0, 0))])
-        self.assertEqual(sum('⏸ Перерыв' in msg for _, msg in self.sent), 1)
+        self.assertEqual(sum('⏸ Перерыв' in msg for _, msg in self.sent), 0)
         self.assertEqual(sum('Матч завершён' in msg for _, msg in self.sent), 1)
 
     def test_uncertain_halftime_send_is_not_repeated_after_status_fluctuation(self):
         self.enable()
         self.poll([fixture('live', (0, 0))])
-        with self.assertRaises(APIError):
-            self.poll([fixture('break', (0, 0))], fail=True)
+        self.poll([fixture('break', (0, 0))], fail=True)
         self.poll([fixture('live', (0, 0))])
         self.football = Football(Store(Path(self.temp.name) / 'bot.sqlite3'), self.source, clock=lambda: self.now[0])
         self.poll([fixture('break', (0, 0))])
-        self.assertEqual(sum('⏸ Перерыв' in msg for _, msg in self.sent), 1)
+        self.assertEqual(sum('⏸ Перерыв' in msg for _, msg in self.sent), 0)
 
     def test_correction_decreases_score_without_claiming_another_goal(self):
         self.enable()
@@ -1021,3 +1036,4 @@ class BotIntegrationTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

@@ -581,7 +581,7 @@ def select_matches(matches, query):
         f'{match.home} {match.away} {match.competition}').split() for word in terms)]
 
 
-def match_line(match):
+def match_line(match, show_status=True):
     teams = f'{escape(match.home)} — {escape(match.away)}'
     if match.status == 'scheduled':
         clock = datetime.fromtimestamp(match.kickoff, MOSCOW).strftime('%H:%M')
@@ -589,7 +589,7 @@ def match_line(match):
     score = (f'{match.home_score}:{match.away_score}'
              if match.home_score is not None and match.away_score is not None else 'счет не подтверждён')
     extra = f' {escape(match.extra)}' if match.extra else ''
-    return f'<b>{teams} · {score}</b>{extra}\n{escape(match.label)}'
+    return f'<b>{teams} · {score}</b>{extra}' + (f'\n{escape(match.label)}' if show_status else '')
 
 
 def scoreboard_text(matches, day, checked, query=''):
@@ -618,7 +618,7 @@ def changes(previous, match, now):
     if match.status == 'unknown':
         return []
     if previous is None:
-        return [('live', '⚽ Матч сейчас идёт')] if match.status in ACTIVE and now - match.kickoff < 6 * 3600 else []
+        return [('live', '⚽ Матч сейчас идёт')] if match.status in ACTIVE - {'break'} and now - match.kickoff < 6 * 3600 else []
     old_status, old_score = previous.get('status'), previous.get('score')
     current = [match.home_score, match.away_score]
     events = []
@@ -628,8 +628,6 @@ def changes(previous, match, now):
     if old_score != current and None not in current and old_score and None not in old_score:
         if match.status in ACTIVE or (match.status == FINISHED and old_status in ACTIVE):
             events.append(('score', '⚽ Счет изменился'))
-    if match.status == 'break' and old_status != 'break' and not previous.get('break_announced'):
-        events.append(('break', '⏸ Перерыв'))
     if match.status == 'penalties' and old_status != 'penalties':
         events.append(('penalties', '🥅 Серия пенальти'))
     if match.status == FINISHED and old_status != FINISHED and now - match.kickoff < 6 * 3600:
@@ -666,7 +664,7 @@ def remembered_state(previous, match, checked):
 def event_text(match, event, checked, goals=()):
     kind, title = event
     stamp = datetime.fromtimestamp(checked, MOSCOW).strftime('%H:%M:%S МСК')
-    header = f'<b>{escape(title)}</b>\n{escape(match.competition)}\n{match_line(match)}\n'
+    header = f'<b>{escape(title)}</b>\n{escape(match.competition)}\n{match_line(match, show_status=not (kind == 'score' or goals))}\n'
     footer = (f'\n<i><a href="{escape(match.url, quote=True)}">'
               f'{escape(match.source)}</a> · проверено {stamp}</i>')
     units = lambda value: len(value.encode('utf-16-le')) // 2
@@ -841,8 +839,6 @@ class Football:
                     kind = 'score'
                     if match.status == FINISHED:
                         kind, title = 'finish', title + ' · 🏁 Матч завершён'
-                    elif match.status == 'break' and not (previous and previous.get('break_announced')):
-                        kind, title = 'break', title + ' · ⏸ Перерыв'
                     events = [(kind, title)]
                 latest[match.id] = dict(remembered_state(previous, match, checked), pending_goals=pending,
                                        announced_score=current if events or previous is None else published)
@@ -865,3 +861,4 @@ class Football:
 
 def error_reply():
     return 'счет сечас не подтверждён источник недоступен попробуй /football позже'
+
