@@ -22,6 +22,10 @@ else
   cat "$test_log" >&2
   exit "$test_status"
 fi
+if [[ ${BUBUS_MODEL_CHECK:-0} == 1 ]]; then
+  echo 'Проверка реальных ответов Ollama без отправки в Telegram…'
+  python3 check_dialogues.py --run-model
+fi
 sudo systemctl restart volodymyr-bot
 sudo systemctl is-active volodymyr-bot
 echo 'Обновление завершено.'

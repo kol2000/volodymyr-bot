@@ -39,6 +39,8 @@ def build_index():
 
 
 def find_examples(text, limit=6):
+    if not INDEX.is_file():
+        return []
     tokens = list(dict.fromkeys(word for word in normalize(text).split() if word not in STOP))[:12]
     selected = []
     if tokens:
@@ -60,6 +62,8 @@ def find_examples(text, limit=6):
 
 def random_candidates(limit=100):
     """Draw a small random batch; output validation remains in the bot."""
+    if not INDEX.is_file():
+        return []
     with sqlite3.connect(INDEX) as db:
         rows = db.execute('SELECT response FROM examples ORDER BY random() LIMIT ?',
                           (limit,)).fetchall()

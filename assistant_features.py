@@ -7,14 +7,17 @@ from html import escape
 from zoneinfo import ZoneInfo
 
 from common import HTMLMessage, clean_text
+from conversation import response_control
 
 MOSCOW = ZoneInfo('Europe/Moscow')
 FEATURE_COMMANDS = {'/remember', '/memory', '/memory_edit', '/forget', '/check', '/more'}
 CALL = re.compile(r'^\s*(?:бубус|бубуська|володька|володько)[\s,:!]+', re.I)
 FOLLOWUP = re.compile(r'^(?:подробнее|разверни|продолжи|поясни|а почему|а как|а зачем|а когда|'
                         r'а если(?: наоборот)?|а наоборот|я про другое|нет я про|а что насч[её]т|'
-                        r'ещ[еёо] пример|объясни проще)(?:\b|$)', re.I)
+                        r'ещ[еёо] пример|объясни проще|короче|покороче|кратко|объясни нормально|'
+                        r'без приколов|по делу|приведи пример|уточню|уточнение|поправка|точнее)(?:\b|$)', re.I)
 REASONS = {'мимо темы': 'off_topic', 'неправда': 'incorrect', 'не похож на володьку': 'style',
+           'неправильно': 'incorrect',
            'не похоже на володьку': 'style', 'опять повторяешься': 'repeat',
            'опять повторяешся': 'repeat', 'повтор': 'repeat'}
 
@@ -41,6 +44,9 @@ def feature_request(text, command='', addressed=False):
         return {'kind': 'factcheck', 'query': clean_text(query)[:300]}
     if command == '/more' or re.fullmatch(r'подробнее[.!?]*', body, re.I):
         return {'kind': 'more'}
+    control = response_control(body)
+    if not command and control:
+        return {'kind': 'refine', 'control': control}
     if command == '/remember' or re.match(r'^запомни\s+', body, re.I):
         value = body if command else re.sub(r'^запомни\s+(?:что\s+)?', '', body, flags=re.I)
         return {'kind': 'memory_add', 'text': value}
@@ -94,6 +100,18 @@ class FeatureStore:
                 db.execute('INSERT OR REPLACE INTO dialogue_sessions VALUES (?,?,?,?)',
                            (chat_id, user_id, message_id, time.time()))
                 db.execute('DELETE FROM dialogue_sessions WHERE timestamp<?', (time.time() - 86400,))
+
+    def link_dialogue_request(self, chat_id, user_id, message_id, parent_id, replace=False):
+        if not parent_id or not message_id or parent_id == message_id or type(user_id) is not int:
+            return
+        with self.db() as db:
+            parent = db.execute('SELECT human,user_id FROM messages WHERE chat_id=? AND message_id=?',
+                                (chat_id, parent_id)).fetchone()
+            if not parent or (parent[0] and parent[1] != user_id):
+                return
+            db.execute('UPDATE messages SET reply_to=? WHERE chat_id=? AND message_id=? AND human=1 '
+                       'AND user_id=? AND (reply_to IS NULL OR ?)',
+                       (parent_id, chat_id, message_id, user_id, int(replace)))
 
     def dialogue(self, chat_id, message_id, limit=8):
         chain, seen, budget = [], set(), 4200

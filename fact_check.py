@@ -206,7 +206,7 @@ class FactChecker:
         self.cache[query] = (now, rows)
         return rows, now
 
-    def answer(self, query, config, profile=None):
+    def answer(self, query, config, profile=None, question=False, control=None):
         self.last_timings = {}
         started = time.monotonic()
         rows, checked = self.evidence(query)
@@ -224,6 +224,17 @@ class FactChecker:
                   'Пересказ чужих заявлений не доказывает их истинность. Дай краткий вывод и основания '
                   'в манере Бубуса: ти ето шо почти без запятых без вежливости. Не придумывай факты '
                   'и ссылки. Укажи id реально использованных источников. Верни только JSON по схеме.')
+        if question:
+            prompt += (' Это вопрос а не готовое утверждение: ответь на него по прочитанным страницам. '
+                       'Текущая дата ' + datetime.fromtimestamp(self.clock(), ZoneInfo('Europe/Moscow')).isoformat()
+                       + '. Для «сейчас/сегодня/вчера/последний» нужны сведения именно за запрошенный период '
+                       'с датой или явным указанием актуальности в тексте страницы. Старое сообщение '
+                       'не становится свежим от даты загрузки. Если источник этого не подтверждает '
+                       'верни unclear и прямо обозначь что актуальных данных недостаточно. '
+                       'Не отвечай историческим результатом вместо текущего.')
+        if control:
+            prompt += ' ' + {'concise': 'Ответ максимум 45 слов.', 'plain': 'Объясни простыми словами.',
+                              'serious': 'Без шуток и подколов.', 'example': 'Дай один пример только по источникам.'}.get(control, '')
         started = time.monotonic()
         try:
             result = http_json(config['ollama_url'] + '/api/chat', {
@@ -239,6 +250,7 @@ class FactChecker:
                     or re.search(r'<(?:/?think)|<analysis', text, re.I)
                     or verdict not in {'confirmed', 'refuted', 'unclear'}
                     or not isinstance(citations, list) or not 1 <= len(citations) <= 3
+                    or (control == 'concise' and len(text.split()) > 45)
                     or any(type(x) is not int or not 1 <= x <= len(rows) for x in citations)):
                 raise ValueError()
         except (APIError, ValueError, TypeError, KeyError):
@@ -250,6 +262,8 @@ class FactChecker:
             raise FactError('empty_answer')
         labels = {'confirmed': 'По найденным источникам подтверждается', 'refuted': 'Найденные источники опровергают',
                   'unclear': 'Однозначного подтверждения нет'}
+        if question:
+            labels.update(confirmed='По найденным источникам', refuted='По найденным источникам')
         lines = ['<b>' + labels[verdict] + '</b>', html.escape(text), '<b>Источники</b>']
         for number in dict.fromkeys(citations):
             row = rows[number - 1]

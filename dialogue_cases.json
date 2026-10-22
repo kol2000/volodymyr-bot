@@ -1,0 +1,13 @@
+[
+  {"id":"banter-question","request":"где мой цаца свиноголовин?","mode":"parody","max_words":25,"forbidden":["карточ","ebay","tcgplayer","доставк"]},
+  {"id":"real-question","request":"Почему WiFi может быть медленнее кабеля?","mode":"question","max_words":100,"must_any":["помех","диапазон","стандарт","сигнал","расстоян","частот"]},
+  {"id":"new-topic","request":"Почему небо синее?","mode":"question","history":["Коллекционные карточки продаются на аукционах.","Доставка карточек зависит от продавца."],"must_any":["рассе","свет","атмосфер"],"forbidden":["карточ","ebay","tcgplayer","доставк"]},
+  {"id":"ambiguous-subject","request":"Жёлтые?","mode":"question","must_any":["называ","имееш","именно","жёлт","желт"],"require_question":true,"max_words":45,"forbidden":["ebay","покемон"]},
+  {"id":"shorter","request":"короче","mode":"question","control":"concise","dialogue":["Почему WiFi тормозит?","Помехи и слабый сигнал могут снижать скорость. Сравни соединение по кабелю и рядом с роутером."],"max_words":45,"must_any":["wifi","помех","сигнал","роутер","кабел"]},
+  {"id":"serious","request":"Без приколов объясни почему сервер теряет соединение?","mode":"question","control":"serious","max_words":100,"forbidden":["свиноголов","цацик","идиот","дурак","бля"]},
+  {"id":"example","request":"приведи пример","mode":"question","control":"example","dialogue":["Что такое резервная копия?","Ето отдельная копия данных для восстановления после потери оригинала."],"must_any":["копи","файл","диск","восстанов","документ"]},
+  {"id":"pending-correction","request":"нет я про резервные копии а не скорость","mode":"question","updates":["Бубус объясни как проверить сервер?"],"must_any":["копи","восстанов","бэкап","резерв"],"forbidden":["speedtest","мегабит"]},
+  {"id":"public-current","request":"Кто сейчас президент Франции?","mode":"web"},
+  {"id":"private-current","request":"Почему мой сервер сейчас теряет соединение?","mode":"question"},
+  {"id":"spelling-only","request":"Объясни что такое непонятное условие задачи?","mode":"question","forbidden":["непонятново шо","непонятново что"]}
+]

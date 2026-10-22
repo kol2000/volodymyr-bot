@@ -2,7 +2,34 @@
 import re
 from difflib import SequenceMatcher
 
-from common import parody_text
+from common import clean_text, parody_text
+
+
+def answer_problem(text, thoughtful=False):
+    text = text.strip()
+    if text == '__SILENCE__':
+        return None
+    if len(text) < 2:
+        return 'empty_response'
+    too_long = (len(text) > 3000 or len(text.encode('utf-16-le')) // 2 > 3500) if thoughtful else (
+        len(text) > 220 or len(text.split()) > 35)
+    if too_long:
+        return 'response_too_long'
+    if '<think' in text.lower() or '</think' in text.lower():
+        return 'reasoning_in_response'
+    if thoughtful and text.count('```') % 2:
+        return 'unfinished_code'
+    if not thoughtful and len(text.splitlines()) > 1:
+        return 'multiline_response'
+    if re.match(r'(?i)(хорошо[, ]+пользователь|пользователь (пишет|спрашивает)|нужно ответить|анализ|вот (ответ|реплика)|я должен)', text):
+        return 'reasoning_in_response'
+    if re.search(r'(?i)чурк|свинорус|хохл|негр|пидор|пидар|ниггер|жид[а-я]|москал', text):
+        return 'restricted_terms'
+    if re.search(r'\b\d{6,12}:[A-Za-z0-9_-]{25,}\b', text):
+        return 'sensitive_data'
+    if clean_text(text) != text:
+        return 'sensitive_data'
+    return None
 
 STOP = set(('а и в на не но ну по с со то это ето ты ти я он она они мы вы мне меня '
             'тебе тебя тут там так вот уже еще ещо что шо как да бля блять про кого '

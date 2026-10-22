@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from html import escape, unescape
 from zoneinfo import ZoneInfo
 
-from common import APIError, HTMLMessage, clean_text, http_json, parody_text
+from common import APIError, HTMLMessage, clean_text, http_json, parody_text, visible_text
 
 LOG = logging.getLogger('volodymyr')
 
@@ -94,11 +94,17 @@ def community_request(text, command='', addressed=False):
 def help_text(owner=False):
     text = ('<b>Бубус умеет</b>\n'
             '• /bubus — случайная реплика; с текстом — ответ по теме\n'
-            '• Вопрос с «?» в конце — ответ по существу, даже без имени Бубуса\n'
+            '• Вопрос с «?» в конце вызывает ответ; дружеский подкол остаётся коротким\n'
             '• «Бубус, объясни…» или «Бубус, подумай…» — объяснение с контекстом\n'
             '• «подробнее» в ответ на объяснение или /more — раскрыть тему\n'
+            '• «короче», «объясни нормально», «без приколов», «приведи пример» — переделать один ответ\n'
+            '• Уточнение пока ждёшь ответ объединяется с твоим ожидающим запросом\n'
             '• «Бубус проверь правда ли…» или /check — проверка по веб-источникам\n'
+            '• Вопросы о свежих публичных фактах проверяются по источникам автоматически\n'
             '• /remember текст, /memory, /memory_edit номер текст, /forget номер — память чата\n'
+            '• /person прозвище — подтверждённый справочник участников\n'
+            '• /correct новый ответ — предложить исправление ответом на мою реплику\n'
+            '• «подтверждаю» или /confirm в ответ на квитанцию — одобрить свою поправку\n'
             '• «Володька, какая погода в Орле?» или /weather Орёл\n'
             '• /football — выбранные матчи дня с главной ФНК; /football Ростов — конкретная команда\n'
             '• /football завтра, /football 09.10 — расписание и результаты на дату\n'
@@ -132,6 +138,8 @@ def help_text(owner=False):
                  '/football_status — доступность источника и последняя проверка\n'
                  '/football_videos_on, /football_videos_off — видео в постах о голах\n'
                  '/football_videos_status — доступность каналов и ожидающие видео')
+        text += ('\n/person_set @username | прозвища через запятую | заметка — справочник\n'
+                 '/person_forget @username — удалить запись участника')
     return HTMLMessage(text)
 
 
@@ -153,12 +161,23 @@ def statistics_text(data, days, top=False):
     return HTMLMessage('\n'.join(lines))
 
 
-def summary_input(rows, budget=14000):
+def message_link(chat_id, message_id):
+    if type(chat_id) is int and str(chat_id).startswith('-100') and type(message_id) is int and message_id > 0:
+        internal = str(chat_id)[4:]
+        if internal and int(internal) > 0:
+            return f'https://t.me/c/{internal}/{message_id}'
+    return ''
+
+
+def summary_input(rows, budget=14000, chat_id=None):
     selected = []
     size = 0
     for row in reversed(rows):
         item = {'speaker': clean_text(row['speaker']), 'time': datetime.fromtimestamp(row['timestamp'], MOSCOW).strftime('%d.%m %H:%M'),
                 'text': clean_text(row['text'])[:450]}
+        link = message_link(chat_id, row.get('message_id'))
+        if link:
+            item['link'] = link
         cost = len(json.dumps(item, ensure_ascii=False)) + 12  # Reserve the added numeric id.
         if size + cost > budget:
             break
@@ -190,8 +209,9 @@ def summary_schema(count, compact=False):
     return {'type': 'object', 'additionalProperties': False,
             'properties': {'topics': {'type': 'array', 'minItems': 1, 'maxItems': 3 if compact else 5,
                                       'items': topic},
-                           'decisions': {'type': 'array', 'maxItems': 1 if compact else 3, 'items': decision}},
-            'required': ['topics', 'decisions']}
+                           'decisions': {'type': 'array', 'maxItems': 1 if compact else 3, 'items': decision},
+                           'open_questions': {'type': 'array', 'maxItems': 1 if compact else 3, 'items': decision}},
+            'required': ['topics', 'decisions', 'open_questions']}
 
 
 def summary_string(value, size, optional=False):
@@ -212,6 +232,17 @@ def summary_sources(value, selected):
     return list(dict.fromkeys(selected[number - 1]['speaker'] for number in value))
 
 
+def summary_links(value, selected):
+    # Validation and URLs use the stored messages, never model-created URLs.
+    summary_sources(value, selected)
+    links = []
+    for number in dict.fromkeys(value):
+        link = selected[number - 1].get('link')
+        if link:
+            links.append(f'<a href="{escape(link, quote=True)}">{number}</a>')
+    return '\n<i>Сообщения: ' + ' · '.join(links[:3]) + '</i>' if links else ''
+
+
 def summary_report(result, selected, total, days, compact=False):
     if not isinstance(result, dict) or result.get('error'):
         raise SummaryError('summary_model_error')
@@ -226,6 +257,9 @@ def summary_report(result, selected, total, days, compact=False):
     decisions = data.get('decisions', [])
     if not isinstance(decisions, list) or len(decisions) > 3:
         raise SummaryError('summary_invalid_decisions')
+    unresolved = data.get('open_questions', [])
+    if not isinstance(unresolved, list) or len(unresolved) > 3:
+        raise SummaryError('summary_invalid_questions')
     topics = []
     for number, item in enumerate(data['topics'], 1):
         if not isinstance(item, dict):
@@ -241,25 +275,38 @@ def summary_report(result, selected, total, days, compact=False):
         block = f'{number}. <b>{escape(title)}</b>\n{escape(text)}\n<i>В обсуждении: {escape(names)}.</i>'
         if quip:
             block += '\n<i>' + escape(parody_text(quip.lower())) + '</i>'
+        block += summary_links(item['sources'], selected)
         topics.append(block)
     agreements = []
     for item in decisions:
         if not isinstance(item, dict):
             raise SummaryError('summary_invalid_field')
         summary_sources(item.get('sources'), selected)
-        agreements.append('• ' + escape(parody_text(summary_string(item.get('text'), 160))))
+        agreements.append('• ' + escape(parody_text(summary_string(item.get('text'), 160)))
+                          + summary_links(item['sources'], selected))
+    open_questions = []
+    for item in unresolved:
+        if not isinstance(item, dict):
+            raise SummaryError('summary_invalid_field')
+        summary_sources(item.get('sources'), selected)
+        open_questions.append('• ' + escape(parody_text(summary_string(item.get('text'), 160)))
+                              + summary_links(item['sources'], selected))
 
     def render():
         heading = f'<b>Ну шо тут у вас · {period_label(days)}</b>\n\n<b>О чём спорили и болтали</b>\n'
         outcome = ('\n\n<b>К чему пришли</b>\n' + '\n'.join(agreements)) if agreements else (
             '\n\n<i>явных договорённостей в пересказе нет ну хоть поболтали</i>')
+        if open_questions:
+            outcome += '\n\n<b>Что осталось открытым</b>\n' + '\n'.join(open_questions)
         coverage = f'\n\n<i>По {len(selected)} из {total} сообщений. Длинные сообщения сокращены.</i>'
         return heading + '\n\n'.join(topics) + outcome + coverage
 
     report = render()
     # Telegram counts UTF-16 units after parsing HTML, including escaped user names.
-    while len(unescape(re.sub(r'</?(?:b|i)>', '', report)).encode('utf-16-le')) // 2 > 3900:
-        if agreements:
+    while len(visible_text(HTMLMessage(report)).encode('utf-16-le')) // 2 > 3900:
+        if open_questions:
+            open_questions.pop()
+        elif agreements:
             agreements.pop()
         elif len(topics) > 1:
             topics.pop()
@@ -269,8 +316,8 @@ def summary_report(result, selected, total, days, compact=False):
     return HTMLMessage(report)
 
 
-def summary_text(config, rows, total, days, time_budget=150):
-    selected = summary_input(rows)
+def summary_text(config, rows, total, days, time_budget=150, chat_id=None):
+    selected = summary_input(rows, chat_id=chat_id)
     if not selected:
         return 'за этот период сообщений для пересказа пока нет'
     prompt = ('Сделай связный пересказ дружеского чата на русском, а не подборку последних цитат. '
@@ -283,6 +330,9 @@ def summary_text(config, rows, total, days, time_budget=150):
               'Для каждой темы укажи sources — id сообщений, из которых взято содержание. '
               'Не выдумывай события, мотивы, обвинения, согласие, решения, цены, погоду или имена. '
               'В decisions включи только явно принятые договорённости с sources; если их нет, верни []. '
+              'В open_questions включи только явно обсуждавшиеся вопросы которые остались нерешёнными '
+              'с sources. Отсутствие ответа в короткой выборке не доказывает что вопрос не решили: '
+              'при сомнении верни []. Не превращай предложения в принятые решения. '
               'Содержание text должно быть точным, разговорным и слегка ироничным. '
               'В собственном тексте почти без запятых и без пожалуйста, спасибо, благодарю и извинений. '
               'Более-менее записывай болья менья, только по смыслу и не в каждой теме. '
@@ -318,10 +368,12 @@ def summary_text(config, rows, total, days, time_budget=150):
                 raise
 
 
-def summary_excerpt(rows, total, days):
+def summary_excerpt(rows, total, days, chat_id=None):
     lines = [f'<b>Последние сообщения · {period_label(days)}</b>']
     for row in rows[-5:]:
         stamp = datetime.fromtimestamp(row['timestamp'], MOSCOW).strftime('%H:%M')
-        lines.append(f'{stamp} · <b>{escape(row["speaker"])}</b>: {escape(row["text"][:200])}')
+        link = message_link(chat_id, row.get('message_id'))
+        clock = f'<a href="{escape(link, quote=True)}">{stamp}</a>' if link else stamp
+        lines.append(f'{clock} · <b>{escape(row["speaker"])}</b>: {escape(row["text"][:200])}')
     lines.append(f'\n<i>Выдержки из истории вместо пересказа; всего сообщений: {total}.</i>')
     return HTMLMessage('\n'.join(lines))

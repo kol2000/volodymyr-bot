@@ -90,7 +90,7 @@ class GenerationTests(unittest.TestCase):
 
     def job(self,text=NEW_QUESTION,**kwargs):
         return dict(dict(chat_id=-100,text=text,reply_to=100,automatic=False,
-                         queued_at=time.time(),user_id=7),**kwargs)
+                         queued_at=time.time(),user_id=7,thoughtful=True),**kwargs)
 
     @staticmethod
     def result(text):

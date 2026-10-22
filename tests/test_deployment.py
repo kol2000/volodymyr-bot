@@ -69,6 +69,14 @@ class DeploymentTests(unittest.TestCase):
                          ['systemctl restart volodymyr-bot'])
         self.assertNotIn('Обновление завершено.', result.stdout)
 
+    def test_opt_in_model_failure_prevents_restart(self):
+        self.env['BUBUS_MODEL_CHECK'] = '1'
+        (self.bin / 'python3').write_text('#!/bin/sh\n[ "$1" != check_dialogues.py ]\n')
+        result = self.run_script(ROOT / 'update.sh')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.log.exists())
+        self.assertNotIn('Обновление завершено.', result.stdout)
+
     def prepare_migration(self):
         home = self.root / 'botadmin'
         target = home / 'volodymyr_bot'
