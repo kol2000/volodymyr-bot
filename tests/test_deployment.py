@@ -20,7 +20,7 @@ class DeploymentTests(unittest.TestCase):
         commands = {
             'id': 'echo botadmin',
             'git': '[ "$1" != pull ] || [ "$BOT_TEST_FAIL" != pull ]',
-            'python3': '[ "$BOT_TEST_FAIL" != tests ]',
+            'python3': 'echo simulated-test-warning >&2\n[ "$BOT_TEST_FAIL" != tests ]',
             'sudo': 'echo "$*" >> "$BOT_TEST_LOG"\n'
                     '[ "$*" != "systemctl restart volodymyr-bot" ] || [ "$BOT_TEST_FAIL" != restart ] || exit 1\n'
                     '[ "$*" != "systemctl is-active volodymyr-bot" ] || [ "$BOT_TEST_FAIL" != start ]',
@@ -48,8 +48,18 @@ class DeploymentTests(unittest.TestCase):
     def test_successful_update_restarts_service_and_checks_status(self):
         result = self.run_script(ROOT / 'update.sh')
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('simulated-test-warning', result.stdout + result.stderr)
+        self.assertIn('Тесты пройдены.', result.stdout)
         self.assertEqual(self.log.read_text().splitlines(),
                          ['systemctl restart volodymyr-bot', 'systemctl is-active volodymyr-bot'])
+
+    def test_failed_tests_show_captured_diagnostics(self):
+        self.env['BOT_TEST_FAIL'] = 'tests'
+        result = self.run_script(ROOT / 'update.sh')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('simulated-test-warning', result.stderr)
+        self.assertIn('Сервис не перезапущен', result.stderr)
+        self.assertFalse(self.log.exists())
 
     def test_restart_failure_reports_failure(self):
         self.env['BOT_TEST_FAIL'] = 'restart'

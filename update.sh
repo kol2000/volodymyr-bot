@@ -11,7 +11,17 @@ if ! git diff --quiet HEAD --; then
   exit 1
 fi
 git pull --ff-only
-python3 -m unittest discover -s tests -q
+test_log=$(mktemp)
+trap 'rm -f -- "$test_log"' EXIT
+echo 'Проверка тестов…'
+if python3 -m unittest discover -s tests -q >"$test_log" 2>&1; then
+  echo 'Тесты пройдены.'
+else
+  test_status=$?
+  echo 'Тесты завершились с ошибкой. Сервис не перезапущен. Подробности:' >&2
+  cat "$test_log" >&2
+  exit "$test_status"
+fi
 sudo systemctl restart volodymyr-bot
 sudo systemctl is-active volodymyr-bot
 echo 'Обновление завершено.'
