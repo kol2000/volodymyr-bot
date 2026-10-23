@@ -95,7 +95,7 @@ def evaluate(case, config, run_model=False, max_seconds=120):
         result.update(model_checked=bool(job.get('_inference_calls')), answer_checked=True,
                       seconds=elapsed, answer=answer, local_reply=job.get('_local_reply'),
                       metrics=job.get('_metrics', {}), calls=job.get('_inference_calls', []),
-                      rejections=job.get('_rejections', []))
+                      rejections=job.get('_rejections', []), rewrite_fallback=job.get('_rewrite_fallback'))
         result['errors'].extend(assess(case, answer, elapsed, max_seconds))
     return result
 
@@ -130,6 +130,8 @@ def timing_text(result):
         parts.append(f'из кэша: {metrics["cached_prompt_tokens"]} ток.')
     if 'load_seconds' not in metrics:
         parts.append('Ollama не вернула подробные метрики')
+    if result.get('rewrite_fallback'):
+        parts.append('сокращение из полных предложений исходного ответа')
     return ' · '.join(parts)
 
 

@@ -24,7 +24,7 @@ from question_answers import (PROMPT as QUESTION_PROMPT, FALLBACKS as QUESTION_F
 from assistant_features import (FeatureStore, FEATURE_COMMANDS, FOLLOWUP, CALL as FEATURE_CALL, feature_request,
                                 negative_reason, memory_context)
 from style_profile import profile_for_request
-from answer_quality import (answer_problem, concise_problem, concise_word_limit, contextual_request, explanation_problem,
+from answer_quality import (answer_problem, concise_extract, concise_problem, concise_word_limit, contextual_request, explanation_problem,
                             grounding_problem, question_context)
 from conversation import (ambiguous_subject, amendment_request, banter_request, control_remainder, inline_control,
                           response_control as standalone_control, verification_query)
@@ -1263,7 +1263,10 @@ class Bot:
                            'при смене вопроса и не повторяй вступление. Если предмет вопроса неясен '
                            'задай одно конкретное уточнение. Без анализа задания.')
                 if reason == 'incomplete_rewrite':
-                    prompt += '\nСохрани действие сравнения из rewrite_source и его условия. Напиши законченное предложение без обрывков.'
+                    prompt += '\nСохрани смысл действий и их условия. Напиши законченное предложение без обрывков.'
+                if reason == 'response_too_long' and control == 'concise':
+                    prompt += (f'\nСократи только rewrite_source до одного законченного предложения '
+                               f'максимум {word_limit} слов. Оставь главную мысль без списка советов.')
                 if reason == 'unsupported_certainty':
                     prompt += ('\nУбери бездоказательный диагноз и обещания. Назови возможные причины '
                                'и проверку которая их различит.')
@@ -1315,6 +1318,15 @@ class Bot:
                 return answer_style(answer.strip())
             LOG.warning('Ответ на вопрос отклонён: причина=%s; попытка=%s/2', reason, attempt + 1)
             job.setdefault('_rejections', []).append(reason)
+        if control == 'concise' and reason == 'response_too_long':
+            candidate = concise_extract(rewrite_source)
+            if (candidate and not answer_problem(candidate, thoughtful=True)
+                    and not explanation_problem(candidate, previous, subject, reference=rewrite_source)
+                    and not grounding_problem(candidate, subject + ' ' + rewrite_source)
+                    and not concise_problem(candidate, rewrite_source)
+                    and answer_key(candidate) not in rejected):
+                job['_rewrite_fallback'] = 'source_sentences'
+                return answer_style(candidate)
         return None
 
     def fallback_answer(self, job):

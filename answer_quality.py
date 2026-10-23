@@ -104,6 +104,20 @@ def concise_problem(text, source):
     return None
 
 
+def concise_extract(source):
+    """Keep complete leading sentences; never cut words or invent a rewrite."""
+    if not source or any(mark in source for mark in ('`', '\n', '«', '»', '"')):
+        return None
+    limit = concise_word_limit(source)
+    selected = []
+    for sentence in re.split(r'(?<=[.!?])\s+', source.strip()):
+        if not re.search(r'[.!?]$', sentence) or len((' '.join(selected + [sentence])).split()) > limit:
+            break
+        selected.append(sentence)
+    candidate = ' '.join(selected)
+    return candidate if candidate and len(candidate.split()) < len(source.split()) else None
+
+
 def grounding_problem(text, subject):
     """Reject narrow, unsupported diagnostic guarantees, not ordinary advice."""
     if not re.search(r'\b(?:сервер\w*|роутер\w*|wifi|вайфай|кабел\w*|соединени\w*|'
@@ -111,6 +125,9 @@ def grounding_problem(text, subject):
         return None
     prose = re.sub(r'```.*?```|`[^`]*`|«[^»]*»|"[^"]*"', ' ', text, flags=re.S)
     prose = prose.casefold().replace('ё', 'е')
+    if re.search(r'\bпроверь\s+(?:кабель|роутер|провод)\s+и\s+'
+                 r'(?:рядом|возле|около|по кабелю)\b', prose):
+        return 'incomplete_rewrite'
     backup = bool(re.search(r'\b(?:резерв\w*|б[эе]кап\w*|копи\w*)\b', subject + ' ' + prose, re.I))
     clauses = re.split(r'[.!?;\n]|\b(?:но|однако|зато)\b', prose)
     for index, clause in enumerate(clauses):
@@ -119,6 +136,8 @@ def grounding_problem(text, subject):
             continue
         if re.search(r'\b(?:возможно|вероятно|может|могут|могла|могло|скорее|попробуй)\b', clause):
             continue
+        if re.search(r'\bесли\b.{0,90}\b(?:скорость|сигнал)\b.{0,90}\bвиноват\w*\b', clause):
+            return 'unsupported_certainty'
         log_reference = re.search(r'\b(?:там|логи|логах|логов|журнал\w*)\b', clause)
         exact_reason = re.search(r'\b(?:точн\w*.{0,16}причин\w*|причин\w*.{0,16}точн\w*)\b', clause)
         assertion = re.search(r'\b(?:будет|есть|найд\w*|укаж\w*|покаж\w*|содерж\w*|написан\w*|'
@@ -139,7 +158,7 @@ def grounding_problem(text, subject):
                             r'(?:(?!\bне\b)[^.!?;\n]){0,40}\b' + corruption, clause)
         if not verdict and (failed_restore or negative_condition):
             verdict = re.search(r'(?:[—–-]|\bто\b|\bиначе\b|\bв противном случае\b)\s*'
-                                r'(?:(?:копия|б[эе]кап|она|он)\s+)?' + corruption, clause)
+                                r'(?:(?:копия|б[эе]кап|она|он)\s+)?(?:либо\s+|или\s+)?' + corruption, clause)
         if backup and failed_restore and verdict:
             return 'unsupported_certainty'
         if re.search(r'\bтам точно (?:написано|видно|будет)|'

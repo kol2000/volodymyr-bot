@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from answer_quality import explanation_problem, grounding_problem, specific_clarification
+from answer_quality import concise_extract, concise_word_limit, explanation_problem, grounding_problem, specific_clarification
 from bot import Bot, Store
 from check_dialogues import assess, evaluate, main, timing_text, warm_model
 from common import APIError, MODEL, ROOT
@@ -151,8 +151,44 @@ class InferenceQualityTests(unittest.TestCase):
         self.assertEqual(model.call_count, 2)
         self.assertEqual(job['_rejections'], ['incomplete_rewrite'])
         retry = model.call_args.args[1]['messages']
-        self.assertIn('Сохрани действие сравнения', retry[0]['content'])
+        self.assertIn('Сохрани смысл действий', retry[0]['content'])
         self.assertEqual(json.loads(retry[1]['content'])['rewrite_source'], case['dialogue'][-1])
+
+    def test_two_overlong_rewrites_keep_checked_complete_source_sentence(self):
+        cases = {case['id']: case for case in json.loads((ROOT / 'dialogue_cases.json').read_text())}
+        case = cases['shorter']
+        source = case['dialogue'][-1]
+        job = self.job('короче', response_control='concise', quoted_message=source)
+        with patch('bot.http_json', return_value=self.result('слишком длинный ответ ' * 20)) as model:
+            answer = self.bot.generate(job)
+        self.assertEqual(answer, 'Помехи и слабый сигнал могут снижать скорость.')
+        self.assertEqual(assess(case, answer, 18, 120), [])
+        self.assertEqual(model.call_count, 2)
+        self.assertEqual(job['_rewrite_fallback'], 'source_sentences')
+        self.assertIn(f'максимум {concise_word_limit(source)} слов',
+                      model.call_args.args[1]['messages'][0]['content'])
+
+    def test_extraction_never_truncates_a_sentence_or_code_or_copies_unsafe_source(self):
+        for source in ['Один ответ.', 'Незаконченный ответ без точки',
+                       'Ошибка восстановления — значит копия битая. Проверь резервную копию и настройки доступа.']:
+            job = self.job('короче', response_control='concise', quoted_message=source)
+            with patch('bot.http_json', return_value=self.result('длинный ответ ' * 40)):
+                self.assertIsNone(self.bot.generate(job), source)
+        for source in ['Команда `rm -r`. Не запускай.', 'Пункт.\nЕщё пункт.',
+                       'Он сказал «проверь». Потом ушёл.']:
+            self.assertIsNone(concise_extract(source))
+
+    def test_latest_vm_diagnostic_failures_are_rejected_across_question_modes(self):
+        cases = {case['id']: case for case in json.loads((ROOT / 'dialogue_cases.json').read_text())}
+        bad = [
+            ('real-question', 'WiFi медленнее кабеля из-за помех. Сравни по кабелю и рядом с роутером — если скорость вырастет виноват WiFi.', 'unsupported_certainty'),
+            ('serious', 'Проверь кабель и рядом с роутером — если сигнал пропадает при перемещении виноват кабель или интерфейс.', 'incomplete_rewrite'),
+            ('pending-correction', 'Сделай тестовое восстановление. Если нет — либо повреждена либо не все данные скопированы.', 'unsupported_certainty')]
+        for name, answer, reason in bad:
+            self.assertIn(reason, assess(cases[name], answer, 10, 120))
+        for answer in ['Если нет — возможно повреждена либо не все данные скопированы.',
+                       'Если скорость вырастет это может указывать на проблемы WiFi.']:
+            self.assertIsNone(grounding_problem(answer, 'Как проверить резервную копию и WiFi?'))
 
     def test_shortening_retry_keeps_the_specific_source_after_removing_old_assistant_turns(self):
         source = 'Помехи и слабый сигнал могут снижать скорость. Сравни соединение по кабелю и рядом с роутером.'
