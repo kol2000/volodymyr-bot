@@ -162,6 +162,8 @@ def grounding_problem(text, subject, diagnostics=None):
         condition = re.search(r'\bесли\b.{0,70}\b(?:скорость|сигнал|по кабелю|wifi)\b'
                               r'.{0,35}?(?:выраст\w*|увелич\w*|улучш\w*|быстрее|пропад\w*|'
                               r'появ\w*|стабильн\w*)\b(?P<conclusion>.*)', clause)
+        if not condition and re.search(r'\b(?:wifi|вайфай|кабел\w*|роутер\w*|соединени\w*|скорост\w*)\b', subject + ' ' + clause, re.I):
+            condition = re.search(r'\bесли\s+разница\s+(?:есть|заметна)\b(?P<conclusion>.*)', clause)
         if condition:
             conclusion = condition['conclusion']
             if (re.search(r'\b(?:виноват\w*|проблема в|дело в|причина в|сбой в)\b', conclusion)
@@ -203,8 +205,37 @@ def grounding_problem(text, subject, diagnostics=None):
                      r'\bвс[её] будет норм\w*|\bточно (?:решит|поможет)\b|'
                      r'\b(?:кабел\w*|провод\w*)[^.!?\n]{0,60}\bбез (?:любых )?потерь\b|'
                      r'\b(?:копия|б[эе]кап) (?:сломана?|испорчен\w*|битый)\b', clause):
-            return reject('unsupported_certainty', 'grounding.absolute_guarantee', clause)
+            rule = 'grounding.cable_no_loss' if re.search(r'\b(?:кабел\w*|провод\w*).*\bбез (?:любых )?потерь\b', clause) else 'grounding.absolute_guarantee'
+            return reject('unsupported_certainty', rule, clause)
     return None
+
+
+def checked_concise_extract(source, subject, previous=()):
+    candidate = concise_extract(source)
+    if (candidate and not answer_problem(candidate, thoughtful=True)
+            and not explanation_problem(candidate, previous, subject, reference=source)
+            and not grounding_problem(candidate, subject + ' ' + source)
+            and not concise_problem(candidate, source)):
+        return candidate
+    return None
+
+
+def diagnostic_retry_guidance(rule):
+    if rule == 'grounding.cable_no_loss':
+        return ('Убери гарантию передачи без потерь. Объясни различия WiFi и кабеля '
+                'через возможные помехи расстояние и загрузку. Сравнение скорости '
+                'помогает сузить версии но не устанавливает единственную причину.')
+    if rule == 'grounding.restore_failure_verdict':
+        return ('Сохрани задачу проверки резервной копии: тестовое восстановление в отдельное '
+                'место сверка полноты данных и проверка файлов или приложения. '
+                'Читаемость отдельных файлов не подтверждает всю копию. '
+                'Сбой восстановления сам по себе не доказывает повреждение копии: '
+                'причину выясняют по ошибке доступа совместимости или настроек. '
+                'Не заменяй проверку копии одним разбором ошибок.')
+    if rule in ('grounding.network_comparison_verdict', 'grounding.network_culprit_after_condition'):
+        return ('Сохрани объяснение и сравнение подключений. Разница скорости лишь сужает '
+                'возможные причины; не исключай провайдера и не назначай виновника по одному сравнению.')
+    return ''
 
 
 def explanation_problem(text,previous,subject='',reference=''):

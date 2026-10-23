@@ -8,8 +8,8 @@ from pathlib import Path
 
 from bot import Bot, Store, answer_problem
 from common import APIError, CONFIG, MODEL, ROOT, http_json
-from answer_quality import concise_problem, concise_word_limit, grounding_problem, specific_clarification
-from conversation import ambiguous_subject, inline_control, verification_query
+from answer_quality import checked_concise_extract, concise_problem, concise_word_limit, grounding_problem, specific_clarification
+from conversation import ambiguous_subject, inline_control, response_control, verification_query
 from inference import generation_stats, runner_options
 from question_answers import ends_question, thoughtful_request
 
@@ -25,6 +25,12 @@ def route(case):
 
 
 def uses_model(case):
+    dialogue = case.get('dialogue', [])
+    source = dialogue[-1] if dialogue and len(dialogue) % 2 == 0 else ''
+    if (response_control(case['request']) == 'concise' and not case.get('updates')
+            and len(source.split()) <= 80
+            and checked_concise_extract(source, ' '.join([case['request']] + dialogue), dialogue[1::2])):
+        return False
     return route(case) != 'web' and not (ambiguous_subject(case['request'])
         and not (case.get('history') or case.get('dialogue') or case.get('updates')))
 
@@ -116,7 +122,8 @@ def timing_text(result):
     if not result.get('answer_checked'):
         return 'только маршрут'
     if result.get('local_reply'):
-        return f'локальное уточнение · {result["seconds"]:.2f} сек. · без Ollama'
+        label = 'локальное сокращение' if result['local_reply'] == 'concise_extract' else 'локальное уточнение'
+        return f'{label} · {result["seconds"]:.2f} сек. · без Ollama'
     calls = result.get('calls', [])
     metrics = result.get('metrics', {})
     parts = [f'{result["seconds"]:.2f} сек.', f'запросов к модели: {len(calls)}']
@@ -192,8 +199,9 @@ def main(argv=None):
         args.report.write_text(json.dumps(results, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     failures = sum(bool(result['errors']) for result in results)
     checked = sum(result['model_checked'] for result in results)
-    local = sum(bool(result.get('local_reply')) for result in results)
-    print(f'Проверено: {len(results)}; с моделью: {checked}; локальных уточнений: {local}; ошибок: {failures}. '
+    local = sum(result.get('local_reply') == 'clarification' for result in results)
+    shortened = sum(result.get('local_reply') == 'concise_extract' for result in results)
+    print(f'Проверено: {len(results)}; с моделью: {checked}; локальных уточнений: {local}; локальных сокращений: {shortened}; ошибок: {failures}. '
           'Автопроверки не заменяют оценку смысла ответов человеком.')
     return int(bool(failures))
 

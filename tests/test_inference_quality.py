@@ -114,10 +114,66 @@ class InferenceQualityTests(unittest.TestCase):
         self.assertIn('Сбой восстановления сам по себе не доказывает',
                       model.call_args.args[1]['messages'][0]['content'])
 
+    def test_standalone_shortening_uses_checked_source_before_model_and_skips_warmup(self):
+        source = 'Помехи и слабый сигнал могут снижать скорость. Сравни соединение по кабелю и рядом с роутером.'
+        with patch('bot.http_json') as model:
+            job = self.job('короче', response_control='concise', quoted_message=source)
+            answer = self.bot.generate(job)
+        model.assert_not_called()
+        self.assertEqual(answer, 'Помехи и слабый сигнал могут снижать скорость.')
+        self.assertEqual(job['_local_reply'], 'concise_extract')
+        report = Path(self.temp.name) / 'local-shorter.json'
+        output = io.StringIO()
+        with patch('check_dialogues.CONFIG', Path(self.temp.name) / 'missing.json'), \
+                patch('check_dialogues.http_json') as warmup, patch('bot.http_json') as model, \
+                contextlib.redirect_stdout(output):
+            result = main(['--run-model', '--case', 'shorter', '--report', str(report)])
+        self.assertEqual(result, 0)
+        warmup.assert_not_called()
+        model.assert_not_called()
+        data = json.loads(report.read_text())[0]
+        self.assertFalse(data['model_checked'])
+        self.assertEqual(data['calls'], [])
+        self.assertIn('локальное сокращение', output.getvalue())
+        self.assertIn('локальных сокращений: 1', output.getvalue())
+
+    def test_local_shortening_respects_extra_instructions_updates_and_negative_feedback(self):
+        source = 'Помехи могут снижать скорость. Проверь роутер и сравни соединение с кабелем.'
+        candidate = 'Помехи могут снижать скорость.'
+        for text, updates in [('короче сохрани сравнение', []), ('короче', ['сохрани сравнение'])]:
+            with patch('bot.http_json', return_value=self.result(candidate)) as model:
+                self.bot.generate(self.job(text, response_control='concise', quoted_message=source, request_updates=updates))
+            model.assert_called_once()
+        from bot import answer_key
+        with patch.object(self.store, 'rejected_keys', return_value={answer_key(candidate)}), \
+                patch('bot.http_json', return_value=self.result('Возможны помехи.')) as model:
+            answer = self.bot.generate(self.job('короче', response_control='concise', quoted_message=source))
+        model.assert_called_once()
+        self.assertNotEqual(answer, candidate)
+
+    def test_specific_retries_preserve_the_question_without_echoing_the_bad_answer(self):
+        cases = [
+            ('Почему WiFi медленнее кабеля?', 'Кабель стабильнее и без потерь.',
+             'Возможны помехи. Сравни скорость на одном устройстве.', 'Убери гарантию передачи без потерь', 'Сохрани задачу проверки'),
+            ('Как проверить резервную копию?', 'Восстанови отдельно. Если нет — битая.',
+             'Восстанови отдельно проверь полноту данных и работу приложения.', 'Сохрани задачу проверки резервной копии', 'Объясни различия WiFi'),
+            ('Почему WiFi медленнее кабеля?', 'Если разница есть проблема в WiFi а не в провайдере.',
+             'Разница скорости помогает сузить возможные причины.', 'не исключай провайдера', 'Сохрани задачу проверки')]
+        for subject, bad, good, expected, unrelated in cases:
+            with patch('bot.http_json', side_effect=[self.result(bad), self.result(good)]) as model:
+                self.assertEqual(self.bot.generate(self.job(subject)), good)
+            self.assertEqual(model.call_count, 2)
+            payload = model.call_args.args[1]
+            prompt = payload['messages'][0]['content']
+            self.assertIn(expected, prompt)
+            self.assertNotIn(unrelated, prompt)
+            self.assertEqual(json.loads(payload['messages'][1]['content'])['current_request'], subject)
+            self.assertNotIn(bad, json.dumps(payload))
+
     def test_concise_mode_has_one_word_budget_instead_of_default_brief_budget(self):
         source = 'Помехи и слабый сигнал могут снижать скорость. Сравни соединение по кабелю и рядом с роутером.'
         with patch('bot.http_json', return_value=self.result('слабый сигнал и помехи проверь кабель.')) as model:
-            self.bot.generate(self.job('короче', response_control='concise', quoted_message=source))
+            self.bot.generate(self.job('короче сохрани главное', response_control='concise', quoted_message=source))
         data = json.loads(model.call_args.args[1]['messages'][1]['content'])
         self.assertEqual(data['detail'], 'concise')
         self.assertLess(data['max_words'], len(source.split()))
@@ -146,7 +202,7 @@ class InferenceQualityTests(unittest.TestCase):
         good = 'Помехи могут снижать скорость. Сравни кабель и WiFi возле роутера.'
         self.assertEqual(assess(case, good, 10, 120), [])
         with patch('bot.http_json', side_effect=[self.result(broken), self.result(good)]) as model:
-            job = self.job('короче', response_control='concise', quoted_message=case['dialogue'][-1])
+            job = self.job('короче сохрани главное', response_control='concise', quoted_message=case['dialogue'][-1])
             self.assertEqual(self.bot.generate(job), good)
         self.assertEqual(model.call_count, 2)
         self.assertEqual(job['_rejections'], ['incomplete_rewrite'])
@@ -158,7 +214,7 @@ class InferenceQualityTests(unittest.TestCase):
         cases = {case['id']: case for case in json.loads((ROOT / 'dialogue_cases.json').read_text())}
         case = cases['shorter']
         source = case['dialogue'][-1]
-        job = self.job('короче', response_control='concise', quoted_message=source)
+        job = self.job('короче сохрани главное', response_control='concise', quoted_message=source)
         with patch('bot.http_json', return_value=self.result('слишком длинный ответ ' * 20)) as model:
             answer = self.bot.generate(job)
         self.assertEqual(answer, 'Помехи и слабый сигнал могут снижать скорость.')
@@ -208,7 +264,7 @@ class InferenceQualityTests(unittest.TestCase):
     def test_lost_uncertainty_is_retried_and_checked_extract_is_used_if_repeated(self):
         source = 'Помехи и слабый сигнал могут снижать скорость. Сравни соединение по кабелю и рядом с роутером.'
         for second in ['Помехи могут снижать скорость.', 'Помехи — причина тормозов.']:
-            job = self.job('короче', response_control='concise', quoted_message=source)
+            job = self.job('короче сохрани главное', response_control='concise', quoted_message=source)
             with patch('bot.http_json', side_effect=[self.result('Помехи — причина тормозов.'), self.result(second)]) as model:
                 answer = self.bot.generate(job)
             self.assertIn('могут', answer)
@@ -261,7 +317,7 @@ class InferenceQualityTests(unittest.TestCase):
         for value in [token, 'example.com', 'user@']:
             self.assertNotIn(value, captured)
         source = 'Помехи и слабый сигнал могут снижать скорость. Сравни соединение по кабелю и рядом с роутером.'
-        job = self.job('короче', response_control='concise', quoted_message=source, _capture_rejections=True)
+        job = self.job('короче сохрани главное', response_control='concise', quoted_message=source, _capture_rejections=True)
         with patch('bot.http_json', return_value=self.result('слишком длинный ответ ' * 20)):
             self.bot.generate(job)
         detail = job['_rejection_details'][0]
@@ -294,7 +350,7 @@ class InferenceQualityTests(unittest.TestCase):
                                     _reply_to=1, _answer_mode='question'), human=False)
         with patch('bot.http_json', side_effect=[self.result('слишком длинный ответ ' * 20),
                     self.result('помехи и слабый сигнал сравни соединение по кабелю.')]) as model:
-            self.bot.generate(self.job('короче', dialogue_id=2, response_control='concise'))
+            self.bot.generate(self.job('короче сохрани главное', dialogue_id=2, response_control='concise'))
         self.assertEqual(model.call_count, 2)
         data = json.loads(model.call_args.args[1]['messages'][1]['content'])
         self.assertEqual(data['rewrite_source'], source)
@@ -362,7 +418,7 @@ class InferenceQualityTests(unittest.TestCase):
                                     _reply_to=1, _answer_mode='question'), human=False)
         reply = 'помехи могут снижать скорость. сравни соединение по кабелю.'
         with patch('bot.http_json', return_value=self.result(reply)) as model:
-            self.assertEqual(self.bot.generate(self.job('короче', dialogue_id=2, response_control='concise')), reply)
+            self.assertEqual(self.bot.generate(self.job('короче сохрани главное', dialogue_id=2, response_control='concise')), reply)
         model.assert_called_once()
 
     def test_bad_diagnostic_guarantee_retries_with_reason_and_no_guarantee_is_sent(self):

@@ -24,7 +24,7 @@ from question_answers import (PROMPT as QUESTION_PROMPT, FALLBACKS as QUESTION_F
 from assistant_features import (FeatureStore, FEATURE_COMMANDS, FOLLOWUP, CALL as FEATURE_CALL, feature_request,
                                 negative_reason, memory_context)
 from style_profile import profile_for_request
-from answer_quality import (answer_problem, concise_extract, concise_problem, concise_word_limit, contextual_request, explanation_problem,
+from answer_quality import (answer_problem, checked_concise_extract, concise_extract, concise_problem, concise_word_limit, contextual_request, diagnostic_retry_guidance, explanation_problem,
                             grounding_problem, question_context)
 from conversation import (ambiguous_subject, amendment_request, banter_request, control_remainder, inline_control,
                           response_control as standalone_control, verification_query)
@@ -1252,7 +1252,16 @@ class Bot:
         word_limit = concise_word_limit(rewrite_source) if control == 'concise' else 45
         if control == 'concise':
             data.update(detail='concise', max_words=word_limit)
+        if (control == 'concise' and standalone_control(job['text']) == 'concise'
+                and not job.get('request_updates') and len(rewrite_source.split()) <= 80):
+            candidate = checked_concise_extract(rewrite_source, subject, previous)
+            if candidate and answer_key(candidate) not in rejected:
+                if self.superseded(job):
+                    return None
+                job['_local_reply'] = 'concise_extract'
+                return answer_style(candidate)
         reason = None
+        failed_rule = None
         for attempt in range(2):
             if self.superseded(job):
                 return None
@@ -1270,9 +1279,10 @@ class Bot:
                 if reason == 'lost_uncertainty':
                     prompt += '\nСохрани степень уверенности исходного ответа: возможная причина остаётся возможной. Не превращай предположение в установленный диагноз.'
                 if reason == 'unsupported_certainty':
-                    prompt += ('\nУбери бездоказательный диагноз и обещания. Назови возможные причины '
+                    guidance = diagnostic_retry_guidance(failed_rule)
+                    prompt += '\n' + guidance if guidance else ('\nУбери бездоказательный диагноз и обещания. Назови возможные причины '
                                'и проверку которая их различит.')
-                    if re.search(r'\b(?:резерв\w*|б[эе]кап\w*|копи\w*)\b', subject + ' ' + rewrite_source, re.I):
+                    if not guidance and re.search(r'\b(?:резерв\w*|б[эе]кап\w*|копи\w*)\b', subject + ' ' + rewrite_source, re.I):
                         prompt += (' Сбой восстановления сам по себе не доказывает повреждение '
                                    'копии: сначала выясняют ошибку доступа совместимости или настроек.')
             retry_data=dict(data,dialogue=[row for row in dialogue if row['human']],
@@ -1297,7 +1307,7 @@ class Bot:
                 continue
             message = result.get('message') if isinstance(result, dict) else None
             answer = message.get('content') if isinstance(message, dict) else None
-            rejection_detail = [] if job.get('_capture_rejections') else None
+            rejection_detail = []
             rejection_rule = None
             if not isinstance(result, dict) or result.get('error') or not isinstance(answer, str):
                 reason = 'malformed_response'
@@ -1325,6 +1335,7 @@ class Bot:
                 return answer_style(answer.strip())
             LOG.warning('Ответ на вопрос отклонён: причина=%s; попытка=%s/2', reason, attempt + 1)
             job.setdefault('_rejections', []).append(reason)
+            failed_rule = rejection_detail[0]['rule'] if rejection_detail else rejection_rule
             if job.get('_capture_rejections'):
                 # Test-only opt-in. Never put generated text in normal logs or
                 # model retry data; redact identifiers before writing a report.
@@ -1338,12 +1349,8 @@ class Bot:
                     detail.update(words=len(answer.split()), max_words=word_limit)
                 job.setdefault('_rejection_details', []).append(detail)
         if control == 'concise' and reason in ('response_too_long', 'lost_uncertainty'):
-            candidate = concise_extract(rewrite_source)
-            if (candidate and not answer_problem(candidate, thoughtful=True)
-                    and not explanation_problem(candidate, previous, subject, reference=rewrite_source)
-                    and not grounding_problem(candidate, subject + ' ' + rewrite_source)
-                    and not concise_problem(candidate, rewrite_source)
-                    and answer_key(candidate) not in rejected):
+            candidate = checked_concise_extract(rewrite_source, subject, previous)
+            if candidate and answer_key(candidate) not in rejected:
                 job['_rewrite_fallback'] = 'source_sentences'
                 return answer_style(candidate)
         return None
