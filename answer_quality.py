@@ -142,8 +142,12 @@ def concise_extract(source):
     return candidate if candidate and len(candidate.split()) < len(source.split()) else None
 
 
-def grounding_problem(text, subject):
+def grounding_problem(text, subject, diagnostics=None):
     """Reject narrow, unsupported diagnostic guarantees, not ordinary advice."""
+    def reject(reason, rule, fragment):
+        if diagnostics is not None:
+            diagnostics.append(dict(rule=rule, fragment=clean_text(fragment.strip())[:1000]))
+        return reason
     if not re.search(r'\b(?:сервер\w*|роутер\w*|wifi|вайфай|кабел\w*|соединени\w*|'
                      r'резерв\w*|б[эе]кап\w*|копи\w*)\b', subject, re.I):
         return None
@@ -151,7 +155,7 @@ def grounding_problem(text, subject):
     prose = prose.casefold().replace('ё', 'е')
     if re.search(r'\bпроверь\s+(?:кабель|роутер|провод)\s+и\s+'
                  r'(?:рядом|возле|около|по кабелю)\b', prose):
-        return 'incomplete_rewrite'
+        return reject('incomplete_rewrite', 'grounding.incomplete_action', prose)
     backup = bool(re.search(r'\b(?:резерв\w*|б[эе]кап\w*|копи\w*)\b', subject + ' ' + prose, re.I))
     clauses = re.split(r'[.!?;\n]|\b(?:но|однако|зато)\b', prose)
     for index, clause in enumerate(clauses):
@@ -163,20 +167,20 @@ def grounding_problem(text, subject):
             if (re.search(r'\b(?:виноват\w*|проблема в|дело в|причина в|сбой в)\b', conclusion)
                     and not UNCERTAIN.search(conclusion)
                     and not re.search(r'\b(?:проверь|проверить|не факт|нельзя утверждать)\b', conclusion)):
-                return 'unsupported_certainty'
+                return reject('unsupported_certainty', 'grounding.network_comparison_verdict', clause)
         if re.search(r'\b(?:не (?:факт|всегда|обязательно|гарантиру\w*|означает|доказ\w*)|'
                      r'нельзя (?:гарантировать|утверждать)|недостаточно|не доказывает)\b', clause):
             continue
         if re.search(r'\b(?:возможно|вероятно|может|могут|могла|могло|скорее|попробуй)\b', clause):
             continue
         if re.search(r'\bесли\b.{0,90}\b(?:скорость|сигнал)\b.{0,90}\bвиноват\w*\b', clause):
-            return 'unsupported_certainty'
+            return reject('unsupported_certainty', 'grounding.network_culprit_after_condition', clause)
         log_reference = re.search(r'\b(?:там|логи|логах|логов|журнал\w*)\b', clause)
         exact_reason = re.search(r'\b(?:точн\w*.{0,16}причин\w*|причин\w*.{0,16}точн\w*)\b', clause)
         assertion = re.search(r'\b(?:будет|есть|найд\w*|укаж\w*|покаж\w*|содерж\w*|написан\w*|'
                               r'даст|дадут|видно|всегда|обязательно)\b', clause)
         if log_reference and exact_reason and assertion:
-            return 'unsupported_certainty'
+            return reject('unsupported_certainty', 'grounding.logs_guarantee', clause)
         # Restoration failure is not proof of corrupt media. Handle conclusions
         # with an implicit noun too: "ошибка — значит битая".
         evidence = ' '.join(clauses[max(0, index - 1):index + 1])
@@ -193,13 +197,13 @@ def grounding_problem(text, subject):
             verdict = re.search(r'(?:[—–-]|\bто\b|\bиначе\b|\bв противном случае\b)\s*'
                                 r'(?:(?:копия|б[эе]кап|она|он)\s+)?(?:либо\s+|или\s+)?' + corruption, clause)
         if backup and failed_restore and verdict:
-            return 'unsupported_certainty'
+            return reject('unsupported_certainty', 'grounding.restore_failure_verdict', clause)
         if re.search(r'\bтам точно (?:написано|видно|будет)|'
                      r'\b(?:логи|журнал\w*)[^.!?\n]{0,40}\b(?:точно|всегда)\b|'
                      r'\bвс[её] будет норм\w*|\bточно (?:решит|поможет)\b|'
                      r'\b(?:кабел\w*|провод\w*)[^.!?\n]{0,60}\bбез (?:любых )?потерь\b|'
                      r'\b(?:копия|б[эе]кап) (?:сломана?|испорчен\w*|битый)\b', clause):
-            return 'unsupported_certainty'
+            return reject('unsupported_certainty', 'grounding.absolute_guarantee', clause)
     return None
 
 

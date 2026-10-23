@@ -62,7 +62,7 @@ def assess(case, answer, elapsed, max_seconds):
     return errors
 
 
-def evaluate(case, config, run_model=False, max_seconds=120):
+def evaluate(case, config, run_model=False, max_seconds=120, capture_rejections=False):
     mode = route(case)
     result = {'id': case['id'], 'expected_mode': case['mode'], 'actual_mode': mode,
               'errors': [] if mode == case['mode'] else ['wrong_route'], 'model_checked': False}
@@ -85,7 +85,7 @@ def evaluate(case, config, run_model=False, max_seconds=120):
         job = dict(chat_id=-100123, text=case['request'], reply_to=200, automatic=False,
                    queued_at=now, dialogue_id=parent, thoughtful=mode == 'question', user_id=7,
                    response_control=case.get('control') or inline_control(case['request']),
-                   request_updates=case.get('updates', []))
+                   request_updates=case.get('updates', []), _capture_rejections=capture_rejections)
         started = time.monotonic()
         try:
             answer = bot.generate(job)
@@ -96,6 +96,8 @@ def evaluate(case, config, run_model=False, max_seconds=120):
                       seconds=elapsed, answer=answer, local_reply=job.get('_local_reply'),
                       metrics=job.get('_metrics', {}), calls=job.get('_inference_calls', []),
                       rejections=job.get('_rejections', []), rewrite_fallback=job.get('_rewrite_fallback'))
+        if capture_rejections:
+            result['rejection_details'] = job.get('_rejection_details', [])
         result['errors'].extend(assess(case, answer, elapsed, max_seconds))
     return result
 
@@ -144,6 +146,8 @@ def main(argv=None):
     parser.add_argument('--max-seconds', type=float, default=120)
     parser.add_argument('--case', action='append', default=[])
     parser.add_argument('--report', type=Path, help='optional JSON report, including generated answers')
+    parser.add_argument('--show-rejections', action='store_true',
+                        help='include redacted rejected answers and rule IDs in console and report')
     args = parser.parse_args(argv)
     saved = json.loads(CONFIG.read_text()) if CONFIG.exists() else {}
     config = dict(owner_id=42, model=args.model or saved.get('model', MODEL),
@@ -166,7 +170,7 @@ def main(argv=None):
         print(f'Подготовка модели отдельно от сценариев: {initial["seconds"]:.2f} сек. '
               f'· постоянный контекст {initial["context"]} ток.', flush=True)
     for case in cases:
-        result = evaluate(case, config, args.run_model, args.max_seconds)
+        result = evaluate(case, config, args.run_model, args.max_seconds, capture_rejections=args.show_rejections)
         results.append(result)
         status = 'FAIL' if result['errors'] else 'OK'
         print(f'{status} {case["id"]}: {result["actual_mode"]} · {timing_text(result)}', flush=True)
@@ -176,6 +180,13 @@ def main(argv=None):
             print('Причины: ' + ', '.join(result['errors']), flush=True)
         if result.get('rejections'):
             print('Отклонения до готового ответа: ' + ', '.join(result['rejections']), flush=True)
+        for detail in result.get('rejection_details', []):
+            print(f'Отклонённая попытка {detail["attempt"]}: {detail["reason"]} · правило={detail["rule"]}', flush=True)
+            if detail.get('words') is not None:
+                print(f'Слов: {detail["words"]}; предел: {detail["max_words"]}', flush=True)
+            print(detail.get('answer') or '[нет текстового ответа]', flush=True)
+            if detail.get('fragment'):
+                print('Сработавший фрагмент: ' + detail['fragment'], flush=True)
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps(results, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')

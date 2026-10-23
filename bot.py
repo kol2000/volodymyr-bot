@@ -1297,6 +1297,8 @@ class Bot:
                 continue
             message = result.get('message') if isinstance(result, dict) else None
             answer = message.get('content') if isinstance(message, dict) else None
+            rejection_detail = [] if job.get('_capture_rejections') else None
+            rejection_rule = None
             if not isinstance(result, dict) or result.get('error') or not isinstance(answer, str):
                 reason = 'malformed_response'
             elif result.get('done_reason') == 'length':
@@ -1309,17 +1311,32 @@ class Bot:
                 if not reason:
                     reason = explanation_problem(answer,previous,subject,reference=rewrite_source)
                 if not reason:
-                    reason = grounding_problem(answer, subject + ' ' + rewrite_source)
+                    reason = grounding_problem(answer, subject + ' ' + rewrite_source, diagnostics=rejection_detail)
                 if not reason and answer_key(answer) in rejected:
                     reason = 'negative_feedback'
                 if not reason and control == 'concise' and len(answer.split()) > word_limit:
                     reason = 'response_too_long'
+                    rejection_rule = 'rewrite.word_limit'
                 if not reason and control == 'concise':
                     reason = concise_problem(answer, rewrite_source)
+                    if reason:
+                        rejection_rule = 'rewrite.' + reason
             if not reason:
                 return answer_style(answer.strip())
             LOG.warning('Ответ на вопрос отклонён: причина=%s; попытка=%s/2', reason, attempt + 1)
             job.setdefault('_rejections', []).append(reason)
+            if job.get('_capture_rejections'):
+                # Test-only opt-in. Never put generated text in normal logs or
+                # model retry data; redact identifiers before writing a report.
+                detail = dict(attempt=attempt + 1, reason=reason,
+                              rule=(rejection_detail[0]['rule'] if rejection_detail else
+                                    rejection_rule or 'answer.' + reason),
+                              answer=clean_text(answer)[:4000] if isinstance(answer, str) else None)
+                if rejection_detail:
+                    detail['fragment'] = rejection_detail[0]['fragment']
+                if rejection_rule == 'rewrite.word_limit' and isinstance(answer, str):
+                    detail.update(words=len(answer.split()), max_words=word_limit)
+                job.setdefault('_rejection_details', []).append(detail)
         if control == 'concise' and reason in ('response_too_long', 'lost_uncertainty'):
             candidate = concise_extract(rewrite_source)
             if (candidate and not answer_problem(candidate, thoughtful=True)

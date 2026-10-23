@@ -233,6 +233,60 @@ class InferenceQualityTests(unittest.TestCase):
                        'Проблема в WiFi подтверждена измерениями и диагностикой оборудования.']:
             self.assertIsNone(grounding_problem(answer, subject), answer)
 
+    def test_rejection_capture_is_opt_in_and_never_logs_text_or_feeds_it_to_retry(self):
+        bad = 'В логах будет точная причина. rejected-answer-sentinel'
+        for capture in [False, True]:
+            job = self.job('Почему сервер теряет соединение?', _capture_rejections=capture)
+            with patch('bot.http_json', return_value=self.result(bad)) as model, self.assertLogs('volodymyr', level='WARNING') as logs:
+                self.assertIsNone(self.bot.generate(job))
+            self.assertNotIn('rejected-answer-sentinel', ' '.join(logs.output))
+            self.assertNotIn('rejected-answer-sentinel', str(model.call_args.args[1]))
+            if capture:
+                self.assertEqual(len(job['_rejection_details']), 2)
+                detail = job['_rejection_details'][0]
+                self.assertEqual(detail['answer'], bad)
+                self.assertEqual(detail['rule'], 'grounding.logs_guarantee')
+                self.assertEqual(detail['attempt'], 1)
+                self.assertIn('точная причина', detail['fragment'])
+            else:
+                self.assertNotIn('_rejection_details', job)
+
+    def test_diagnostic_capture_redacts_identifiers_and_records_length_limits(self):
+        token = '123456789:' + 'A' * 30
+        bad = token + ' https://example.com/private user@example.com'
+        job = self.job('Почему сервер теряет соединение?', _capture_rejections=True)
+        with patch('bot.http_json', return_value=self.result(bad)):
+            self.bot.generate(job)
+        captured = json.dumps(job['_rejection_details'])
+        for value in [token, 'example.com', 'user@']:
+            self.assertNotIn(value, captured)
+        source = 'Помехи и слабый сигнал могут снижать скорость. Сравни соединение по кабелю и рядом с роутером.'
+        job = self.job('короче', response_control='concise', quoted_message=source, _capture_rejections=True)
+        with patch('bot.http_json', return_value=self.result('слишком длинный ответ ' * 20)):
+            self.bot.generate(job)
+        detail = job['_rejection_details'][0]
+        self.assertEqual(detail['rule'], 'rewrite.word_limit')
+        self.assertEqual(detail['words'], 60)
+        self.assertEqual(detail['max_words'], concise_word_limit(source))
+
+    def test_cli_show_rejections_includes_both_failed_attempts_in_console_and_report(self):
+        report = Path(self.temp.name) / 'diagnostic.json'
+        output = io.StringIO()
+        bad = 'Если скорость вырастет проблема в WiFi.'
+        with patch('check_dialogues.CONFIG', Path(self.temp.name) / 'missing.json'), \
+                patch('check_dialogues.http_json', return_value={}), \
+                patch('bot.http_json', return_value=self.result(bad)), contextlib.redirect_stdout(output):
+            result = main(['--run-model', '--case', 'real-question', '--show-rejections', '--report', str(report)])
+        self.assertEqual(result, 1)
+        data = json.loads(report.read_text())[0]
+        self.assertEqual(data['errors'], ['empty_answer'])
+        self.assertEqual([detail['attempt'] for detail in data['rejection_details']], [1, 2])
+        self.assertEqual(data['rejection_details'][1]['rule'], 'grounding.network_comparison_verdict')
+        self.assertEqual(data['rejection_details'][1]['answer'], bad)
+        self.assertIn('Отклонённая попытка 2', output.getvalue())
+        self.assertIn('Сработавший фрагмент:', output.getvalue())
+        self.assertIn(bad, output.getvalue())
+
     def test_shortening_retry_keeps_the_specific_source_after_removing_old_assistant_turns(self):
         source = 'Помехи и слабый сигнал могут снижать скорость. Сравни соединение по кабелю и рядом с роутером.'
         self.store.add_message(dict(chat={'id': -100}, message_id=1, date=time.time(), text='Почему WiFi тормозит?'))
