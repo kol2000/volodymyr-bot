@@ -170,6 +170,32 @@ class InferenceQualityTests(unittest.TestCase):
             self.assertEqual(json.loads(payload['messages'][1]['content'])['current_request'], subject)
             self.assertNotIn(bad, json.dumps(payload))
 
+    def test_default_questions_use_neutral_prompt_and_spelling_without_archive_profile(self):
+        from question_answers import NEUTRAL_PROMPT, substantive_style
+        raw = 'Это, возможно, помехи. Ты проверь 0,25 и `ты, это`, а также «ты, это».'
+        with patch('bot.profile_for_request') as profile, patch('bot.http_json', return_value=self.result(raw)) as model:
+            answer = self.bot.generate(self.job('Почему WiFi медленнее кабеля?'))
+        profile.assert_not_called()
+        payload = model.call_args.args[1]
+        self.assertEqual(payload['messages'][0]['content'], NEUTRAL_PROMPT)
+        self.assertNotIn('speech_profile', json.loads(payload['messages'][1]['content']))
+        self.assertEqual(answer, 'Ето, возможно, помехи. Ти проверь 0,25 и `ты, это`, а также «ты, это».')
+        self.assertEqual(substantive_style('Спасибо, пожалуйста, проверь.'), 'Спасибо, пожалуйста, проверь.')
+        self.assertEqual(substantive_style('```python\nprint("ты, это", [1, 2])\n```'),
+                         '```python\nprint("ты, это", [1, 2])\n```')
+
+    def test_cable_external_immunity_is_rejected_without_blocking_limited_or_negated_claims(self):
+        bad = 'WiFi может быть медленнее. Кабель обеспечивает стабильное соединение без внешних влияний.'
+        detail = []
+        self.assertEqual(grounding_problem(bad, 'Почему WiFi медленнее кабеля?', detail), 'unsupported_certainty')
+        self.assertEqual(detail[0]['rule'], 'grounding.cable_external_immunity')
+        for answer in ['Кабель не гарантирует передачу без внешних влияний.',
+                       'Кабель меньше зависит от радиопомех.', 'WiFi чувствителен к помехам и расстоянию.']:
+            self.assertIsNone(grounding_problem(answer, 'Почему WiFi медленнее кабеля?'))
+        with patch('bot.http_json', side_effect=[self.result(bad), self.result('Кабель меньше зависит от радиопомех.')]) as model:
+            self.assertEqual(self.bot.generate(self.job('Почему WiFi медленнее кабеля?')), 'Кабель меньше зависит от радиопомех.')
+        self.assertIn('Убери абсолютную гарантию', model.call_args.args[1]['messages'][0]['content'])
+
     def test_neutral_diagnostic_removes_persona_profile_and_output_styling_only(self):
         from question_answers import PROMPT, NEUTRAL_PROMPT
         self.assertIn('Ты — явно обозначенный бот-пародия', PROMPT)

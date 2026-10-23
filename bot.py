@@ -20,7 +20,7 @@ from community import (COMMUNITY_COMMANDS, GREETINGS, OWNER_FEATURES, community_
 from retrieval import build_index, find_examples, random_candidates
 from feedback import praise_signal, rating_signal, relevant_approved, salary_acknowledgement
 from question_answers import (PROMPT as QUESTION_PROMPT, NEUTRAL_PROMPT, FALLBACKS as QUESTION_FALLBACKS,
-                              ends_question, thoughtful_request, answer_style)
+                              ends_question, thoughtful_request, answer_style, substantive_style)
 from assistant_features import (FeatureStore, FEATURE_COMMANDS, FOLLOWUP, CALL as FEATURE_CALL, feature_request,
                                 negative_reason, memory_context)
 from style_profile import profile_for_request
@@ -1204,8 +1204,9 @@ class Bot:
         # Separate prompt and validation: short parody examples and the 35-word
         # filter must never replace an explanation with a random angry phrase.
         LOG.info('Начата генерация содержательного ответа')
-        neutral = job.get('_diagnostic_question_style') == 'neutral'
-        render_answer = (lambda text: text) if neutral else answer_style
+        question_style = job.get('_diagnostic_question_style', 'standard')
+        neutral = question_style != 'parody'
+        render_answer = (lambda text: text) if question_style == 'neutral' else substantive_style if neutral else answer_style
         dialogue=self.store.dialogue(job['chat_id'],job.get('dialogue_id'))
         updates = [dict(speaker=job.get('speaker', 'собеседник'), text=text, human=True)
                    for text in job.get('request_updates', [])]
@@ -1249,7 +1250,7 @@ class Bot:
             available = [text for text in choices if answer_key(text) not in keys]
             answer = available[0] if available else max(choices, key=lambda text: keys.index(answer_key(text)))
             job['_local_reply'] = 'clarification'
-            return answer
+            return render_answer(answer)
         rewrite_source = ''
         if control or job.get('detailed'):
             rewrite_source = quoted or next((row['text'] for row in reversed(dialogue) if not row['human']), '')
@@ -1536,7 +1537,10 @@ class Bot:
                 root['_sending'] = True
         try:
             if not utility:
-                answer = parody_text(answer)
+                if thoughtful and job.get('_diagnostic_question_style', 'standard') == 'standard':
+                    answer = substantive_style(answer)
+                elif not thoughtful or job.get('_diagnostic_question_style') != 'neutral':
+                    answer = parody_text(answer)
             if tease_target:
                 answer = f'@{TEASE_USERNAME} ' + answer
             send_started = time.monotonic()

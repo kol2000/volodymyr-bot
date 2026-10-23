@@ -156,6 +156,11 @@ def grounding_problem(text, subject, diagnostics=None):
     if re.search(r'\bпроверь\s+(?:кабель|роутер|провод)\s+и\s+'
                  r'(?:рядом|возле|около|по кабелю)\b', prose):
         return reject('incomplete_rewrite', 'grounding.incomplete_action', prose)
+    for clause in re.split(r'[.!?;\n]|\b(?:но|однако|зато)\b', prose):
+        if (re.search(r'\b(?:кабел\w*|провод\w*)\b', clause)
+                and re.search(r'\bбез (?:любых |каких-либо )?внешних влияний\b', clause)
+                and not re.search(r'\b(?:не гарантиру\w*|не означает|не доказывает|нельзя утверждать)\b', clause)):
+            return reject('unsupported_certainty', 'grounding.cable_external_immunity', clause)
     backup = bool(re.search(r'\b(?:резерв\w*|б[эе]кап\w*|копи\w*)\b', subject + ' ' + prose, re.I))
     clauses = re.split(r'[.!?;\n]|\b(?:но|однако|зато)\b', prose)
     for index, clause in enumerate(clauses):
@@ -221,6 +226,9 @@ def checked_concise_extract(source, subject, previous=()):
 
 
 def diagnostic_retry_guidance(rule):
+    if rule == 'grounding.cable_external_immunity':
+        return ('Убери абсолютную гарантию защищённости кабеля от внешних факторов. '
+                'Объясни возможные различия подключений без обещаний полной невосприимчивости.')
     if rule == 'grounding.cable_no_loss':
         return ('Убери гарантию передачи без потерь. Объясни различия WiFi и кабеля '
                 'через возможные помехи расстояние и загрузку. Сравнение скорости '

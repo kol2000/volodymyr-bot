@@ -68,8 +68,8 @@ def assess(case, answer, elapsed, max_seconds):
     return errors
 
 
-def evaluate(case, config, run_model=False, max_seconds=120, capture_rejections=False, question_style='parody'):
-    if question_style not in ('parody', 'neutral'):
+def evaluate(case, config, run_model=False, max_seconds=120, capture_rejections=False, question_style='standard'):
+    if question_style not in ('standard', 'parody', 'neutral'):
         raise ValueError('unknown diagnostic question style')
     mode = route(case)
     result = {'id': case['id'], 'expected_mode': case['mode'], 'actual_mode': mode,
@@ -159,8 +159,8 @@ def main(argv=None):
     parser.add_argument('--report', type=Path, help='optional JSON report, including generated answers')
     parser.add_argument('--show-rejections', action='store_true',
                         help='include redacted rejected answers and rule IDs in console and report')
-    parser.add_argument('--question-style', choices=('parody', 'neutral', 'compare'), default='parody',
-                        help='test ordinary questions, neutral questions, or both with identical checks')
+    parser.add_argument('--question-style', choices=('standard', 'parody', 'neutral', 'compare'), default='standard',
+                        help='standard: neutral prompt with spelling only; compare: legacy parody versus neutral')
     args = parser.parse_args(argv)
     saved = json.loads(CONFIG.read_text()) if CONFIG.exists() else {}
     config = dict(owner_id=42, model=args.model or saved.get('model', MODEL),
@@ -172,11 +172,11 @@ def main(argv=None):
         cases = [case for case in cases if case['id'] in args.case]
         if len(cases) != len(set(args.case)):
             parser.error('unknown case id')
-    if args.question_style != 'parody' and (not args.run_model or any(route(case) != 'question' for case in cases)):
+    if args.question_style in ('neutral', 'compare') and (not args.run_model or any(route(case) != 'question' for case in cases)):
         parser.error('--question-style neutral/compare requires --run-model and only question cases; select them with --case')
     results = []
     print('Telegram отключён. Основная база и банк не изменяются. Веб-поиск отключён.', flush=True)
-    if args.question_style != 'parody':
+    if args.question_style != 'standard':
         print('Диагностический стиль: ' + args.question_style + '. Проверки качества и настройки модели одинаковые.', flush=True)
     if args.run_model and any(uses_model(case) for case in cases):
         try:
@@ -192,7 +192,7 @@ def main(argv=None):
                           capture_rejections=args.show_rejections, question_style=style)
         results.append(result)
         status = 'FAIL' if result['errors'] else 'OK'
-        label = case['id'] + (f' [{style}]' if args.question_style != 'parody' else '')
+        label = case['id'] + (f' [{style}]' if args.question_style != 'standard' else '')
         print(f'{status} {label}: {result["actual_mode"]} · {timing_text(result)}', flush=True)
         if result.get('answer'):
             print(result['answer'], flush=True)

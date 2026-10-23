@@ -8,7 +8,7 @@ from unittest.mock import patch
 from bot import Bot, Store, answer_problem
 from common import APIError, MODEL
 from inference import MODEL_CONTEXT
-from question_answers import FALLBACK, PROMPT, answer_style, ends_question, thoughtful_request
+from question_answers import FALLBACK, PROMPT, NEUTRAL_PROMPT, answer_style, substantive_style, ends_question, thoughtful_request
 from test_bot import FakeTelegram
 
 
@@ -121,7 +121,7 @@ class QuestionTests(unittest.TestCase):
         self.assertNotIn('style_examples', data)
         archive.assert_not_called()
         approved.assert_not_called()
-        self.assertEqual(model.call_args.args[1]['messages'][0]['content'], PROMPT)
+        self.assertEqual(model.call_args.args[1]['messages'][0]['content'], NEUTRAL_PROMPT)
         self.assertEqual(model.call_args.args[1]['options']['num_ctx'], MODEL_CONTEXT)
         self.assertEqual(model.call_args.args[1]['options']['num_predict'], 256)
         self.assertEqual(model.call_args.kwargs['timeout'], 120)
@@ -224,6 +224,6 @@ class QuestionTests(unittest.TestCase):
                                    text='проверь соединение по кабелю и сравни с WiFi'), human=False)
         text = 'проверь соединение по кабелю. если скорость нормальная, проверь помехи в WiFi.'
         with patch('bot.http_json', return_value=self.result(text)) as model:
-            self.assertEqual(self.bot.generate(self.job()), answer_style(text))
+            self.assertEqual(self.bot.generate(self.job()), substantive_style(text))
         model.assert_called_once()
 

@@ -89,7 +89,7 @@ class SpeechTests(unittest.TestCase):
             raw = 'Спасибо за вопрос. Ты, пожалуйста, проверь кабель — там более-менее понятно.'
             with patch('bot.http_json', return_value={'message': {'content': raw}}) as model:
                 bot.process_job(job)
-            self.assertEqual(telegram.sent[0][1], 'Ти проверь кабель — там болья менья понятно.')
+            self.assertEqual(telegram.sent[0][1], 'Спасибо за вопрос. Ти, пожалуйста, проверь кабель — там более-менее понятно.')
             self.assertEqual(model.call_args.args[1]['messages'][1]['role'], 'user')
             self.assertIn('как, пожалуйста, сделать более-менее?', model.call_args.args[1]['messages'][1]['content'])
             with patch('bot.random_candidates', return_value=['ти, бля, более-менее ожив']):

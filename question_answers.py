@@ -1,7 +1,7 @@
 """Routing and bounded prompts for substantive local answers."""
 import re
 
-from common import parody_text
+from common import parody_text, surzhyk_text
 from conversation import banter_request
 
 QUESTION_END = re.compile(r'\?[\s!?…»”"\u2019)\]]*$')
@@ -114,3 +114,11 @@ def thoughtful_request(text):
 
 def answer_style(text):
     return parody_text(text)
+
+
+def substantive_style(text):
+    """Spelling only: keep punctuation, politeness, literals and factual content."""
+    parts = re.split(r'(```[\s\S]*?```|`[^`\n]+`|«[^»\n]*»|"[^"\n]*"|https?://\S+)', text)
+    for index in range(0, len(parts), 2):
+        parts[index] = surzhyk_text(parts[index])
+    return ''.join(parts).strip()
