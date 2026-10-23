@@ -123,6 +123,37 @@ class InferenceQualityTests(unittest.TestCase):
         self.assertLess(data['max_words'], len(source.split()))
         self.assertIn('max_words', model.call_args.args[1]['messages'][0]['content'])
 
+    def test_controls_share_system_prefix_and_expose_source_on_first_attempt(self):
+        source = 'Помехи и слабый сигнал могут снижать скорость. Сравни соединение по кабелю и рядом с роутером.'
+        prompts = []
+        for control in [None, 'concise', 'serious', 'plain', 'example']:
+            with patch('bot.http_json', return_value=self.result('помехи снижают скорость.')) as model:
+                self.bot.generate(self.job('Почему WiFi тормозит?', response_control=control,
+                                           quoted_message=source))
+            payload = model.call_args.args[1]
+            prompts.append(payload['messages'][0]['content'])
+            if control:
+                data = json.loads(payload['messages'][1]['content'])
+                self.assertEqual(data['rewrite_source'], source)
+                self.assertEqual(data['response_control'], control)
+        self.assertEqual(len(set(prompts)), 1)
+
+    def test_real_broken_shortening_is_rejected_and_retried_with_source(self):
+        cases = {case['id']: case for case in json.loads((ROOT / 'dialogue_cases.json').read_text())}
+        case = cases['shorter']
+        broken = 'Помехи расстояние перегрузка. Проверь кабель и рядом с роутером.'
+        self.assertIn('incomplete_rewrite', assess(case, broken, 33, 120))
+        good = 'Помехи снижают скорость. Сравни кабельное соединение и WiFi возле роутера.'
+        self.assertEqual(assess(case, good, 10, 120), [])
+        with patch('bot.http_json', side_effect=[self.result(broken), self.result(good)]) as model:
+            job = self.job('короче', response_control='concise', quoted_message=case['dialogue'][-1])
+            self.assertEqual(self.bot.generate(job), good)
+        self.assertEqual(model.call_count, 2)
+        self.assertEqual(job['_rejections'], ['incomplete_rewrite'])
+        retry = model.call_args.args[1]['messages']
+        self.assertIn('Сохрани действие сравнения', retry[0]['content'])
+        self.assertEqual(json.loads(retry[1]['content'])['rewrite_source'], case['dialogue'][-1])
+
     def test_shortening_retry_keeps_the_specific_source_after_removing_old_assistant_turns(self):
         source = 'Помехи и слабый сигнал могут снижать скорость. Сравни соединение по кабелю и рядом с роутером.'
         self.store.add_message(dict(chat={'id': -100}, message_id=1, date=time.time(), text='Почему WiFi тормозит?'))

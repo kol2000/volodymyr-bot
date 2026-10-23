@@ -24,7 +24,7 @@ from question_answers import (PROMPT as QUESTION_PROMPT, FALLBACKS as QUESTION_F
 from assistant_features import (FeatureStore, FEATURE_COMMANDS, FOLLOWUP, CALL as FEATURE_CALL, feature_request,
                                 negative_reason, memory_context)
 from style_profile import profile_for_request
-from answer_quality import (answer_problem, concise_word_limit, contextual_request, explanation_problem,
+from answer_quality import (answer_problem, concise_problem, concise_word_limit, contextual_request, explanation_problem,
                             grounding_problem, question_context)
 from conversation import (ambiguous_subject, amendment_request, banter_request, control_remainder, inline_control,
                           response_control as standalone_control, verification_query)
@@ -1247,6 +1247,8 @@ class Bot:
         rewrite_source = ''
         if control or job.get('detailed'):
             rewrite_source = quoted or next((row['text'] for row in reversed(dialogue) if not row['human']), '')
+        if rewrite_source:
+            data['rewrite_source'] = rewrite_source
         word_limit = concise_word_limit(rewrite_source) if control == 'concise' else 45
         if control == 'concise':
             data.update(detail='concise', max_words=word_limit)
@@ -1255,18 +1257,13 @@ class Bot:
             if self.superseded(job):
                 return None
             prompt = QUESTION_PROMPT
-            if control:
-                prompt += '\n' + {
-                    'concise': f'Сейчас сократи предыдущий ответ до 1–2 коротких предложений максимум {word_limit} слов. Сохрани главное без новых советов и гарантий.',
-                    'plain': 'Сейчас объясни тот же предмет простыми словами без жаргона. Не ругай читателя за непонимание.',
-                    'serious': 'Сейчас отвечай только по делу без подколов и шуток. Прямая разговорная речь остаётся.',
-                    'example': 'Сейчас приведи один конкретный пример к вопросу или предыдущему объяснению.'
-                }.get(control, '')
             if attempt:
                 prompt += ('\nПредыдущий ответ отклонён: ' + reason
                            + '. Ответь заново именно на current_request. Не продолжай старую тему '
                            'при смене вопроса и не повторяй вступление. Если предмет вопроса неясен '
                            'задай одно конкретное уточнение. Без анализа задания.')
+                if reason == 'incomplete_rewrite':
+                    prompt += '\nСохрани действие сравнения из rewrite_source и его условия. Напиши законченное предложение без обрывков.'
                 if reason == 'unsupported_certainty':
                     prompt += ('\nУбери бездоказательный диагноз и обещания. Назови возможные причины '
                                'и проверку которая их различит.')
@@ -1312,6 +1309,8 @@ class Bot:
                     reason = 'negative_feedback'
                 if not reason and control == 'concise' and len(answer.split()) > word_limit:
                     reason = 'response_too_long'
+                if not reason and control == 'concise':
+                    reason = concise_problem(answer, rewrite_source)
             if not reason:
                 return answer_style(answer.strip())
             LOG.warning('Ответ на вопрос отклонён: причина=%s; попытка=%s/2', reason, attempt + 1)

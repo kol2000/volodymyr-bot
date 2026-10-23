@@ -8,7 +8,7 @@ from pathlib import Path
 
 from bot import Bot, Store, answer_problem
 from common import APIError, CONFIG, MODEL, ROOT, http_json
-from answer_quality import concise_word_limit, grounding_problem, specific_clarification
+from answer_quality import concise_problem, concise_word_limit, grounding_problem, specific_clarification
 from conversation import ambiguous_subject, inline_control, verification_query
 from inference import generation_stats, runner_options
 from question_answers import ends_question, thoughtful_request
@@ -46,6 +46,9 @@ def assess(case, answer, elapsed, max_seconds):
     if case.get('control') == 'concise' and case.get('dialogue'):
         if len(answer.split()) > concise_word_limit(case['dialogue'][-1]):
             errors.append('not_shorter_than_source')
+        problem = concise_problem(answer, case['dialogue'][-1])
+        if problem:
+            errors.append(problem)
     if case.get('require_question') and not ends_question(answer):
         errors.append('clarification_not_asked')
     if case.get('require_clarification') and not specific_clarification(answer):

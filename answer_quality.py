@@ -95,6 +95,15 @@ def concise_word_limit(source):
     return max(8, min(45, int(len(source.split()) * 0.7))) if source else 45
 
 
+def concise_problem(text, source):
+    """Catch a known lost-action rewrite, not general Russian grammar."""
+    if (source and re.search(r'\bсравн\w*\b', source, re.I)
+            and re.search(r'\bпроверь\s+(?:кабель|роутер|провод)\s+и\s+'
+                          r'(?:рядом|возле|около|по кабелю)\b', text, re.I)):
+        return 'incomplete_rewrite'
+    return None
+
+
 def grounding_problem(text, subject):
     """Reject narrow, unsupported diagnostic guarantees, not ordinary advice."""
     if not re.search(r'\b(?:сервер\w*|роутер\w*|wifi|вайфай|кабел\w*|соединени\w*|'
