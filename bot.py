@@ -1267,6 +1267,8 @@ class Bot:
                 if reason == 'response_too_long' and control == 'concise':
                     prompt += (f'\nСократи только rewrite_source до одного законченного предложения '
                                f'максимум {word_limit} слов. Оставь главную мысль без списка советов.')
+                if reason == 'lost_uncertainty':
+                    prompt += '\nСохрани степень уверенности исходного ответа: возможная причина остаётся возможной. Не превращай предположение в установленный диагноз.'
                 if reason == 'unsupported_certainty':
                     prompt += ('\nУбери бездоказательный диагноз и обещания. Назови возможные причины '
                                'и проверку которая их различит.')
@@ -1318,7 +1320,7 @@ class Bot:
                 return answer_style(answer.strip())
             LOG.warning('Ответ на вопрос отклонён: причина=%s; попытка=%s/2', reason, attempt + 1)
             job.setdefault('_rejections', []).append(reason)
-        if control == 'concise' and reason == 'response_too_long':
+        if control == 'concise' and reason in ('response_too_long', 'lost_uncertainty'):
             candidate = concise_extract(rewrite_source)
             if (candidate and not answer_problem(candidate, thoughtful=True)
                     and not explanation_problem(candidate, previous, subject, reference=rewrite_source)

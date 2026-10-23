@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from answer_quality import concise_extract, concise_word_limit, explanation_problem, grounding_problem, specific_clarification
+from answer_quality import concise_extract, concise_problem, concise_word_limit, explanation_problem, grounding_problem, specific_clarification
 from bot import Bot, Store
 from check_dialogues import assess, evaluate, main, timing_text, warm_model
 from common import APIError, MODEL, ROOT
@@ -127,7 +127,7 @@ class InferenceQualityTests(unittest.TestCase):
         source = 'Помехи и слабый сигнал могут снижать скорость. Сравни соединение по кабелю и рядом с роутером.'
         prompts = []
         for control in [None, 'concise', 'serious', 'plain', 'example']:
-            with patch('bot.http_json', return_value=self.result('помехи снижают скорость.')) as model:
+            with patch('bot.http_json', return_value=self.result('помехи могут снижать скорость.')) as model:
                 self.bot.generate(self.job('Почему WiFi тормозит?', response_control=control,
                                            quoted_message=source))
             payload = model.call_args.args[1]
@@ -143,7 +143,7 @@ class InferenceQualityTests(unittest.TestCase):
         case = cases['shorter']
         broken = 'Помехи расстояние перегрузка. Проверь кабель и рядом с роутером.'
         self.assertIn('incomplete_rewrite', assess(case, broken, 33, 120))
-        good = 'Помехи снижают скорость. Сравни кабельное соединение и WiFi возле роутера.'
+        good = 'Помехи могут снижать скорость. Сравни кабель и WiFi возле роутера.'
         self.assertEqual(assess(case, good, 10, 120), [])
         with patch('bot.http_json', side_effect=[self.result(broken), self.result(good)]) as model:
             job = self.job('короче', response_control='concise', quoted_message=case['dialogue'][-1])
@@ -189,6 +189,49 @@ class InferenceQualityTests(unittest.TestCase):
         for answer in ['Если нет — возможно повреждена либо не все данные скопированы.',
                        'Если скорость вырастет это может указывать на проблемы WiFi.']:
             self.assertIsNone(grounding_problem(answer, 'Как проверить резервную копию и WiFi?'))
+
+    def test_rewrite_preserves_hypotheses_but_does_not_require_modals_in_advice(self):
+        case = next(case for case in json.loads((ROOT / 'dialogue_cases.json').read_text()) if case['id'] == 'shorter')
+        source = case['dialogue'][-1]
+        for answer in ['Помехи или слабый сигнал — причина тормозов.',
+                       'Помехи снижают скорость.', 'Проблема в слабом сигнале.',
+                       'Возможно провайдер тормозит. Помехи — причина снижения скорости.']:
+            self.assertEqual(concise_problem(answer, source), 'lost_uncertainty', answer)
+        self.assertIn('lost_uncertainty', assess(case, 'Помехи или слабый сигнал — причина тормозов.', 17, 120))
+        for answer in ['Помехи могут снижать скорость.', 'Возможная причина — помехи.',
+                       'Сравни соединение по кабелю и рядом с роутером.',
+                       'Проверь возможные причины снижения скорости.',
+                       'Помехи не всегда снижают скорость.']:
+            self.assertIsNone(concise_problem(answer, source), answer)
+        self.assertIsNone(concise_problem('Сервер выключен.', 'Сервер выключен. Включи его.'))
+
+    def test_lost_uncertainty_is_retried_and_checked_extract_is_used_if_repeated(self):
+        source = 'Помехи и слабый сигнал могут снижать скорость. Сравни соединение по кабелю и рядом с роутером.'
+        for second in ['Помехи могут снижать скорость.', 'Помехи — причина тормозов.']:
+            job = self.job('короче', response_control='concise', quoted_message=source)
+            with patch('bot.http_json', side_effect=[self.result('Помехи — причина тормозов.'), self.result(second)]) as model:
+                answer = self.bot.generate(job)
+            self.assertIn('могут', answer)
+            self.assertEqual(model.call_count, 2)
+            self.assertEqual(job['_rejections'][0], 'lost_uncertainty')
+            self.assertIn('Сохрани степень уверенности', model.call_args.args[1]['messages'][0]['content'])
+            if 'могут' not in second:
+                self.assertEqual(job['_rewrite_fallback'], 'source_sentences')
+
+    def test_network_comparison_does_not_prove_a_diagnosis_or_allow_unrelated_hedges(self):
+        subject = 'Почему WiFi может быть медленнее кабеля?'
+        bad = ['Проверь кабель — если скорость вырастет проблема в WiFi.',
+               'Если по кабелю быстрее то дело в роутере.',
+               'Попробуй подключить кабель: если скорость вырастет причина в WiFi.',
+               'Возможно это помехи. Если сигнал пропадает виноват кабель.']
+        for answer in bad:
+            self.assertEqual(grounding_problem(answer, subject), 'unsupported_certainty', answer)
+        for answer in ['Если скорость вырастет проблема может быть в WiFi.',
+                       'Если по кабелю быстрее то вероятно дело в роутере.',
+                       'Если скорость вырастет проверь WiFi и настройки.',
+                       'Если скорость вырастет это не доказывает что проблема в WiFi.',
+                       'Проблема в WiFi подтверждена измерениями и диагностикой оборудования.']:
+            self.assertIsNone(grounding_problem(answer, subject), answer)
 
     def test_shortening_retry_keeps_the_specific_source_after_removing_old_assistant_turns(self):
         source = 'Помехи и слабый сигнал могут снижать скорость. Сравни соединение по кабелю и рядом с роутером.'
@@ -263,7 +306,7 @@ class InferenceQualityTests(unittest.TestCase):
         self.store.add_message(dict(chat={'id': -100}, message_id=1, date=time.time(), text='Почему WiFi тормозит?'))
         self.store.add_message(dict(chat={'id': -100}, message_id=2, date=time.time(), text=source,
                                     _reply_to=1, _answer_mode='question'), human=False)
-        reply = 'помехи и слабый сигнал снижают скорость. сравни соединение по кабелю.'
+        reply = 'помехи могут снижать скорость. сравни соединение по кабелю.'
         with patch('bot.http_json', return_value=self.result(reply)) as model:
             self.assertEqual(self.bot.generate(self.job('короче', dialogue_id=2, response_control='concise')), reply)
         model.assert_called_once()

@@ -95,13 +95,37 @@ def concise_word_limit(source):
     return max(8, min(45, int(len(source.split()) * 0.7))) if source else 45
 
 
+UNCERTAIN = re.compile(r'\b(?:может|могут|могла|могло|возможно|вероятно|возможн\w*|'
+                       r'иногда|часто|обычно|не всегда|не обязательно|не означает|не доказывает)\b', re.I)
+CAUSAL = re.compile(r'\b(?:причин\w*|вызыва\w*|снижа\w*|из[ -]за|проблема в|дело в)\b', re.I)
+
+
+def certainty_problem(text, source):
+    """A causal rewrite must not promote a source hypothesis to a diagnosis.
+
+    This is a bounded linguistic check, not a general semantic verifier. Match
+    shared topics per clause so an unrelated 'может' cannot license a verdict.
+    Advice-only extracts do not assert a cause and need no modal word.
+    """
+    prose = lambda value: re.sub(r'```.*?```|`[^`]*`|«[^»]*»|"[^"]*"', ' ', value, flags=re.S)
+    split = lambda value: re.split(r'[.!?;\n]|\b(?:но|однако|зато)\b', prose(value))
+    hypotheses = [topics(clause) for clause in split(source)
+                  if UNCERTAIN.search(clause) and CAUSAL.search(clause)]
+    for clause in split(text):
+        if (CAUSAL.search(clause) and not UNCERTAIN.search(clause)
+                and not re.match(r'^\s*(?:проверь|сравни|провер\w*|сравн\w*)\b', clause, re.I)
+                and any(topics(clause) & subject for subject in hypotheses)):
+            return 'lost_uncertainty'
+    return None
+
+
 def concise_problem(text, source):
     """Catch a known lost-action rewrite, not general Russian grammar."""
     if (source and re.search(r'\bсравн\w*\b', source, re.I)
             and re.search(r'\bпроверь\s+(?:кабель|роутер|провод)\s+и\s+'
                           r'(?:рядом|возле|около|по кабелю)\b', text, re.I)):
         return 'incomplete_rewrite'
-    return None
+    return certainty_problem(text, source)
 
 
 def concise_extract(source):
@@ -131,6 +155,15 @@ def grounding_problem(text, subject):
     backup = bool(re.search(r'\b(?:резерв\w*|б[эе]кап\w*|копи\w*)\b', subject + ' ' + prose, re.I))
     clauses = re.split(r'[.!?;\n]|\b(?:но|однако|зато)\b', prose)
     for index, clause in enumerate(clauses):
+        condition = re.search(r'\bесли\b.{0,70}\b(?:скорость|сигнал|по кабелю|wifi)\b'
+                              r'.{0,35}?(?:выраст\w*|увелич\w*|улучш\w*|быстрее|пропад\w*|'
+                              r'появ\w*|стабильн\w*)\b(?P<conclusion>.*)', clause)
+        if condition:
+            conclusion = condition['conclusion']
+            if (re.search(r'\b(?:виноват\w*|проблема в|дело в|причина в|сбой в)\b', conclusion)
+                    and not UNCERTAIN.search(conclusion)
+                    and not re.search(r'\b(?:проверь|проверить|не факт|нельзя утверждать)\b', conclusion)):
+                return 'unsupported_certainty'
         if re.search(r'\b(?:не (?:факт|всегда|обязательно|гарантиру\w*|означает|доказ\w*)|'
                      r'нельзя (?:гарантировать|утверждать)|недостаточно|не доказывает)\b', clause):
             continue
