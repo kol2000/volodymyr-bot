@@ -81,6 +81,16 @@ chat_memories — явно записанные участниками дого�
 Не раскрывай токены, пароли и личные данные. Код при необходимости заключай
 в закрытый блок ```; не обрывай объяснение или команду посередине.'''
 
+# Diagnostic variant shares task/context/grounding instructions with production.
+# Only persona, spelling instructions and archive-style guidance are removed.
+NEUTRAL_PROMPT = PROMPT.replace('Ты — явно обозначенный бот-пародия Бубус.',
+                               'Отвечай нейтральным русским языком.', 1)
+NEUTRAL_PROMPT = re.sub(r'Не заменяй ответ подколом\..*?(?=Если нужно уточнение)',
+                        'Без травли, угроз и оскорблений групп людей.\n', NEUTRAL_PROMPT, flags=re.S)
+NEUTRAL_PROMPT = re.sub(r'Манера:.*?(?=current_request —)',
+                        'Сохраняй обычное написание слов, терминов, чисел и команд.\n\n', NEUTRAL_PROMPT, flags=re.S)
+NEUTRAL_PROMPT = re.sub(r'speech_profile —.*?(?=quality_feedback —)', '', NEUTRAL_PROMPT, flags=re.S)
+
 FALLBACK = 'не буду сочинять наугад етот вопрос пока оставлю открытым'
 FALLBACKS = (
     FALLBACK,

@@ -170,6 +170,85 @@ class InferenceQualityTests(unittest.TestCase):
             self.assertEqual(json.loads(payload['messages'][1]['content'])['current_request'], subject)
             self.assertNotIn(bad, json.dumps(payload))
 
+    def test_neutral_diagnostic_removes_persona_profile_and_output_styling_only(self):
+        from question_answers import PROMPT, NEUTRAL_PROMPT
+        self.assertIn('Ты — явно обозначенный бот-пародия', PROMPT)
+        for marker in ['бот-пародия', 'Тон прямой', 'Манера:', '«ти»', 'speech_profile —']:
+            self.assertNotIn(marker, NEUTRAL_PROMPT)
+        self.assertEqual(PROMPT[PROMPT.index('quality_feedback —'):],
+                         NEUTRAL_PROMPT[NEUTRAL_PROMPT.index('quality_feedback —'):])
+        jobs = []
+        for style in ['parody', 'neutral']:
+            job = self.job('Почему сервер теряет соединение?', _diagnostic_question_style=style)
+            with patch('bot.profile_for_request', return_value={'examples': ['style-sentinel']}) as profile, \
+                    patch('bot.http_json', return_value=self.result('Это может быть связано с сетью.')) as model:
+                answer = self.bot.generate(job)
+            payload = model.call_args.args[1]
+            data = json.loads(payload['messages'][1]['content'])
+            if style == 'neutral':
+                profile.assert_not_called()
+                self.assertNotIn('speech_profile', data)
+                self.assertEqual(answer, 'Это может быть связано с сетью.')
+                self.assertEqual(payload['messages'][0]['content'], NEUTRAL_PROMPT)
+            else:
+                profile.assert_called_once()
+                self.assertIn('speech_profile', data)
+                self.assertNotEqual(answer, 'Это может быть связано с сетью.')
+                self.assertEqual(payload['messages'][0]['content'], PROMPT)
+            data.pop('speech_profile', None)
+            jobs.append((data, payload['options'], payload['model']))
+        self.assertEqual(jobs[0], jobs[1])
+
+    def test_neutral_mode_keeps_identical_grounding_rules_attempts_and_diagnostics(self):
+        case = next(case for case in json.loads((ROOT / 'dialogue_cases.json').read_text()) if case['id'] == 'real-question')
+        results = []
+        for style in ['parody', 'neutral']:
+            with patch('bot.http_json', return_value=self.result('Кабель передаёт данные без потерь.')) as model:
+                result = evaluate(case, self.config, run_model=True, capture_rejections=True, question_style=style)
+            self.assertEqual(model.call_count, 2)
+            self.assertEqual(result['errors'], ['empty_answer'])
+            self.assertEqual(result['question_style'], style)
+            results.append([detail['rule'] for detail in result['rejection_details']])
+        self.assertEqual(results, [['grounding.cable_no_loss'] * 2] * 2)
+
+    def test_compare_cli_runs_each_question_in_both_styles_and_labels_json_and_console(self):
+        report = Path(self.temp.name) / 'comparison.json'
+        output = io.StringIO()
+        answers = ['Возможны помехи и слабый сигнал.',
+                   'Восстанови резервную копию отдельно и проверь полноту данных.'] * 2
+        with patch('check_dialogues.CONFIG', Path(self.temp.name) / 'missing.json'), \
+                patch('check_dialogues.http_json', return_value={}) as warmup, \
+                patch('bot.http_json', side_effect=[self.result(answer) for answer in answers]) as model, \
+                contextlib.redirect_stdout(output):
+            result = main(['--run-model', '--question-style', 'compare', '--show-rejections',
+                           '--case', 'real-question', '--case', 'pending-correction', '--report', str(report)])
+        self.assertEqual(result, 0)
+        warmup.assert_called_once()
+        self.assertEqual(model.call_count, 4)
+        rows = json.loads(report.read_text())
+        self.assertEqual([(row['id'], row['question_style']) for row in rows],
+                         [('real-question', 'parody'), ('pending-correction', 'parody'),
+                          ('real-question', 'neutral'), ('pending-correction', 'neutral')])
+        self.assertIn('real-question [parody]', output.getvalue())
+        self.assertIn('real-question [neutral]', output.getvalue())
+        payloads = [call.args[1] for call in model.call_args_list]
+        for original, neutral in zip(payloads[:2], payloads[2:]):
+            a = json.loads(original['messages'][1]['content'])
+            b = json.loads(neutral['messages'][1]['content'])
+            a.pop('speech_profile')
+            self.assertEqual(a, b)
+            self.assertEqual(original['options'], neutral['options'])
+
+    def test_neutral_cli_refuses_parody_cases_and_missing_model_flag(self):
+        for args in [['--question-style', 'neutral', '--case', 'real-question'],
+                     ['--run-model', '--question-style', 'compare', '--case', 'banter-question']]:
+            with patch('check_dialogues.CONFIG', Path(self.temp.name) / 'missing.json'), \
+                    patch('check_dialogues.http_json') as model, contextlib.redirect_stderr(io.StringIO()), \
+                    self.assertRaises(SystemExit) as error:
+                main(args)
+            self.assertEqual(error.exception.code, 2)
+            model.assert_not_called()
+
     def test_concise_mode_has_one_word_budget_instead_of_default_brief_budget(self):
         source = 'Помехи и слабый сигнал могут снижать скорость. Сравни соединение по кабелю и рядом с роутером.'
         with patch('bot.http_json', return_value=self.result('слабый сигнал и помехи проверь кабель.')) as model:

@@ -68,10 +68,13 @@ def assess(case, answer, elapsed, max_seconds):
     return errors
 
 
-def evaluate(case, config, run_model=False, max_seconds=120, capture_rejections=False):
+def evaluate(case, config, run_model=False, max_seconds=120, capture_rejections=False, question_style='parody'):
+    if question_style not in ('parody', 'neutral'):
+        raise ValueError('unknown diagnostic question style')
     mode = route(case)
     result = {'id': case['id'], 'expected_mode': case['mode'], 'actual_mode': mode,
-              'errors': [] if mode == case['mode'] else ['wrong_route'], 'model_checked': False}
+              'errors': [] if mode == case['mode'] else ['wrong_route'], 'model_checked': False,
+              'question_style': question_style}
     if not run_model or mode == 'web':
         result['note'] = 'routing only; public network lookup disabled' if mode == 'web' else 'routing only'
         return result
@@ -91,7 +94,8 @@ def evaluate(case, config, run_model=False, max_seconds=120, capture_rejections=
         job = dict(chat_id=-100123, text=case['request'], reply_to=200, automatic=False,
                    queued_at=now, dialogue_id=parent, thoughtful=mode == 'question', user_id=7,
                    response_control=case.get('control') or inline_control(case['request']),
-                   request_updates=case.get('updates', []), _capture_rejections=capture_rejections)
+                   request_updates=case.get('updates', []), _capture_rejections=capture_rejections,
+                   _diagnostic_question_style=question_style)
         started = time.monotonic()
         try:
             answer = bot.generate(job)
@@ -155,6 +159,8 @@ def main(argv=None):
     parser.add_argument('--report', type=Path, help='optional JSON report, including generated answers')
     parser.add_argument('--show-rejections', action='store_true',
                         help='include redacted rejected answers and rule IDs in console and report')
+    parser.add_argument('--question-style', choices=('parody', 'neutral', 'compare'), default='parody',
+                        help='test ordinary questions, neutral questions, or both with identical checks')
     args = parser.parse_args(argv)
     saved = json.loads(CONFIG.read_text()) if CONFIG.exists() else {}
     config = dict(owner_id=42, model=args.model or saved.get('model', MODEL),
@@ -166,8 +172,12 @@ def main(argv=None):
         cases = [case for case in cases if case['id'] in args.case]
         if len(cases) != len(set(args.case)):
             parser.error('unknown case id')
+    if args.question_style != 'parody' and (not args.run_model or any(route(case) != 'question' for case in cases)):
+        parser.error('--question-style neutral/compare requires --run-model and only question cases; select them with --case')
     results = []
     print('Telegram отключён. Основная база и банк не изменяются. Веб-поиск отключён.', flush=True)
+    if args.question_style != 'parody':
+        print('Диагностический стиль: ' + args.question_style + '. Проверки качества и настройки модели одинаковые.', flush=True)
     if args.run_model and any(uses_model(case) for case in cases):
         try:
             initial = warm_model(config)
@@ -176,11 +186,14 @@ def main(argv=None):
             return 1
         print(f'Подготовка модели отдельно от сценариев: {initial["seconds"]:.2f} сек. '
               f'· постоянный контекст {initial["context"]} ток.', flush=True)
-    for case in cases:
-        result = evaluate(case, config, args.run_model, args.max_seconds, capture_rejections=args.show_rejections)
+    styles = ('parody', 'neutral') if args.question_style == 'compare' else (args.question_style,)
+    for style, case in ((style, case) for style in styles for case in cases):
+        result = evaluate(case, config, args.run_model, args.max_seconds,
+                          capture_rejections=args.show_rejections, question_style=style)
         results.append(result)
         status = 'FAIL' if result['errors'] else 'OK'
-        print(f'{status} {case["id"]}: {result["actual_mode"]} · {timing_text(result)}', flush=True)
+        label = case['id'] + (f' [{style}]' if args.question_style != 'parody' else '')
+        print(f'{status} {label}: {result["actual_mode"]} · {timing_text(result)}', flush=True)
         if result.get('answer'):
             print(result['answer'], flush=True)
         if result['errors']:

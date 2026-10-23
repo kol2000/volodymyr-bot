@@ -19,7 +19,7 @@ from community import (COMMUNITY_COMMANDS, GREETINGS, OWNER_FEATURES, community_
                        help_text, period_start, statistics_text, summary_excerpt, summary_text)
 from retrieval import build_index, find_examples, random_candidates
 from feedback import praise_signal, rating_signal, relevant_approved, salary_acknowledgement
-from question_answers import (PROMPT as QUESTION_PROMPT, FALLBACKS as QUESTION_FALLBACKS,
+from question_answers import (PROMPT as QUESTION_PROMPT, NEUTRAL_PROMPT, FALLBACKS as QUESTION_FALLBACKS,
                               ends_question, thoughtful_request, answer_style)
 from assistant_features import (FeatureStore, FEATURE_COMMANDS, FOLLOWUP, CALL as FEATURE_CALL, feature_request,
                                 negative_reason, memory_context)
@@ -1204,6 +1204,8 @@ class Bot:
         # Separate prompt and validation: short parody examples and the 35-word
         # filter must never replace an explanation with a random angry phrase.
         LOG.info('Начата генерация содержательного ответа')
+        neutral = job.get('_diagnostic_question_style') == 'neutral'
+        render_answer = (lambda text: text) if neutral else answer_style
         dialogue=self.store.dialogue(job['chat_id'],job.get('dialogue_id'))
         updates = [dict(speaker=job.get('speaker', 'собеседник'), text=text, human=True)
                    for text in job.get('request_updates', [])]
@@ -1226,12 +1228,14 @@ class Bot:
         reference=( [quoted]+[row['text'] for row in dialogue if row['human']][-2:]
                    +[row['text'] for row in context]) if contextual_request(job['text']) else []
         subject=' '.join([job['text']]+reference)
-        data['speech_profile'] = profile_for_request(subject)
+        if not neutral:
+            data['speech_profile'] = profile_for_request(subject)
         data['chat_memories'] = memory_context(self.store.memories(job['chat_id'], subject, limit=3))
         data['participant_profiles'] = self.store.participant_profiles(job['chat_id'], subject)
         data['approved_corrections'] = self.store.correction_examples(job['chat_id'], subject, 'question')
         rejected = self.store.rejected_keys(job['chat_id'])
-        data['speech_profile']['examples'] = [text for text in data['speech_profile']['examples'] if answer_key(text) not in rejected]
+        if not neutral:
+            data['speech_profile']['examples'] = [text for text in data['speech_profile']['examples'] if answer_key(text) not in rejected]
         data['quality_feedback'] = self.store.issue_patterns(job['chat_id'])
         previous = self.store.recent_model_answers(job['chat_id'],limit=30)
         unclear = ambiguous_subject(job['text'])
@@ -1239,6 +1243,8 @@ class Bot:
             choices = (f'шо именно ти называеш «{unclear}»?',
                        f'какие именно «{unclear}» ти имееш в виду?',
                        f'«{unclear}» — ето про шо именно ти говориш?')
+            if neutral:
+                choices = (f'Что именно ты называешь «{unclear}»?', f'Какие именно «{unclear}» ты имеешь в виду?', f'«{unclear}» — о чём именно речь?')
             keys = [answer_key(text) for text in previous]
             available = [text for text in choices if answer_key(text) not in keys]
             answer = available[0] if available else max(choices, key=lambda text: keys.index(answer_key(text)))
@@ -1259,13 +1265,13 @@ class Bot:
                 if self.superseded(job):
                     return None
                 job['_local_reply'] = 'concise_extract'
-                return answer_style(candidate)
+                return render_answer(candidate)
         reason = None
         failed_rule = None
         for attempt in range(2):
             if self.superseded(job):
                 return None
-            prompt = QUESTION_PROMPT
+            prompt = NEUTRAL_PROMPT if neutral else QUESTION_PROMPT
             if attempt:
                 prompt += ('\nПредыдущий ответ отклонён: ' + reason
                            + '. Ответь заново именно на current_request. Не продолжай старую тему '
@@ -1314,7 +1320,7 @@ class Bot:
             elif result.get('done_reason') == 'length':
                 reason = 'length_limit'
             else:
-                answer=answer_style(answer.strip())
+                answer=render_answer(answer.strip())
                 reason = answer_problem(answer, thoughtful=True)
                 if not reason and answer.strip() == '__SILENCE__':
                     reason = 'silence_on_direct_request'
@@ -1332,7 +1338,7 @@ class Bot:
                     if reason:
                         rejection_rule = 'rewrite.' + reason
             if not reason:
-                return answer_style(answer.strip())
+                return render_answer(answer.strip())
             LOG.warning('Ответ на вопрос отклонён: причина=%s; попытка=%s/2', reason, attempt + 1)
             job.setdefault('_rejections', []).append(reason)
             failed_rule = rejection_detail[0]['rule'] if rejection_detail else rejection_rule
@@ -1352,7 +1358,7 @@ class Bot:
             candidate = checked_concise_extract(rewrite_source, subject, previous)
             if candidate and answer_key(candidate) not in rejected:
                 job['_rewrite_fallback'] = 'source_sentences'
-                return answer_style(candidate)
+                return render_answer(candidate)
         return None
 
     def fallback_answer(self, job):
