@@ -156,6 +156,7 @@ class InferenceQualityTests(unittest.TestCase):
             self.assertEqual(data['conversation_roles']['address_kind'], 'bot_address')
             self.assertNotIn('current_request', data)
             self.assertEqual(payload[-1]['role'], 'user')
+            self.assertNotIn('цацик', json.dumps(payload, ensure_ascii=False).casefold())
             self.assertIn('Не переноси на собеседника', payload[0]['content'])
         self.assertEqual(banter_relation_problem('Цацик а ти что натворил?', 'Мой друг Цацик опять всё перепутал.'), 'reported_addressee_reversal')
         self.assertIsNone(banter_relation_problem('А ты?', 'цацик ты уснул?'))
@@ -300,12 +301,14 @@ class InferenceQualityTests(unittest.TestCase):
             self.assertEqual(job['text'], original)
 
     def test_native_banter_retry_keeps_final_human_turn_and_original_role_validation(self):
-        job = self.job('Цацик, я тебя в споре обошёл.', thoughtful=False)
+        job = self.job('Цацик, я тебя в споре обошёл.', thoughtful=False, trigger_words=['цацик'])
         with patch('bot.http_json', side_effect=[self.result('Цацик, ты проиграл.'), self.result('рано победу праздновать')]) as model:
             self.assertEqual(self.bot.generate(job), 'рано победу праздновать')
         self.assertEqual(job['_rejections'], ['address_role_reversal'])
         for call in model.call_args_list:
             self.assertEqual(call.args[1]['messages'][-1]['content'], 'я тебя в споре обошёл.')
+            self.assertNotIn('цацик', json.dumps(call.args[1]['messages'], ensure_ascii=False).casefold())
+        self.assertEqual(job['trigger_words'], ['цацик'])
 
     def test_automatic_banter_keeps_bounded_style_examples(self):
         examples = [dict(context='беседа', response='да тут я чего надо')]*4

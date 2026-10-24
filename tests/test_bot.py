@@ -205,7 +205,8 @@ class BotTests(unittest.TestCase):
         with patch('bot.find_examples', return_value=[]), patch('bot.http_json', return_value={'message': {'content': 'ти ещо громче поори'}}) as model:
             self.assertEqual(self.bot.generate(job), 'ти ещо громче поори')
         data = json.loads(model.call_args.args[1]['messages'][1]['content'])
-        self.assertEqual(data['trigger_words'], ['бубус'])
+        self.assertEqual(data['trigger_words'], [])
+        self.assertEqual(job['trigger_words'], ['бубус'])
 
     def test_model_spelling_is_corrected_without_retry_or_changing_user_text(self):
         raw = 'ты пишешь что это было бы ещё сейчас'

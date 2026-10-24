@@ -26,7 +26,7 @@ from assistant_features import (FeatureStore, FEATURE_COMMANDS, FOLLOWUP, CALL a
 from style_profile import profile_for_request
 from answer_quality import (answer_problem, banter_coherence_problem, banter_relation_problem, checked_concise_extract, concise_extract, concise_problem, concise_word_limit, contextual_request, diagnostic_retry_guidance, explanation_problem,
                             grounding_problem, question_context)
-from conversation import (ambiguous_subject, amendment_request, banter_brief, banter_request, control_remainder, dialogue_roles, inline_control, missing_reference,
+from conversation import (BOT_ALIASES, ambiguous_subject, amendment_request, banter_brief, banter_request, control_remainder, dialogue_roles, inline_control, missing_reference,
                           response_control as standalone_control, verification_query)
 from learning import LearningStore, LEARNING_COMMANDS, correction_request
 from participants import ParticipantStore, PARTICIPANT_COMMANDS, participant_request
@@ -1148,7 +1148,8 @@ class Bot:
             # subject to be explained. Keep the original job for validation.
             data.pop('current_request')
             data['conversation_roles'] = {key: value for key, value in data['conversation_roles'].items()
-                                          if key != 'message_without_address'}
+                                          if key not in ('message_without_address', 'bot_alias', 'referenced_alias')}
+            data['trigger_words'] = [word for word in data['trigger_words'] if word.casefold() not in BOT_ALIASES]
         data['request_updates'] = job.get('request_updates', [])
         data['participant_profiles'] = self.store.participant_profiles(job['chat_id'], job['text'])
         data['approved_corrections'] = self.store.correction_examples(job['chat_id'], subject, 'parody')
@@ -1181,8 +1182,11 @@ class Bot:
                     prompt += '\nНе печатай входную реплику и не разыгрывай диалог. Верни только собственный ответ одной строкой, без цитирования current_request.'
             retry_data = dict(data, style_examples=[], live_context=context[-2:],
                               previous_failure=reason) if attempt else data
-            if attempt and reason in ('request_echo', 'address_role_reversal', 'event_role_reversal', 'reported_addressee_reversal'):
+            if attempt and reason in ('request_echo', 'event_role_reversal', 'reported_addressee_reversal'):
                 retry_data['repair_candidate'] = clean_text(answer)[:220]
+                if direct_reply and roles['address_kind'] == 'bot_address':
+                    retry_data['repair_candidate'] = re.sub(r'\b' + re.escape(roles['bot_alias']) + r'\b',
+                                                           '', retry_data['repair_candidate'], flags=re.I).strip(' ,')
             messages = [{'role': 'system', 'content': prompt},
                         {'role': 'user', 'content': json.dumps(retry_data, ensure_ascii=False)}]
             if direct_reply:
