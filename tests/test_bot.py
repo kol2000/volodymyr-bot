@@ -457,7 +457,7 @@ class BotTests(unittest.TestCase):
             self.assertEqual(self.bot.generate(self.manual_job(text='цацик ты где')), good['message']['content'])
         first = json.loads(model.call_args_list[0].args[1]['messages'][1]['content'])
         retry = json.loads(model.call_args_list[1].args[1]['messages'][1]['content'])
-        self.assertEqual(first['style_examples'], examples)
+        self.assertEqual(first['style_examples'], [])
         self.assertEqual(retry['style_examples'], [])
         self.assertEqual(retry['previous_failure'], 'repeated_response')
         self.assertEqual(retry['current_request'], 'цацик ты где')
@@ -558,7 +558,7 @@ class BotTests(unittest.TestCase):
         with patch('bot.find_examples', return_value=rows), patch('bot.http_json', return_value={'message': {'content': 'да тут я чего надо'}}) as model:
             self.assertEqual(self.bot.generate(self.manual_job(text='где мой брат бубус')), 'да тут я чего надо')
         payload = json.loads(model.call_args.args[1]['messages'][1]['content'])
-        self.assertEqual(payload['style_examples'], [rows[-1]])
+        self.assertEqual(payload['style_examples'], [])
 
     def test_unrelated_cyborg_twice_gets_a_local_reply(self):
         self.bind()

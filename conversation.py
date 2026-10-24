@@ -26,12 +26,13 @@ UNSPECIFIED = set(('жёлтые желтые зелёные зеленые кр
 
 BOT_ALIASES = ('бубус', 'бубуська', 'володька', 'володько', 'цаца', 'цацик', 'цацыг')
 BOT_ALIAS = r'(?:' + '|'.join(BOT_ALIASES) + r')'
+REPORTING_VERB = r'(?:сказал[аи]?|написал[аи]?|ответил[аи]?|спросил[аи]?|сообщил[аи]?|рассказал[аи]?|объяснил[аи]?)'
 
 
 def address_roles(kind, alias, body):
     result = dict(address_kind=kind, bot_alias=alias, message_without_address=body,
                   perspective=dict(incoming_you='bot', outgoing_you='speaker', incoming_i='speaker', outgoing_i='bot'))
-    if re.match(r'^\s*(?:(?:ну|вот|наконец|наконец-то|ты|ти|опять|снова)\s+){0,4}'
+    if re.match(r'^\s*(?:(?:ну|вот|наконец|наконец-то|ты|ти|опять|снова|и|же)\s+){0,4}'
                 r'(?:явился|появился|приш[её]л|вернулся)\b', body, re.I):
         result['event_roles'] = dict(event='arrival', arrived='bot', waited='speaker')
     return result
@@ -50,7 +51,7 @@ def dialogue_roles(text):
         start = not before.strip(' ,!?.')
         end = not after.strip(' ,!?.')
         second_person = bool(re.search(r'\b(?:ты|ти|тебя|тебе|твой|твоя)\b', visible, re.I))
-        reported = start and bool(re.match(r'\s+(?:сказал|написал|ответил|спросил|сообщил|рассказал|объяснил)\b', after, re.I))
+        reported = start and bool(re.match(r'\s+' + REPORTING_VERB + r'\b', after, re.I))
         if reported:
             continue
         explicit_prefix = start and bool(re.match(r'\s*,|\s+(?:не\s+)?(?:умничай|тупи|отвечай|проснись|расскажи|объясни)\b', after, re.I))
@@ -64,13 +65,39 @@ def dialogue_roles(text):
         match = found[0]
         before, after = visible[:match.start()], visible[match.end():]
         if (not before.strip(' ,!?.') and not re.match(
-                r'\s+(?:сказал|написал|ответил|спросил|сообщил|рассказал|объяснил|он|она|они)\b', after, re.I)):
+                r'\s+(?:' + REPORTING_VERB + r'|он|она|они)\b', after, re.I)):
             body = (text[:match.start()] + text[match.end():]).strip(' ,!?.')
             result = dict(address_kind='ambiguous', bot_alias=match[1].casefold(), message_without_address=body)
             return result
-    quoted_alias = bool(re.search(r'\b' + BOT_ALIAS + r'\b', text, re.I))
-    return dict(address_kind='mention' if found else 'quoted_mention' if quoted_alias else 'unspecified',
-                message_without_address=text)
+    quoted_alias = re.search(r'\b' + BOT_ALIAS + r'\b', text, re.I)
+    result = dict(address_kind='mention' if found else 'quoted_mention' if quoted_alias else 'unspecified',
+                  message_without_address=text)
+    # Recognise only explicit reports, not any appearance of quotes or a name.
+    # "Позови Цацика" may legitimately require addressing that person.
+    reporting = re.search(r'^[^«"\n]{0,100}\b' + REPORTING_VERB + r'\s*:?\s*[«"]', text, re.I)
+    third_person = found and (re.search(
+        r'\b(?:мой|моя|наш|наша)\s+(?:друг|подруга|коллега|сосед|знакомый)\s*$',
+        visible[:found[0].start()], re.I) or re.match(
+        r'\s+' + REPORTING_VERB + r'\b', visible[found[0].end():], re.I))
+    relay = re.search(r'\b(?:ответь|скажи|передай|позови|обратись)\b', visible, re.I)
+    if (reporting or third_person) and not relay:
+        result['reply_scope'] = 'reported_speech' if reporting else 'third_person'
+        result['referenced_alias'] = found[0][1].casefold() if found else quoted_alias[0].casefold() if quoted_alias else ''
+    return result
+
+
+def banter_brief(roles):
+    """A small audience brief, not canned answers or a semantic classifier."""
+    scope = roles.get('reply_scope')
+    if scope == 'reported_speech':
+        return 'Обсуди с собеседником пересказ чужих слов. Не отвечай человеку внутри цитаты и не принимай цитату за обращение к себе.'
+    if scope == 'third_person':
+        return 'Обсуди с собеседником названного третьего человека. Не обращайся к этому человеку напрямую и не присваивай его поступки себе.'
+    if roles['address_kind'] == 'bot_address':
+        return 'Это реплика тебе. Ответь от себя на её смысл. Не пересказывай обвинение обратно собеседнику и не объясняй ему кто из вас бот.'
+    if roles['address_kind'] == 'ambiguous':
+        return 'Адресат прозвища неясен. Реагируй на смысл без назначения прозвища собеседнику; если без адресата непонятно — уточни.'
+    return 'Реагируй на текущую мысль собеседника. Не достраивай неупомянутые события и отношения.'
 
 
 def ambiguous_subject(text):

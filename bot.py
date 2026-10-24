@@ -26,7 +26,7 @@ from assistant_features import (FeatureStore, FEATURE_COMMANDS, FOLLOWUP, CALL a
 from style_profile import profile_for_request
 from answer_quality import (answer_problem, banter_coherence_problem, banter_relation_problem, checked_concise_extract, concise_extract, concise_problem, concise_word_limit, contextual_request, diagnostic_retry_guidance, explanation_problem,
                             grounding_problem, question_context)
-from conversation import (ambiguous_subject, amendment_request, banter_request, control_remainder, dialogue_roles, inline_control, missing_reference,
+from conversation import (ambiguous_subject, amendment_request, banter_brief, banter_request, control_remainder, dialogue_roles, inline_control, missing_reference,
                           response_control as standalone_control, verification_query)
 from learning import LearningStore, LEARNING_COMMANDS, correction_request
 from participants import ParticipantStore, PARTICIPANT_COMMANDS, participant_request
@@ -1117,12 +1117,13 @@ class Bot:
         elif banter_request(job['text']):
             context = question_context(context, job['text'])
         subject = job['text'] or ' '.join(row['text'] for row in context[-2:])
-        examples = [] if nickname_call else find_examples(subject)
+        direct_reply = not job['automatic']
+        examples = [] if nickname_call or direct_reply else find_examples(subject)
         examples = [row for row in examples
                     if not response_problem(row['response'], previous, subject)
                     and (not CYBORG_PATTERN.search(row.get('context', ''))
                          or CYBORG_PATTERN.search(subject))]
-        approved = [] if nickname_call else self.store.approved_examples(job['chat_id'], subject)
+        approved = [] if nickname_call or direct_reply else self.store.approved_examples(job['chat_id'], subject)
         approved = [row for row in approved if not response_problem(row['response'], subject=subject)
                     and (not CYBORG_PATTERN.search(row['context']) or CYBORG_PATTERN.search(subject))]
         if approved:
@@ -1134,6 +1135,7 @@ class Bot:
                 'trigger_words': job.get('trigger_words', []),
                 'current_request': job['text']}
         data['conversation_roles'] = dialogue_roles(clean_text(job['text']))
+        data['reply_brief'] = banter_brief(data['conversation_roles'])
         data['request_updates'] = job.get('request_updates', [])
         data['participant_profiles'] = self.store.participant_profiles(job['chat_id'], job['text'])
         data['approved_corrections'] = self.store.correction_examples(job['chat_id'], subject, 'parody')
@@ -1160,8 +1162,12 @@ class Bot:
                     prompt += '\nТы отвечаешь от лица бота собеседнику. Не переноси на собеседника обращение к боту и не повторяй его реплику вопросом. Дай собственную короткую реакцию по смыслу message_without_address.'
                 if reason == 'event_role_reversal':
                     prompt += '\nСохрани event_roles: в этой реплике пришёл бот, а ждал собеседник. Не приписывай ожидание себе.'
+                if reason == 'reported_addressee_reversal':
+                    prompt += '\nОтвет адресован собеседнику, который рассказывает о другом человеке или цитирует его. Обсуди рассказ; не зови персонажа рассказа и не отвечай ему напрямую.'
             retry_data = dict(data, style_examples=[], live_context=context[-2:],
                               previous_failure=reason) if attempt else data
+            if attempt and reason in ('request_echo', 'address_role_reversal', 'event_role_reversal', 'reported_addressee_reversal'):
+                retry_data['repair_candidate'] = clean_text(answer)[:220]
             try:
                 result = self.call_model(job, {
                     'model': self.config['model'], 'stream': False, 'keep_alive': '24h',

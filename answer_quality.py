@@ -63,6 +63,10 @@ def banter_relation_problem(text, request):
     roles = dialogue_roles(request)
     source = words(roles['message_without_address'])
     candidate = words(text)
+    if roles.get('reply_scope') in ('reported_speech', 'third_person') and roles.get('referenced_alias'):
+        alias = roles['referenced_alias']
+        if re.match(r'^\s*(?:(?:ну|а|эй)\s+)?' + re.escape(alias) + r'(?:\s*,|\s+(?:а\s+)?(?:ты|ти)\b)', text, re.I):
+            return 'reported_addressee_reversal'
     if roles['address_kind'] in ('bot_address', 'ambiguous'):
         alias = roles['bot_alias']
         # Returning the bot's own address as a vocative to the user swaps roles.

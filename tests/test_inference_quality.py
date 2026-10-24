@@ -82,7 +82,7 @@ class InferenceQualityTests(unittest.TestCase):
         for phrase in ['Мой друг Цацик опять всё перепутал.', 'Цацик сказал что ты ошибся.',
                        'Он написал: «цацик опять диванный чемпион?»']:
             self.assertIn(dialogue_roles(phrase)['address_kind'], ['mention', 'quoted_mention'])
-            self.assertIsNone(banter_relation_problem('Цацик ти вообще где?', phrase))
+            self.assertEqual(banter_relation_problem('Цацик ти вообще где?', phrase), 'reported_addressee_reversal')
 
     def test_arrival_frame_preserves_who_arrived_and_who_waited(self):
         from conversation import dialogue_roles
@@ -156,7 +156,7 @@ class InferenceQualityTests(unittest.TestCase):
             self.assertEqual(data['conversation_roles']['address_kind'], 'bot_address')
             self.assertEqual(data['current_request'], request)
             self.assertIn('Не переноси на собеседника', payload[0]['content'])
-        self.assertIsNone(banter_relation_problem('Цацик а ти что натворил?', 'Мой друг Цацик опять всё перепутал.'))
+        self.assertEqual(banter_relation_problem('Цацик а ти что натворил?', 'Мой друг Цацик опять всё перепутал.'), 'reported_addressee_reversal')
         self.assertIsNone(banter_relation_problem('А ты?', 'цацик ты уснул?'))
 
     def test_bare_call_cli_does_not_warm_model_or_count_as_clarification(self):
@@ -207,7 +207,7 @@ class InferenceQualityTests(unittest.TestCase):
         self.assertEqual(model.call_count, 2)
         self.assertEqual(job['_rejections'], ['unconnected_particles'] * 2)
 
-    def test_short_parody_instruction_has_bounded_size_and_two_selected_examples(self):
+    def test_short_parody_instruction_has_bounded_size_without_manual_archive_examples(self):
         examples = [dict(context='роутер тормозит', response=text) for text in [
             'ти провод сначала проверь', 'ну шо опять случилось', 'интернет опять отдыхает',
             'да выключи включи етот роутер', 'скоко можно провода дёргать', 'ти его ещо уговаривай']]
@@ -218,6 +218,52 @@ class InferenceQualityTests(unittest.TestCase):
         self.assertLessEqual(len(payload['messages'][0]['content']), 2800)
         self.assertIn('3–12', payload['messages'][0]['content'])
         data = json.loads(payload['messages'][1]['content'])
+        self.assertEqual(data['style_examples'], [])
+        self.assertIn('reply_brief', data)
+
+    def test_manual_banter_never_retrieves_archive_or_approved_replies(self):
+        with patch('bot.find_examples') as archive, patch.object(self.store, 'approved_examples') as approved, \
+                patch('bot.http_json', return_value=self.result('не сплю говори')) as model:
+            self.bot.generate(self.job('цацик ты уснул?', thoughtful=False))
+        archive.assert_not_called()
+        approved.assert_not_called()
+        data = json.loads(model.call_args.args[1]['messages'][1]['content'])
+        self.assertIn('Ответь от себя', data['reply_brief'])
+        self.assertEqual(data['style_examples'], [])
+
+    def test_reported_roles_do_not_turn_mentions_or_quotes_into_direct_addresses(self):
+        from conversation import dialogue_roles, banter_brief
+        for request, scope in [('Мой друг Цацик опять всё перепутал.', 'third_person'),
+                               ('Цацик написал что ты опять споришь.', 'third_person'),
+                               ('Он сказал: «цацик ты уснул?»', 'reported_speech'),
+                               ('Она спросила: «цацик ты здесь?»', 'reported_speech')]:
+            roles = dialogue_roles(request)
+            self.assertEqual(roles['reply_scope'], scope)
+            self.assertIn('с собеседником', banter_brief(roles))
+            self.assertEqual(banter_relation_problem('Цацик а ти вообще где?', request), 'reported_addressee_reversal')
+            self.assertIsNone(banter_relation_problem('он опять торопится с выводами', request))
+        for request in ['Позови Цацика.', 'Кто такой Цацик?', 'цацик ты сказал что он пришёл',
+                        'Цацик, скажи «я здесь».', 'Он сказал: «цацик ты уснул?». Ответь ему.']:
+            self.assertNotIn('reply_scope', dialogue_roles(request), request)
+
+    def test_reported_address_retry_receives_its_draft_and_keeps_audience(self):
+        bad, good = 'Цацик а ти вообще где?', 'пусть уже скажет чего хочет'
+        job = self.job('Он сказал: «цацик ты уснул?»', thoughtful=False, _capture_rejections=True)
+        with patch('bot.http_json', side_effect=[self.result(bad), self.result(good)]) as model:
+            self.assertEqual(self.bot.generate(job), good)
+        self.assertEqual(model.call_count, 2)
+        data = json.loads(model.call_args.args[1]['messages'][1]['content'])
+        self.assertEqual(data['repair_candidate'], bad)
+        self.assertEqual(data['conversation_roles']['reply_scope'], 'reported_speech')
+        self.assertEqual(job['_rejection_details'][0]['rule'], 'banter.reported_addressee_reversal')
+        self.assertIn('Обсуди рассказ', model.call_args.args[1]['messages'][0]['content'])
+
+    def test_automatic_banter_keeps_bounded_style_examples(self):
+        examples = [dict(context='беседа', response='да тут я чего надо')]*4
+        with patch('bot.find_examples', return_value=examples), \
+                patch('bot.http_json', return_value=self.result('тут спор до утра')) as model:
+            self.bot.generate(self.job('ну вы опять спорите', thoughtful=False, automatic=True))
+        data = json.loads(model.call_args.args[1]['messages'][1]['content'])
         self.assertEqual(data['style_examples'], examples[:2])
 
     def test_third_vm_run_implicit_backup_verdict_is_rejected_without_false_positives(self):
