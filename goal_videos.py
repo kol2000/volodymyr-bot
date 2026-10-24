@@ -236,6 +236,89 @@ def minute_values(text):
     return set(values)
 
 
+def russian_named(text, name):
+    """Bounded case endings for proper names; no fuzzy edit-distance matching."""
+    name = name.casefold().replace('ё', 'е')
+    text = text.casefold().replace('ё', 'е')
+    if re.search(r'(?<!\w)' + re.escape(name) + r'(?!\w)', text):
+        return True
+    if not re.fullmatch(r'[а-я]{4,}', name):
+        return False
+    stem = name[:-1] if name.endswith(('а', 'я')) else name
+    return bool(re.search(r'(?<!\w)' + re.escape(stem) + r'(?:а|я|у|ю|е|ы|и|ой|ом|ою|ей|ем)(?!\w)', text))
+
+
+def narrative_goal_reason(clip, job):
+    """Domestic broadcaster's scoreless captions need a complete FNK goal path."""
+    if clip.channel != 'matchpremier' or not re.search(
+            r'^(?:Премьер-лига\b|РПЛ\b|Чемпионат России\b)', job.get('competition', ''), re.I):
+        return 'insufficient_goal_identity'
+    goals = job.get('match_goals', [])
+    previous, sides = (0, 0), []
+    for goal in goals:
+        score = tuple(goal['score'])
+        delta = tuple(a-b for a, b in zip(score, previous))
+        if delta not in ((1, 0), (0, 1)):
+            return 'narrative_context_missing'
+        sides.append(delta.index(1))
+        previous = score
+    if not goals or previous != tuple(job.get('match_score', ())):
+        return 'narrative_context_missing'
+    text = clip.text.casefold().replace('ё', 'е')
+    if re.search(r'начинал|отбор|разбор|повтор|вспомина|год назад|лучшие голы|'
+                 r'не\s+(?:забил|забит|забивает|сравнял|помог)|мог\s+забить|забил\s+бы', text):
+        return 'narrative_not_goal_clip'
+    ordinal = {'первый': 1, 'второй': 2, 'третий': 3, 'четвертый': 4, 'пятый': 5,
+               'шестой': 6, 'седьмой': 7}
+    first = re.search(r'\b(' + '|'.join(ordinal) + r')\s+гол\b', text)
+    conceded = re.search(r'\b(' + '|'.join(ordinal) + r')\s+пропущенн\w*\s+у\s+[«"]?([а-я]+)', text)
+    draw = bool(re.search(r'\bсравнял[аи]?\b', text))
+    cue = bool(re.search(r'\bгол\b|\bзабил[аи]?\b|\bсравнял[аи]?\b|\bвпереди\b', text))
+    candidates = []
+    for goal, side in zip(goals, sides):
+        minute = next(iter(minute_values(goal['minute'])), None)
+        # Scoreless captions must be near this goal's playing time. Unlike exact
+        # captions they cannot identify a delayed retrospective by themselves.
+        base_minute = re.match(r'\d+', goal['minute'])
+        second_half = base_minute and int(base_minute[0]) > 45
+        expected = job['kickoff'] + 60 * (minute or 0) + (900 if second_half else 0)
+        if minute is None or not -180 <= clip.timestamp - expected <= 1200:
+            continue
+        score = goal['score']
+        if draw and score[0] != score[1]:
+            continue
+        if re.search(r'\bвпереди\b', text) and score[side] <= score[1-side]:
+            continue
+        if first and sum(score) != ordinal[first[1]]:
+            continue
+        if conceded and (not russian_named(conceded[2], (job['home'], job['away'])[1-side])
+                         or score[side] != ordinal[conceded[1]]):
+            continue
+        team = (job['home'], job['away'])[side]
+        scoring_team = russian_named(text, team)
+        surname = goal['player'].split()[-1] if goal['player'].split() else ''
+        scorer = len(surname) >= 4 and russian_named(text, surname)
+        direct_scorer = scorer and cue and (scoring_team or draw)
+        penalty = bool(first and scoring_team and 'пенальти' in text and goal['kind'] == 'penalty-goal')
+        conceded_goal = bool(conceded)
+        # "Акрону помог рикошет. У Лунёва не было шансов": a team alone is
+        # insufficient; require the same ricochet and a separate named person
+        # in FNK's own episode description, with a positive scoring assertion.
+        description = goal.get('description', '')
+        people = [w for w in re.findall(r'\b[А-ЯЁ][а-яё]{4,}\b', description)
+                  if not russian_named(w, job['home']) and not russian_named(w, job['away'])]
+        ricochet = bool(scoring_team and re.search(r'помог\s+рикошет', text)
+                        and re.search(r'рикошет', description, re.I)
+                        and any(russian_named(text, person) for person in people))
+        if direct_scorer or penalty or conceded_goal or ricochet:
+            candidates.append((tuple(score), goal['minute'], goal['player']))
+    target = job['goal']
+    identity = (tuple(target['score']), target['minute'], target['player'])
+    if len(candidates) > 1:
+        return 'ambiguous_narrative_goal'
+    return '' if candidates == [identity] else 'insufficient_narrative_identity'
+
+
 def goal_match_reason(clip, job, now):
     """Empty for a match; fixed codes for diagnostic use, never signed URLs."""
     if clip.timestamp < max(job['kickoff'] - 300, job['created'] - 600):
@@ -267,7 +350,9 @@ def goal_match_reason(clip, job, now):
     matched = ((teams == 2 and (scores or minutes)) or
                (teams >= 1 and scorer and (scores or minutes)) or
                (teams >= 1 and minutes and cue) or (scorer and scores and minutes))
-    return '' if matched else 'insufficient_goal_identity'
+    if matched:
+        return ''
+    return narrative_goal_reason(clip, job) if not scores and not minutes else 'insufficient_goal_identity'
 
 
 def matches_goal(clip, job, now):
@@ -371,8 +456,16 @@ class GoalVideos:
         # goals share one FNK card, attach the latest goal; never replace it later.
         payload = dict(home=match.home, away=match.away, competition=match.competition,
                        kickoff=match.kickoff, match_url=match.url, original=str(original),
-                       goals=[asdict(g) for g in goals], goal=asdict(goals[-1]), created=now)
+                       goals=[asdict(g) for g in goals], goal=asdict(goals[-1]), created=now,
+                       match_goals=[asdict(g) for g in match.goals], match_score=[match.home_score, match.away_score])
         with self.store.db() as db:
+            # Earlier pending cards must compare against later goals too (for
+            # example the same player scoring twice). Never rewrite their target.
+            for number, raw in db.execute("SELECT message_id,payload FROM goal_video_jobs WHERE chat_id=? AND match_id=? AND status='pending'", (chat_id, match.id)).fetchall():
+                existing = json.loads(raw)
+                existing.update(match_goals=payload['match_goals'], match_score=payload['match_score'])
+                db.execute('UPDATE goal_video_jobs SET payload=? WHERE chat_id=? AND message_id=?',
+                           (json.dumps(existing, ensure_ascii=False), chat_id, number))
             db.execute('INSERT INTO goal_video_jobs VALUES (?,?,?,?,?,?,?) '
                        'ON CONFLICT(chat_id,message_id) DO UPDATE SET payload=excluded.payload '
                        "WHERE goal_video_jobs.status='pending'",

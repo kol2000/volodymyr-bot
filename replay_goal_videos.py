@@ -11,7 +11,7 @@ from html import unescape
 from pathlib import Path
 
 from goal_videos import (CHANNELS, TTL, VideoError, fetch_public, goal_match_reason,
-                         matches_goal, minute_values, named, norm, parse_channel)
+                         matches_goal, minute_values, named, norm, parse_channel, russian_named)
 from kulichki_football import fetch_html, parse_broadcast, valid_url
 from live_football import Document, FootballError, MOSCOW, PREFIX
 
@@ -69,6 +69,8 @@ def jobs_for_posts(match, posts):
         goals = card_goals(match, body)
         if goals:
             jobs.append(dict(home=match.home, away=match.away, kickoff=match.kickoff,
+                             competition=match.competition, match_score=[match.home_score, match.away_score],
+                             match_goals=[asdict(g) for g in match.goals],
                              created=stamp, message_id=message_id, original=body,
                              goal=asdict(goals[-1]), goals=[asdict(g) for g in goals]))
     return jobs
@@ -163,8 +165,12 @@ def run_replay(day, path, pages=4, download=False, team='', emit=print):
             score = rf'(?<!\d){goal["score"][0]}\s*:\s*{goal["score"][1]}(?!\d)'
             for candidate in clips + [c for c, _ in skipped]:
                 text = norm(candidate.text)
-                if (candidate.link not in seen and named(text, job['home']) and named(text, job['away'])
-                        and re.search(score, candidate.text)):
+                surname = goal['player'].split()[-1] if goal['player'].split() else ''
+                narrative = candidate.channel == 'matchpremier' and (
+                    russian_named(candidate.text, job['home']) or russian_named(candidate.text, job['away'])
+                    or (len(surname) >= 4 and russian_named(candidate.text, surname)))
+                if (candidate.link not in seen and (narrative or (
+                        named(text, job['home']) and named(text, job['away']) and re.search(score, candidate.text)))):
                     reason = goal_match_reason(candidate, job, now)
                     if reason:
                         seen.add(candidate.link)

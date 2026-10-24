@@ -190,6 +190,36 @@ class VideoFixture(unittest.TestCase):
 
 
 class WorkerTests(VideoFixture):
+    def test_domestic_narrative_clips_edit_five_original_cards(self):
+        from live_football import Match, Goal
+        data = json.loads((Path(__file__).parent / 'fixtures/matchpremier_goal_posts_20261024.json').read_text(encoding='utf-8'))
+        matches = [Match(**dict(m, goals=tuple(Goal(**dict(g, score=tuple(g['score']))) for g in m['goals'])))
+                   for m in data['matches']]
+        self.store.set(PREFIX + 'seen:-100', {m.id: m.state() for m in matches})
+        expected = {30103: (0, 0), 30104: (0, 1), 30105: (0, 2), 30107: (0, 3), 30110: (1, 0)}
+        for post in sorted(data['posts'], key=lambda p: p['post_id']):
+            if post['post_id'] not in expected:
+                continue
+            clip = Clip('matchpremier', post['post_id'], post['timestamp'], post['text'], MEDIA+str(post['post_id']))
+            index, target = expected[clip.post_id]
+            match = matches[index]
+            self.now[0] = clip.timestamp+1
+            self.videos.enqueue(-100, match, (match.goals[target],), clip.post_id, 'Исходная карточка')
+            self.source.recent = lambda: [clip]
+            self.videos.download = lambda url: MP4+url.encode()
+            self.poll()
+        self.assertEqual([e[1] for e in self.edits], list(expected))
+
+    def test_later_goal_refreshes_pending_context_without_changing_earlier_target(self):
+        self.queue()
+        second = dataclasses.replace(goal(), id='second', score=(2, 0), minute='60′')
+        match = dataclasses.replace(self.match, home_score=2, goals=(*self.match.goals, second))
+        self.queue(56, match=match, goals=(second,))
+        earlier = json.loads(self.row()[5])
+        self.assertEqual(earlier['goal']['score'], [1, 0])
+        self.assertEqual(earlier['match_score'], [2, 0])
+        self.assertEqual(len(earlier['match_goals']), 2)
+
     def test_description_refreshed_during_download_is_used_for_video_caption(self):
         self.queue()
         def download(url):
@@ -404,6 +434,70 @@ class MatchingTests(VideoFixture):
         job['goal'].update(minute='90+4′', score=[1, 3])
         text = '"Qarabağ" 1 : 3 "Tvente" (2:3)—Vegorst 94`'
         self.assertTrue(matches_goal(dataclasses.replace(self.clip, text=text), job, self.now[0]))
+
+
+class NarrativeCaptionTests(unittest.TestCase):
+    def setUp(self):
+        data = json.loads((Path(__file__).parent / 'fixtures/matchpremier_goal_posts_20261024.json').read_text(encoding='utf-8'))
+        self.clips = {p['post_id']: Clip('matchpremier', p['post_id'], p['timestamp'], p['text'], MEDIA)
+                      for p in data['posts']}
+        self.jobs = []
+        for match in data['matches']:
+            for goal in match['goals']:
+                self.jobs.append(dict(home=match['home'], away=match['away'], competition=match['competition'],
+                    kickoff=match['kickoff'], created=match['kickoff'], goal=goal,
+                    match_goals=match['goals'], match_score=[match['home_score'], match['away_score']]))
+        self.now = max(c.timestamp for c in self.clips.values()) + 60
+
+    def test_five_observed_domestic_goal_videos_have_unique_correct_matches(self):
+        expected = {30103: ('Артем Шуманский', (1, 0)), 30104: ('Ярослав Гладышев', (1, 1)),
+                    30105: ('Кристиян Бистрович', (2, 1)), 30107: ('Максим Болдырев', (3, 1)),
+                    30110: ('Герман Онугха', (0, 1)), 30106: None, 30109: None}
+        for number, clip in self.clips.items():
+            found = [(j['goal']['player'], tuple(j['goal']['score'])) for j in self.jobs if matches_goal(clip, j, self.now)]
+            self.assertEqual(found, [expected[number]] if expected[number] else [], number)
+
+    def test_scoreless_caption_needs_complete_domestic_context_and_native_channel(self):
+        job = next(j for j in self.jobs if j['goal']['player'] == 'Ярослав Гладышев')
+        clip = self.clips[30104]
+        for changed in [dict(match_goals=[]), dict(match_score=[4, 1]),
+                        dict(competition='Чемпионат Англии'), dict(match_goals=job['match_goals'][1:])]:
+            self.assertFalse(matches_goal(clip, dict(job, **changed), self.now), changed)
+        self.assertFalse(matches_goal(dataclasses.replace(clip, channel='idmanvideo'), job, self.now))
+        self.assertFalse(matches_goal(dataclasses.replace(clip, timestamp=clip.timestamp+3600), job, self.now+3600))
+
+    def test_contradictions_negation_replays_and_team_only_do_not_attach(self):
+        for text in ['Гладышев не сравнял.', 'Акрон впереди!', 'Первый гол! Пенальти Родины не забит.',
+                     'Повтор: Гладышев сравнял.', 'Гол Бистровича. Родина впереди!',
+                     'Акрону помог рикошет.', 'Третий пропущенный у Родины.',
+                     'Разбор: Акрону помог рикошет. У Лунёва не было шансов.']:
+            clip = dataclasses.replace(self.clips[30105], text=text)
+            self.assertFalse(any(matches_goal(clip, j, self.now) for j in self.jobs), text)
+
+    def test_repeated_scorer_equalizers_remain_ambiguous_even_if_one_card_is_waiting(self):
+        job = next(j for j in self.jobs if j['goal']['player'] == 'Ярослав Гладышев')
+        goals = [dict(g) for g in job['match_goals']]
+        goals[-1].update(score=[2, 2], minute='65′', player='Ярослав Гладышев')
+        changed = dict(job, match_goals=goals, match_score=[2, 2])
+        self.assertEqual(goal_match_reason(self.clips[30104], changed, self.now), 'ambiguous_narrative_goal')
+
+    def test_first_half_added_time_does_not_include_half_time_break(self):
+        job = next(j for j in self.jobs if j['goal']['player'] == 'Герман Онугха')
+        goal = dict(job['goal'], minute='45+2′')
+        job = dict(job, goal=goal, match_goals=[goal])
+        clip = dataclasses.replace(self.clips[30110], timestamp=job['kickoff']+50*60)
+        self.assertTrue(matches_goal(clip, job, clip.timestamp+60))
+
+    def test_replay_jobs_preserve_full_context_for_scoreless_captions(self):
+        from live_football import Match, Goal, event_text
+        from replay_goal_videos import jobs_for_posts
+        data = json.loads((Path(__file__).parent / 'fixtures/matchpremier_goal_posts_20261024.json').read_text(encoding='utf-8'))
+        row = data['matches'][0]
+        match = Match(**dict(row, goals=tuple(Goal(**dict(g, score=tuple(g['score']))) for g in row['goals'])))
+        body = event_text(match, ('goal', 'Гол!'), self.clips[30107].timestamp, (match.goals[-1],))
+        jobs = jobs_for_posts(match, [(55, self.clips[30107].timestamp, body)])
+        self.assertEqual(len(jobs), 1)
+        self.assertTrue(matches_goal(self.clips[30107], jobs[0], self.now))
 
 
 class UploadTests(unittest.TestCase):
