@@ -75,6 +75,8 @@ def evaluate(case, config, run_model=False, max_seconds=120, capture_rejections=
     result = {'id': case['id'], 'expected_mode': case['mode'], 'actual_mode': mode,
               'errors': [] if mode == case['mode'] else ['wrong_route'], 'model_checked': False,
               'question_style': question_style}
+    if case.get('review_points'):
+        result['review_points'] = case['review_points']
     if not run_model or mode == 'web':
         result['note'] = 'routing only; public network lookup disabled' if mode == 'web' else 'routing only'
         return result
@@ -199,6 +201,8 @@ def main(argv=None):
         print(f'{status} {label}: {result["actual_mode"]} · {timing_text(result)}', flush=True)
         if result.get('answer'):
             print(result['answer'], flush=True)
+        if result.get('review_points'):
+            print('Оценить вручную: ' + ' '.join(result['review_points']), flush=True)
         if result['errors']:
             print('Причины: ' + ', '.join(result['errors']), flush=True)
         if result.get('rejections'):
