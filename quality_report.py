@@ -26,6 +26,9 @@ def record_quality(store, job, metrics):
     clean = {key:value for key,value in metrics.items() if re.fullmatch(r'[a-z_]+',key)
              and type(value) in (int,float) and math.isfinite(value) and value>=0}
     reasons = [reason for reason in job.get('_rejections',[]) if re.fullmatch(r'[a-z_]+',reason)]
+    calls=job.get('_inference_calls',[])
+    clean['retry_seconds']=sum(call.get('seconds',0) for call in calls[1:]
+                               if type(call.get('seconds')) in (int,float) and math.isfinite(call['seconds']) and call['seconds']>=0)
     mode = 'automatic' if job.get('automatic') else 'question' if job.get('thoughtful') else 'dialogue'
     if job.get('utility'):
         mode = 'utility'
@@ -59,6 +62,7 @@ def quality_report(store, chat):
         mode_label={'question':'Вопросы','dialogue':'Диалог','automatic':'Автоподколы','utility':'Команды'}[mode]
         lines.append(f'{mode_label}: {len(samples)}; ожидание+обработка p50 {percentile(.5):.1f} с, p95 {percentile(.95):.1f} с; '
                      f'очередь ср. {avg("queue_seconds"):.1f} с; модель ср. {avg("model_seconds"):.1f} с; '
-                     f'повторных вызовов: {sum(max(0,m.get("model_calls",0)-1) for m in samples)}')
+                     f'повторных вызовов: {sum(max(0,m.get("model_calls",0)-1) for m in samples)} '
+                     f'({sum(m.get("retry_seconds",0) for m in samples):.1f} с суммарно); отправка ср. {avg("send_seconds"):.1f} с')
     lines.append('Замечания — оценки участников; отклонения — проверки программы, не доказанные ошибки смысла.')
     return '\n'.join(lines)

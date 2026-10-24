@@ -59,12 +59,14 @@ class QualityTests(unittest.TestCase):
     def test_quality_report_keeps_numeric_metrics_and_fixed_reasons_only(self):
         for total in (1,2,100):
             record_quality(self.store,dict(chat_id=-100,thoughtful=True,_outcome='sent',text='SECRET',
+                           _inference_calls=[{'seconds':.1},{'seconds':.2}],
                            _rejections=['lost_uncertainty','raw private text']),
                            dict(total_seconds=total,queue_seconds=0,model_calls=2,model_seconds=1,secret='SECRET'))
         report=quality_report(self.store,-100)
         self.assertIn('p50 2.0',report)
         self.assertIn('p95 100.0',report)
         self.assertIn('повторных вызовов: 3',report)
+        self.assertIn('0.6 с суммарно',report)
         self.assertNotIn('SECRET',report)
         with self.store.db() as db:
             saved=str(db.execute('SELECT metrics,rejections FROM quality_runs').fetchall())
