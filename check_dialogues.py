@@ -8,7 +8,7 @@ from pathlib import Path
 
 from bot import Bot, Store, answer_problem
 from common import APIError, CONFIG, MODEL, ROOT, http_json
-from answer_quality import checked_concise_extract, concise_problem, concise_word_limit, grounding_problem, specific_clarification
+from answer_quality import banter_coherence_problem, checked_concise_extract, concise_problem, concise_word_limit, grounding_problem, specific_clarification
 from conversation import ambiguous_subject, inline_control, missing_reference, response_control, verification_query
 from inference import generation_stats, runner_options
 from question_answers import ends_question, thoughtful_request
@@ -44,6 +44,10 @@ def assess(case, answer, elapsed, max_seconds):
     problem = answer_problem(answer, thoughtful=case['mode'] == 'question')
     if problem:
         errors.append(problem)
+    if case['mode'] == 'parody':
+        problem = banter_coherence_problem(answer)
+        if problem:
+            errors.append(problem)
     lowered = answer.casefold()
     if any(word.casefold() in lowered for word in case.get('forbidden', [])):
         errors.append('forbidden_topic_or_phrase')

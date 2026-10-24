@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from answer_quality import concise_extract, concise_problem, concise_word_limit, explanation_problem, grounding_problem, specific_clarification
+from answer_quality import banter_coherence_problem, concise_extract, concise_problem, concise_word_limit, explanation_problem, grounding_problem, specific_clarification
 from bot import Bot, Store
 from check_dialogues import assess, evaluate, main, timing_text, warm_model
 from common import APIError, MODEL, ROOT
@@ -68,6 +68,39 @@ class InferenceQualityTests(unittest.TestCase):
                      'Если выдаёт ошибку проверь доступ совместимость и настройки.',
                      'Если проверка пройдена значит она не повреждена.']:
             self.assertIsNone(grounding_problem(text, 'Как проверить резервную копию сервера?'), text)
+
+    def test_known_particle_piles_are_rejected_but_complete_short_reactions_are_allowed(self):
+        for answer in ['ти шо ещо било би сечас', 'ти що тут шо бля сученок?', 'ти шо тут ето бля опять']:
+            self.assertEqual(banter_coherence_problem(answer), 'unconnected_particles')
+            self.assertIn('unconnected_particles', assess(dict(mode='parody', request='цацик'), answer, 1, 120))
+        for answer in ['ну ти опять эксперт по всему', 'сначала сам разберись потом учи',
+                       'ну и где ти её потерял свиноголовый?', 'чего надо?', 'сам то понял что написал?']:
+            self.assertIsNone(banter_coherence_problem(answer), answer)
+
+    def test_particle_pile_retries_without_profile_or_examples_and_is_reported(self):
+        bad = 'ти шо ещо било би сечас'
+        good = 'сначала сам разберись потом учи'
+        job = self.job('шо ты опять умничаешь цацик?', thoughtful=False, _capture_rejections=True)
+        with patch('bot.find_examples', return_value=[]), patch('bot.profile_for_request') as profile, \
+                patch('bot.http_json', side_effect=[self.result(bad), self.result(good)]) as model:
+            self.assertEqual(self.bot.generate(job), good)
+        profile.assert_not_called()
+        self.assertEqual(model.call_count, 2)
+        data = json.loads(model.call_args.args[1]['messages'][1]['content'])
+        self.assertNotIn('speech_profile', data)
+        self.assertEqual(data['style_examples'], [])
+        self.assertIn('одно законченное предложение', model.call_args.args[1]['messages'][0]['content'])
+        self.assertEqual(job['_rejection_details'][0]['rule'], 'banter.unconnected_particles')
+        self.assertEqual(job['_rejection_details'][0]['answer'], bad)
+        self.assertEqual(model.call_args.args[1]['options']['num_ctx'], MODEL_CONTEXT)
+
+    def test_two_particle_piles_are_not_sent_as_a_successful_banter_answer(self):
+        with patch('bot.find_examples', return_value=[]), \
+                patch('bot.http_json', return_value=self.result('ти шо ещо било би сечас')) as model:
+            job = self.job('шо ты опять умничаешь цацик?', thoughtful=False)
+            self.assertIsNone(self.bot.generate(job))
+        self.assertEqual(model.call_count, 2)
+        self.assertEqual(job['_rejections'], ['unconnected_particles'] * 2)
 
     def test_short_parody_instruction_has_bounded_size_and_two_selected_examples(self):
         examples = [dict(context='роутер тормозит', response=text) for text in [

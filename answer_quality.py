@@ -46,6 +46,18 @@ def words(text):
     return re.findall(r'\w+',parody_text(text).casefold().replace('ё','е'))
 
 
+def banter_coherence_problem(text):
+    """Reject longer particle/insult piles, not a general grammar checker."""
+    tokens = words(text)
+    empty = set(('а и но ну же уж уже опять тут там ти ты я он она они мы вы это ето '
+                 'шо що что че чо как где когда зачем почему ещё ещо еще бы би '
+                 'был было било была были будет есть сечас сейчас то вот так да нет '
+                 'бля блядь блять сука сученок сучонок хуйня лох дурак свиноголовый').split())
+    if len(tokens) >= 5 and set(tokens) <= empty:
+        return 'unconnected_particles'
+    return None
+
+
 def topics(text):
     result=set()
     for word in words(text):

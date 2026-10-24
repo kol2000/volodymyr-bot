@@ -24,7 +24,7 @@ from question_answers import (PROMPT as QUESTION_PROMPT, NEUTRAL_PROMPT, FALLBAC
 from assistant_features import (FeatureStore, FEATURE_COMMANDS, FOLLOWUP, CALL as FEATURE_CALL, feature_request,
                                 negative_reason, memory_context)
 from style_profile import profile_for_request
-from answer_quality import (answer_problem, checked_concise_extract, concise_extract, concise_problem, concise_word_limit, contextual_request, diagnostic_retry_guidance, explanation_problem,
+from answer_quality import (answer_problem, banter_coherence_problem, checked_concise_extract, concise_extract, concise_problem, concise_word_limit, contextual_request, diagnostic_retry_guidance, explanation_problem,
                             grounding_problem, question_context)
 from conversation import (ambiguous_subject, amendment_request, banter_request, control_remainder, inline_control, missing_reference,
                           response_control as standalone_control, verification_query)
@@ -597,6 +597,9 @@ def response_problem(text, previous=(), subject=''):
     reason = answer_problem(text)
     if reason or text.strip() == '__SILENCE__':
         return reason
+    reason = banter_coherence_problem(text)
+    if reason:
+        return reason
     if CYBORG_PATTERN.search(text) and not CYBORG_PATTERN.search(subject):
         return 'unrelated_topic'
     if BUBUS_PATTERN.search(text) and FORGET_PATTERN.search(text) and not FORGET_PATTERN.search(subject):
@@ -1126,8 +1129,6 @@ class Bot:
         data['approved_corrections'] = self.store.correction_examples(job['chat_id'], subject, 'parody')
         rejected = self.store.rejected_keys(job['chat_id'])
         data['style_examples'] = [row for row in data['style_examples'] if answer_key(row['response']) not in rejected][:2]
-        data['speech_profile'] = profile_for_request(subject)
-        data['speech_profile']['examples'] = [text for text in data['speech_profile']['examples'] if answer_key(text) not in rejected]
         data['quality_feedback'] = self.store.issue_patterns(job['chat_id'])
         if job.get('tease_target'):
             data['proactive_tease'] = {'username': TEASE_USERNAME, 'nickname': 'франки'}
@@ -1143,6 +1144,8 @@ class Bot:
                            'Верни только реплику без @упоминания: адресат добавляется программой.')
             if attempt:
                 prompt += '\nПредыдущий вариант не подошёл. Дай новую готовую реплику на 3–12 слов одной строкой по теме current_request. Без анализа, пояснений и оскорблений защищённых групп. Не повторяй уже сказанные реплики, даже с другой пунктуацией.'
+                if reason == 'unconnected_particles':
+                    prompt += '\nСформулируй одно законченное предложение обычным русским языком. Поддень конкретную мысль собеседника, не демонстрируй набор ругательств.'
             retry_data = dict(data, style_examples=[], live_context=context[-2:],
                               previous_failure=reason) if attempt else data
             try:
@@ -1151,7 +1154,7 @@ class Bot:
                     'messages': [{'role': 'system', 'content': prompt},
                                  {'role': 'user', 'content': json.dumps(retry_data, ensure_ascii=False)}],
                     'options': runner_options(num_predict=160 if attempt and reason == 'length_limit' else 100,
-                                              temperature=0.75, repeat_penalty=1.08),
+                                              temperature=0.55, repeat_penalty=1.08),
                 }, timeout=90)
             except APIError as error:
                 # A timed-out local generation may still be running. Do not pile
@@ -1184,6 +1187,10 @@ class Bot:
             # Log only a fixed reason code, never generated text or requests.
             LOG.warning('Ответ модели отклонён: причина=%s; попытка=%s/2', reason, attempt + 1)
             job.setdefault('_rejections', []).append(reason)
+            if job.get('_capture_rejections'):
+                job.setdefault('_rejection_details', []).append(dict(
+                    attempt=attempt + 1, reason=reason, rule='banter.' + reason,
+                    answer=clean_text(answer)[:1000]))
         return None
 
     def call_model(self, job, payload, timeout):
