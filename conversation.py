@@ -182,6 +182,17 @@ def elliptical_followup(text):
     return None
 
 
+def dialogue_tone(text):
+    roles = dialogue_roles(text)
+    if roles.get('reply_scope'):
+        return 'conversational'
+    visible = re.sub(r'«[^»]*»|"[^"]*"|`[^`]*`',' ',text)
+    if re.search(r'\b(?:не\s+умничай|хватит|надоело|достал|без\s+(?:грубости|подколов|оскорблений)|'
+                 r'слишком\s+грубо|не\s+так\s+понял|по\s+делу)\b',visible,re.I):
+        return 'calm'
+    return 'playful' if banter_request(text) else 'conversational'
+
+
 def verification_query(text):
     """Only public, time-dependent questions. Never send private chat context out."""
     body = control_remainder(text)

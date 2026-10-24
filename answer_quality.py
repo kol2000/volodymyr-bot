@@ -77,6 +77,9 @@ def banter_relation_problem(text, request):
         if re.search(r'\bя\s+(?:же\s+)?помню\b', text, re.I) and not re.search(r'помн|вспом', request, re.I):
             return 'unsupported_memory'
     if roles.get('reply_scope') in ('reported_speech', 'third_person'):
+        if re.search(r'\b(?:ты|ти)\s+сам\s+(?:начал|виноват)\b',text,re.I) or (
+                re.search(r'умнича',request,re.I) and re.search(r'\bумничаю\b',text,re.I)):
+            return 'reported_action_reversal'
         if roles.get('reply_scope') == 'reported_speech' and re.search(
                 r'\b(?:ты|ти)\s+(?:здесь|тут)|\bгде\s+(?:ты|ти)\b', request, re.I):
             alias = re.escape(roles.get('referenced_alias') or 'он')

@@ -70,7 +70,7 @@ class LearningStore:
             db.execute('DELETE FROM correction_receipts WHERE NOT EXISTS '
                        '(SELECT 1 FROM answer_corrections c WHERE c.id=correction_receipts.correction_id)')
         return identifier, ('вариант записав ответь «подтверждаю» на ето сообщение '
-                            'если его и надо учитывать в похожих вопросах')
+                            'если его и надо учитывать в таком же вопросе')
 
     def link_correction(self, chat_id, sent, identifier):
         if identifier and sent and type(sent.get('message_id')) is int:
@@ -101,16 +101,29 @@ class LearningStore:
                            (chat_id, row[4], user_id, 'incorrect', key, time.time()))
         return 'подтвердив буду учитывать етот вариант как поправку участника'
 
-    def correction_examples(self, chat_id, query, mode, limit=2):
+    def correction_examples(self, chat_id, query, mode, limit=2, user_id=None):
         wanted = topics(query)
         if not wanted:
             return []
         with self.db() as db:
-            rows = db.execute('SELECT author,request,corrected,reason,confirmed FROM answer_corrections '
-                              'WHERE chat_id=? AND mode=? AND confirmed>=? ORDER BY confirmed DESC LIMIT 100',
-                              (chat_id, mode, time.time() - 30 * 86400)).fetchall()
+            rows = db.execute('SELECT c.author,c.request,c.corrected,c.reason,c.confirmed,c.user_id,c.source_id,c.created,h.user_id '
+                              'FROM answer_corrections c LEFT JOIN messages s ON s.chat_id=c.chat_id AND s.message_id=c.source_id '
+                              'LEFT JOIN messages h ON h.chat_id=s.chat_id AND h.message_id=s.reply_to AND h.human=1 '
+                              'WHERE c.chat_id=? AND c.mode=? AND c.confirmed>=? AND c.created>=? ORDER BY c.confirmed DESC LIMIT 100',
+                              (chat_id, mode, time.time() - 30 * 86400, time.time() - 30 * 86400)).fetchall()
         selected, seen = [], set()
-        for author, request, answer, reason, confirmed in rows:
+        for author, request, answer, reason, confirmed, correcting_user, source_id, created, requesting_user in rows:
+            # Ordered words preserve negation, direction and conditions. Topic
+            # overlap alone cannot distinguish opposite questions.
+            if tuple(words(query)) != tuple(words(request)):
+                continue
+            if re.search(r'\b(?:сегодня|вчера|завтра|сейчас|сечас|текущ\w*|курс|цен[аыу]|стоимост\w*|стоит|стоят|рубл\w*|грив\w*|доллар\w*|евро|usd|eur|rub|uah)\b|[₽₴$€]', request+' '+answer, re.I):
+                continue
+            if user_id is not None and requesting_user is not None and requesting_user != user_id:
+                continue
+            personal = re.search(r'\b(?:мой|моя|мо[её]|мои|моего|моей|моему|мою|моим|моих|моими|мо[её]м|меня|мне|наш\w*|my|mine|our)\b',request,re.I)
+            if personal and (user_id is None or requesting_user != user_id):
+                continue
             identity = tuple(words(request))
             if identity in seen:
                 continue
@@ -119,7 +132,9 @@ class LearningStore:
             shared = wanted & subject
             if shared and len(shared) / len(wanted) >= 0.6 and len(shared) / max(1, len(subject)) >= 0.5:
                 selected.append(dict(author=author, request=request, response=answer, reason=reason,
-                                     confirmed=confirmed, participant_claim=True))
+                                     confirmed=confirmed, participant_claim=True, scope='same_request',
+                                     correcting_user=correcting_user, source_message_id=source_id,
+                                     created=created, expires=created+30*86400))
         return selected[:limit]
 
     def issue_patterns(self, chat_id):

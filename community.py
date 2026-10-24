@@ -134,7 +134,8 @@ def help_text(owner=False):
                  '/adaptive_on, /adaptive_off — учитывать темп беседы\n'
                  '/greetings_on, /greetings_off — общие приветствия\n'
                  '/rules_set текст — задать правила, также можно ответить на текст правил\n'
-                 '/settings — настройки; /status — состояние бота')
+                 '/settings — настройки; /status — состояние бота\n'
+                 '/quality — замечания, отклонения и задержки за 7 дней')
         text += ('\n/football_on, /football_off — футбольные уведомления в подключённой группе\n'
                  '/football_status — доступность источника и последняя проверка\n'
                  '/football_videos_on, /football_videos_off — видео в постах о голах\n'

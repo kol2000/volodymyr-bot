@@ -17,14 +17,22 @@ FOLLOWUP = re.compile(r'^(?:подробнее|разверни|продолжи
                         r'ещ[еёо] пример|объясни проще|короче|покороче|кратко|объясни нормально|'
                         r'без приколов|по делу|приведи пример|уточню|уточнение|поправка|точнее)(?:\b|$)', re.I)
 REASONS = {'мимо темы': 'off_topic', 'неправда': 'incorrect', 'не похож на володьку': 'style',
+           'не так понял': 'misunderstood', 'ты не так понял': 'misunderstood',
+           'ты меня не понял': 'misunderstood', 'это неправда': 'incorrect',
+           'слишком длинно': 'too_long', 'слишком длинный ответ': 'too_long',
+           'слишком кратко': 'too_short', 'слишком коротко': 'too_short',
+           'слишком грубо': 'too_rude', 'без грубости': 'too_rude',
            'неправильно': 'incorrect',
            'не похоже на володьку': 'style', 'опять повторяешься': 'repeat',
            'опять повторяешся': 'repeat', 'повтор': 'repeat'}
 
 
-def negative_reason(text):
+def negative_reason(text, legacy_only=False):
     body = CALL.sub('', text.strip()).casefold().strip(' .!?,')
     body = re.sub(r'^(?:[-−–]\s*|минус\s+)', '', body)
+    if legacy_only and body not in {'мимо темы','неправда','неправильно','не похож на володьку',
+                                   'не похоже на володьку','опять повторяешься','опять повторяешся','повтор'}:
+        return None
     return REASONS.get(body)
 
 
@@ -153,7 +161,9 @@ class FeatureStore:
             if not row or row[1] == 0 or row[0] != clean_text(quoted)[:1000]:
                 return False
             key = response_key(row[0])
-            inserted = db.execute('INSERT OR IGNORE INTO answer_issues VALUES (?,?,?,?,?,?)',
+            inserted = db.execute('INSERT INTO answer_issues VALUES (?,?,?,?,?,?) '
+                                 'ON CONFLICT(chat_id,message_id,user_id) DO UPDATE SET reason=excluded.reason,timestamp=excluded.timestamp '
+                                 'WHERE answer_issues.reason<>excluded.reason',
                                  (chat_id, message_id, user_id, reason, key, time.time())).rowcount
             # A negative example must not keep teaching its former praise.
             if inserted:
