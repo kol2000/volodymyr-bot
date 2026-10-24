@@ -213,6 +213,7 @@ ALIASES = {
     'зенит': ('zenit',), 'спартак': ('spartak',), 'цска': ('cska',), 'комо': ('como',),
     'динамо москва': ('dinamo moscow', 'dinamo moskva'), 'родина': ('rodina',),
     'локомотив': ('lokomotiv',), 'ростов': ('rostov',), 'кайрат': ('kairat', 'kayrat'),
+    'крылья советов': ('крылья', 'krylya sovetov'),
 }
 
 
@@ -243,6 +244,9 @@ def russian_named(text, name):
     text = text.casefold().replace('ё', 'е')
     if re.search(r'(?<!\w)' + re.escape(name) + r'(?!\w)', text):
         return True
+    if any(re.search(r'(?<!\w)' + re.escape(alias) + r'(?!\w)', text)
+           for alias in ALIASES.get(name, ()) if re.fullmatch(r'[а-я ]+', alias)):
+        return True
     if not re.fullmatch(r'[а-я]{4,}', name):
         return False
     stem = name[:-1] if name.endswith(('а', 'я')) else name
@@ -272,7 +276,7 @@ def narrative_goal_reason(clip, job):
     ordinal = {'первый': 1, 'второй': 2, 'третий': 3, 'четвертый': 4, 'пятый': 5,
                'шестой': 6, 'седьмой': 7}
     first = re.search(r'\b(' + '|'.join(ordinal) + r')\s+гол\b', text)
-    conceded = re.search(r'\b(' + '|'.join(ordinal) + r')\s+пропущенн\w*\s+у\s+[«"]?([а-я]+)', text)
+    conceded = re.search(r'\b(' + '|'.join(ordinal) + r')\s+(?:пропущенн\w*\s+у|в\s+воротах)\s+[«"]?([а-я]+)', text)
     draw = bool(re.search(r'\bсравнял[аи]?\b', text))
     cue = bool(re.search(r'\bгол\b|\bзабил[аи]?\b|\bсравнял[аи]?\b|\bвпереди\b', text))
     candidates = []
@@ -288,6 +292,8 @@ def narrative_goal_reason(clip, job):
         score = goal['score']
         if draw and score[0] != score[1]:
             continue
+        if 'с пенальти' in text and goal['kind'] != 'penalty-goal':
+            continue
         if re.search(r'\bвпереди\b', text) and score[side] <= score[1-side]:
             continue
         if first and sum(score) != ordinal[first[1]]:
@@ -300,6 +306,8 @@ def narrative_goal_reason(clip, job):
         surname = goal['player'].split()[-1] if goal['player'].split() else ''
         scorer = len(surname) >= 4 and russian_named(text, surname)
         direct_scorer = scorer and cue and (scoring_team or draw)
+        own_goal = bool(scorer and scoring_team and goal['kind'] == 'own-goal' and re.search(
+            r'срезал\s+в\s+свои\b|в\s+свои\s+ворота\b|\bавтогол\b', text))
         penalty = bool(first and scoring_team and 'пенальти' in text and goal['kind'] == 'penalty-goal')
         conceded_goal = bool(conceded)
         # "Акрону помог рикошет. У Лунёва не было шансов": a team alone is
@@ -311,7 +319,7 @@ def narrative_goal_reason(clip, job):
         ricochet = bool(scoring_team and re.search(r'помог\s+рикошет', text)
                         and re.search(r'рикошет', description, re.I)
                         and any(russian_named(text, person) for person in people))
-        if direct_scorer or penalty or conceded_goal or ricochet:
+        if direct_scorer or own_goal or penalty or conceded_goal or ricochet:
             candidates.append((tuple(score), goal['minute'], goal['player']))
     target = job['goal']
     identity = (tuple(target['score']), target['minute'], target['player'])
@@ -446,6 +454,20 @@ class GoalVideos:
     def cancel(self):
         with self.store.db() as db:
             db.execute("UPDATE goal_video_jobs SET status='cancelled' WHERE status='pending'")
+
+    def refresh_match_context(self, chat_id, match):
+        """Refresh waiting clips from the live source, even without a card edit."""
+        if excluded_competition(match.competition):
+            return
+        context = dict(match_goals=[asdict(g) for g in match.goals], match_score=[match.home_score, match.away_score])
+        with self.store.db() as db:
+            for number, raw in db.execute("SELECT message_id,payload FROM goal_video_jobs WHERE chat_id=? AND match_id=? AND status='pending'", (chat_id, match.id)).fetchall():
+                job = json.loads(raw)
+                if all(job.get(k) == v for k, v in context.items()):
+                    continue
+                job.update(context)
+                db.execute('UPDATE goal_video_jobs SET payload=? WHERE chat_id=? AND message_id=?',
+                           (json.dumps(job, ensure_ascii=False), chat_id, number))
 
     def enqueue(self, chat_id, match, goals, message_id, original, created=None):
         if excluded_competition(match.competition):

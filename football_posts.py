@@ -121,6 +121,8 @@ class FootballPosts:
         if not self.valid(chat, allowed) or None in (match.home_score, match.away_score):
             return
         now, current = self.clock(), [match.home_score, match.away_score]
+        video_context = dict(goals=[asdict(g) for g in match.goals], score=current)
+        self.videos.refresh_match_context(chat, match)
         before = previous.get('score') if previous else None
         if previous and previous.get('status') == 'scheduled' and not already_started(previous):
             before = [0, 0]
@@ -162,6 +164,8 @@ class FootballPosts:
                     p.update(cancelled=True,cancellation=decision,corrected_score=current,score_pending=True)
         cancelled = [p for _,p in payloads if p.get('cancelled')]
         for row,p in payloads:
+            context_changed = p.get('video_context') != video_context
+            p['video_context'] = video_context
             if p.get('cancelled'):
                 p['cancellation'] = self.decision(p,match,cancelled)
                 with self.store.db() as db:
@@ -172,11 +176,15 @@ class FootballPosts:
                 with self.store.db() as db:
                     db.execute("UPDATE football_goal_posts SET payload=?,desired=?,edit_state=CASE WHEN edit_state='uncertain' THEN 'idle' ELSE edit_state END WHERE id=?",
                                (json.dumps(p,ensure_ascii=False),sig,row[0]))
+            elif context_changed:
+                with self.store.db() as db:
+                    db.execute('UPDATE football_goal_posts SET payload=? WHERE id=?',
+                               (json.dumps(p,ensure_ascii=False),row[0]))
         if increased:
             ready = goals_between(match,before,current)
             event = events[0] if events else ('score','⚽ Счет изменился')
             p = dict(match=snapshot(match), before=before, event=event, checked=checked,
-                     goals=[asdict(g) for g in ready], cancelled=False)
+                     goals=[asdict(g) for g in ready], cancelled=False, video_context=video_context)
             sig = signature(p)
             with self.store.db() as db:
                 number = db.execute('INSERT INTO football_goal_posts (chat_id,match_id,created,payload,desired,applied,send_state,edit_state) VALUES (?,?,?,?,?,?,?,?)',
@@ -274,6 +282,10 @@ class FootballPosts:
                 if payload['goals'] and not payload.get('cancelled') and not media:
                     m = Match(**payload['match'])
                     goals = tuple(Goal(**dict(g,score=tuple(g['score']))) for g in payload['goals'])
+                    context = payload.get('video_context', {})
+                    full = tuple(Goal(**dict(g,score=tuple(g['score']))) for g in context.get('goals', payload['goals']))
+                    score = context.get('score', [m.home_score, m.away_score])
+                    m = replace(m, goals=full, home_score=score[0], away_score=score[1])
                     self.videos.enqueue(chat,m,goals,message_id,text,created=row[4])
                 LOG.info('Пост гола обновлён: пост=%s; видео=%s; отменён=%s',message_id,media,bool(payload.get('cancelled')))
 

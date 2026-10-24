@@ -449,6 +449,20 @@ class MatchingTests(VideoFixture):
 
 
 class NarrativeCaptionTests(unittest.TestCase):
+    def test_evening_own_goal_penalty_and_cordoba_match_uniquely(self):
+        data = json.loads((Path(__file__).parent / 'fixtures/matchpremier_evening_goal_posts_20261024.json').read_text(encoding='utf-8'))
+        jobs = [dict(home=m['home'], away=m['away'], competition=m['competition'],
+                     kickoff=m['kickoff'], created=m['kickoff'], goal=g,
+                     match_goals=m['goals'], match_score=[m['home_score'], m['away_score']])
+                for m in data['matches'] for g in m['goals']]
+        expected = {30114: [('Игор Вуячич', (0, 1))], 30115: [('Амар Рахманович', (0, 2))],
+                    30117: [('Джон Кордоба', (1, 0))], 30118: []}
+        for p in data['posts']:
+            clip = Clip('matchpremier', p['post_id'], p['timestamp'], p['text'], MEDIA)
+            found = [(j['goal']['player'], tuple(j['goal']['score'])) for j in jobs
+                     if matches_goal(clip, j, p['timestamp']+60)]
+            self.assertEqual(found, expected[p['post_id']], p['post_id'])
+
     def setUp(self):
         data = json.loads((Path(__file__).parent / 'fixtures/matchpremier_goal_posts_20261024.json').read_text(encoding='utf-8'))
         self.clips = {p['post_id']: Clip('matchpremier', p['post_id'], p['timestamp'], p['text'], MEDIA)

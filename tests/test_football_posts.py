@@ -74,6 +74,38 @@ class PostTests(unittest.TestCase):
             return dict(chat=dict(id=chat),message_id=number,video=dict(file_id='one'))
         self.videos.poll(upload,lambda c:c==-100)
 
+    def test_late_description_keeps_real_full_context_and_attaches_cordoba_clip(self):
+        from live_football import Match, Goal
+        data=json.loads((Path(__file__).parent/'fixtures/matchpremier_evening_goal_posts_20261024.json').read_text(encoding='utf-8'))
+        row=next(m for m in data['matches'] if m['home']=='Краснодар')
+        goals=tuple(Goal(**dict(g,score=tuple(g['score']))) for g in row['goals'])
+        c=next(p for p in data['posts'] if p['post_id']==30117)
+        self.match=Match(**dict(row,home_score=0,away_score=0,status='live',goals=()))
+        self.store.set(PREFIX+'seen:-100',{self.match.id:self.match.state()})
+        self.now[0]=c['timestamp']-180
+        self.tick((1,0),goals=())
+        self.assertIsNone(self.video_row())
+        self.tick(goals=goals)
+        queued=json.loads(self.video_row()[5])
+        self.assertEqual(len(queued['match_goals']),1)
+        self.assertEqual(queued['match_score'],[1,0])
+        self.now[0]=c['timestamp']+1
+        self.clips=[Clip('matchpremier',30117,c['timestamp'],c['text'],MEDIA)]
+        self.videos.poll(lambda *a:self.uploads.append(a),lambda c:c==-100)
+        self.assertEqual(len(self.uploads),1)
+        self.assertEqual(len(self.telegram.sent),1)
+        self.assertEqual(self.video_row()[-1],'attached')
+
+    def test_live_refresh_repairs_context_without_editing_unchanged_card(self):
+        self.tick((1,0),goals=(goal(),))
+        row=self.video_row();job=json.loads(row[5]);job['match_goals']=[]
+        with self.store.db() as db:
+            db.execute('UPDATE goal_video_jobs SET payload=? WHERE message_id=?',(json.dumps(job),row[1]))
+        edits=len(self.edits)
+        self.tick()
+        self.assertEqual(len(self.edits),edits)
+        self.assertEqual(len(json.loads(self.video_row()[5])['match_goals']),1)
+
     def test_unlinked_scorers_fill_all_existing_posts_without_new_messages(self):
         from test_kulichki_football import mixed_scorers_broadcast, home
         from kulichki_football import parse_broadcast, parse_home
