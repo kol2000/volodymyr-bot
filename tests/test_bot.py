@@ -670,7 +670,8 @@ class BotTests(unittest.TestCase):
                 self.assertNotIn('хуй туды', '\n'.join(logs.output))
                 self.assertNotIn('unused sensitive diagnostic', '\n'.join(logs.output))
                 if bad.get('done_reason') == 'length':
-                    self.assertEqual(model.call_args.args[1]['options']['num_predict'], 160)
+                    self.assertEqual(model.call_args.args[1]['options']['num_predict'], 300)
+                    self.assertIn('interpretation', model.call_args.args[1]['format']['required'])
 
     def test_rejected_response_reason_logged_without_its_text(self):
         job = {'chat_id': -100, 'text': 'обращение', 'automatic': False}

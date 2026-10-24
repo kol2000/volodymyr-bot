@@ -1181,6 +1181,8 @@ class Bot:
                     prompt += '\nОтвет адресован собеседнику, который рассказывает о другом человеке или цитирует его. Обсуди рассказ; не зови персонажа рассказа и не отвечай ему напрямую.'
                 if reason in ('reported_action_reversal', 'unsupported_memory', 'unsupported_habit'):
                     prompt += '\nНе придумывай воспоминания и прошлые события. Чужое действие остаётся чужим. Ответь на текущую мысль без объяснения неупомянутого прошлого.'
+                if reason == 'reported_presence_claim':
+                    prompt += '\nВ чужой цитате спрашивают о местоположении третьего человека. Где он находится — неизвестно. Обсуди этот вопрос или уточни, чего хочет собеседник; не утверждай, что человек здесь.'
                 if reason == 'reported_truth_assertion':
                     prompt += '\nПересказ чужого мнения не подтверждает его истинность. Обсуди мнение без объявления его фактом.'
                 if reason == 'multiline_response':
@@ -1207,7 +1209,7 @@ class Bot:
                     'model': self.config['model'], 'stream': False, 'keep_alive': '24h',
                     'messages': messages,
                     **output_format,
-                    'options': runner_options(num_predict=220 if direct_reply else 160 if attempt and reason == 'length_limit' else 100,
+                    'options': runner_options(num_predict=(300 if attempt and reason == 'length_limit' else 220) if direct_reply else 160 if attempt and reason == 'length_limit' else 100,
                                               temperature=0.55, repeat_penalty=1.08),
                 }, timeout=90)
             except APIError as error:
@@ -1253,6 +1255,9 @@ class Bot:
                 job.setdefault('_rejection_details', []).append(dict(
                     attempt=attempt + 1, reason=reason, rule='banter.' + reason,
                     answer=clean_text(answer)[:1000]))
+        if direct_reply and reason == 'reported_presence_claim':
+            job['_local_reply'] = 'clarification'
+            return 'Что ти хочеш узнать об етом сообщении?'
         return None
 
     def call_model(self, job, payload, timeout):

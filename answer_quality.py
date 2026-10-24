@@ -77,6 +77,14 @@ def banter_relation_problem(text, request):
         if re.search(r'\bя\s+(?:же\s+)?помню\b', text, re.I) and not re.search(r'помн|вспом', request, re.I):
             return 'unsupported_memory'
     if roles.get('reply_scope') in ('reported_speech', 'third_person'):
+        if roles.get('reply_scope') == 'reported_speech' and re.search(
+                r'\b(?:ты|ти)\s+(?:здесь|тут)|\bгде\s+(?:ты|ти)\b', request, re.I):
+            alias = re.escape(roles.get('referenced_alias') or 'он')
+            for clause in re.findall(r'[^.!?]+[.!?]?', text):
+                if (not re.search(r'\b(?:он|она|'+alias+r')\s+(?:здесь|тут|там)\s*\?\s*$',clause,re.I) and not re.search(
+                        r'\b(?:если|может|возможно|неизвестно|непонятно|не\s+(?:знаю|знаем))\b',clause,re.I)
+                        and re.search(r'\b(?:он|она|'+alias+r')\s+(?:здесь|тут|там)\b',clause,re.I)):
+                    return 'reported_presence_claim'
         if re.search(r'\b(?:значит\s+(?:точно\s+)?(?:правда|так и есть|он прав)|если[^.!?]{0,60}считает\s*[,—–-]\s*(?:значит\s+)?так и есть)\b', text, re.I):
             return 'reported_truth_assertion'
         action = r'(?:читал|написал|сказал|перепутал|вернулся|приш[её]л)[аи]?'

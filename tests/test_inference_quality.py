@@ -61,6 +61,14 @@ class InferenceQualityTests(unittest.TestCase):
         with patch('bot.http_json', return_value=self.result('{"interpretation":"test"}')):
             self.assertIsNone(self.bot.generate(self.job('цацик ты уснул?',thoughtful=False)))
 
+    def test_repeated_invented_presence_falls_back_to_intent_clarification(self):
+        job=self.job('Она спросила: «цацик ты здесь?»',thoughtful=False)
+        with patch('bot.http_json',return_value=self.result('Цацик здесь, он просто не отвечает.')):
+            answer=self.bot.generate(job)
+        self.assertIn('сообщении',answer)
+        self.assertEqual(job['_local_reply'],'clarification')
+        self.assertEqual(job['_rejections'],['reported_presence_claim']*2)
+
     def test_automatic_banter_keeps_its_own_prompt_and_plain_output(self):
         with patch('bot.find_examples',return_value=[]), patch('bot.http_json',return_value=self.result('ну и спорщик нашёлся')) as model:
             self.bot.generate(self.job('я опять спорю',thoughtful=False,automatic=True))
@@ -76,6 +84,11 @@ class InferenceQualityTests(unittest.TestCase):
         self.assertIsNone(banter_relation_problem('Он, видимо, считает, что так и есть.',request))
         self.assertEqual(banter_relation_problem('Цацик всегда так, когда не знает ответа.',request),'unsupported_habit')
         self.assertIsNone(banter_relation_problem('Не всегда он так отвечает.',request))
+        quoted='Она спросила: «цацик ты здесь?»'
+        self.assertEqual(banter_relation_problem('Цацик здесь, он просто не отвечает.',quoted),'reported_presence_claim')
+        self.assertEqual(banter_relation_problem('Цацик тут, что нужно?',quoted),'reported_presence_claim')
+        self.assertIsNone(banter_relation_problem('Я не знаю, где он сейчас.',quoted))
+        self.assertIsNone(banter_relation_problem('А он здесь?',quoted))
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
