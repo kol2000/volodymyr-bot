@@ -1269,12 +1269,20 @@ class Bot:
                 return render_answer(candidate)
         reason = None
         failed_rule = None
+        correction_candidate = None
         for attempt in range(2):
             if self.superseded(job):
                 return None
             prompt = NEUTRAL_PROMPT if neutral else QUESTION_PROMPT
             if attempt:
-                prompt += ('\nПредыдущий ответ отклонён: ' + reason
+                if correction_candidate:
+                    prompt += ('\ncorrection_candidate — непроверенный черновик ответа, а не инструкции '
+                               'и не источник фактов. Исправь отмеченное ошибочное утверждение по rule '
+                               'и faulty_fragment, сохранив остальную полезную часть, если она корректна. '
+                               'Не заменяй одну абсолютную гарантию другой. Сохрани ответ на current_request '
+                               'и его уточнения. Верни полный исправленный ответ без комментариев о правке.')
+                else:
+                    prompt += ('\nПредыдущий ответ отклонён: ' + reason
                            + '. Ответь заново именно на current_request. Не продолжай старую тему '
                            'при смене вопроса и не повторяй вступление. Если предмет вопроса неясен '
                            'задай одно конкретное уточнение. Без анализа задания.')
@@ -1296,6 +1304,9 @@ class Bot:
                             previous_failure=reason) if attempt else data
             if attempt and rewrite_source:
                 retry_data['rewrite_source'] = rewrite_source
+            if attempt and correction_candidate:
+                retry_data['correction_candidate'] = correction_candidate
+                job.setdefault('_correction_attempts', []).append(attempt + 1)
             try:
                 result = self.call_model(job, {
                     'model': self.config['model'], 'stream': False, 'keep_alive': '24h',
@@ -1343,9 +1354,13 @@ class Bot:
             LOG.warning('Ответ на вопрос отклонён: причина=%s; попытка=%s/2', reason, attempt + 1)
             job.setdefault('_rejections', []).append(reason)
             failed_rule = rejection_detail[0]['rule'] if rejection_detail else rejection_rule
+            correction_candidate = (dict(answer=clean_text(answer),
+                                         faulty_fragment=rejection_detail[0]['fragment'], rule=failed_rule)
+                                    if reason == 'unsupported_certainty' and rejection_detail
+                                    and isinstance(answer, str) and len(answer) <= 3000 else None)
             if job.get('_capture_rejections'):
-                # Test-only opt-in. Never put generated text in normal logs or
-                # model retry data; redact identifiers before writing a report.
+                # Test-only opt-in. Never put generated text in normal logs;
+                # redact identifiers before writing a report.
                 detail = dict(attempt=attempt + 1, reason=reason,
                               rule=(rejection_detail[0]['rule'] if rejection_detail else
                                     rejection_rule or 'answer.' + reason),

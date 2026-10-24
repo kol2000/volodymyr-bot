@@ -106,6 +106,7 @@ def evaluate(case, config, run_model=False, max_seconds=120, capture_rejections=
                       seconds=elapsed, answer=answer, local_reply=job.get('_local_reply'),
                       metrics=job.get('_metrics', {}), calls=job.get('_inference_calls', []),
                       rejections=job.get('_rejections', []), rewrite_fallback=job.get('_rewrite_fallback'))
+        result['correction_attempts'] = job.get('_correction_attempts', [])
         if capture_rejections:
             result['rejection_details'] = job.get('_rejection_details', [])
         result['errors'].extend(assess(case, answer, elapsed, max_seconds))
@@ -131,6 +132,8 @@ def timing_text(result):
     calls = result.get('calls', [])
     metrics = result.get('metrics', {})
     parts = [f'{result["seconds"]:.2f} сек.', f'запросов к модели: {len(calls)}']
+    if result.get('correction_attempts'):
+        parts.append(f'исправлений ответа: {len(result["correction_attempts"])}')
     for key, label in [('load_seconds', 'загрузка'), ('prompt_seconds', 'чтение запроса'),
                        ('generation_seconds', 'ответ'), ('other_seconds', 'прочее/ожидание')]:
         if key in metrics:

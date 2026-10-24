@@ -151,7 +151,7 @@ class InferenceQualityTests(unittest.TestCase):
         model.assert_called_once()
         self.assertNotEqual(answer, candidate)
 
-    def test_specific_retries_preserve_the_question_without_echoing_the_bad_answer(self):
+    def test_specific_retries_preserve_question_and_supply_draft_as_untrusted_data(self):
         cases = [
             ('Почему WiFi медленнее кабеля?', 'Кабель стабильнее и без потерь.',
              'Возможны помехи. Сравни скорость на одном устройстве.', 'Убери гарантию передачи без потерь', 'Сохрани задачу проверки'),
@@ -168,7 +168,49 @@ class InferenceQualityTests(unittest.TestCase):
             self.assertIn(expected, prompt)
             self.assertNotIn(unrelated, prompt)
             self.assertEqual(json.loads(payload['messages'][1]['content'])['current_request'], subject)
-            self.assertNotIn(bad, json.dumps(payload))
+            self.assertEqual(json.loads(payload['messages'][1]['content'])['correction_candidate']['answer'], bad)
+            self.assertNotIn(bad, prompt)
+
+    def test_targeted_correction_receives_draft_and_faulty_fragment_and_keeps_useful_part(self):
+        useful = 'WiFi может быть медленнее из-за помех и расстояния.'
+        bad = useful + ' Кабель обеспечивает соединение без внешних влияний.'
+        good = useful + ' Кабель меньше зависит от радиопомех.'
+        job = self.job('Почему WiFi медленнее кабеля?')
+        with patch('bot.http_json', side_effect=[self.result(bad), self.result(good)]) as model:
+            self.assertEqual(self.bot.generate(job), good)
+        self.assertEqual(model.call_count, 2)
+        first, second = [call.args[1]['messages'] for call in model.call_args_list]
+        self.assertNotIn('correction_candidate', json.loads(first[1]['content']))
+        data = json.loads(second[1]['content'])
+        self.assertEqual(data['current_request'], job['text'])
+        self.assertEqual(data['correction_candidate']['answer'], bad)
+        self.assertEqual(data['correction_candidate']['rule'], 'grounding.cable_external_immunity')
+        self.assertIn('без внешних влияний', data['correction_candidate']['faulty_fragment'])
+        self.assertIn('непроверенный черновик', second[0]['content'])
+        self.assertNotIn('Ответь заново', second[0]['content'])
+        self.assertEqual(job['_correction_attempts'], [2])
+        self.assertNotIn('_rejection_details', job)
+
+    def test_targeted_correction_still_rejects_a_different_guarantee_and_never_calls_third_time(self):
+        job = self.job('Почему WiFi медленнее кабеля?', _capture_rejections=True)
+        with patch('bot.http_json', side_effect=[self.result('Кабель без внешних влияний.'),
+                                                self.result('Кабель передаёт данные без потерь.')]) as model:
+            self.assertIsNone(self.bot.generate(job))
+        self.assertEqual(model.call_count, 2)
+        self.assertEqual(job['_correction_attempts'], [2])
+        self.assertEqual([detail['rule'] for detail in job['_rejection_details']],
+                         ['grounding.cable_external_immunity', 'grounding.cable_no_loss'])
+
+    def test_sensitive_rejections_are_not_repair_sources_and_prompt_slogan_is_removed(self):
+        from question_answers import PROMPT, NEUTRAL_PROMPT
+        for prompt in [PROMPT, NEUTRAL_PROMPT]:
+            self.assertNotIn('гипотеза остаётся гипотезой', prompt)
+        token = '123456789:' + 'A' * 30
+        with patch('bot.http_json', side_effect=[self.result(token), self.result('Возможны помехи.')]) as model:
+            self.assertEqual(self.bot.generate(self.job('Почему WiFi медленнее кабеля?')), 'Возможны помехи.')
+        second = model.call_args.args[1]
+        self.assertNotIn('correction_candidate', json.loads(second['messages'][1]['content']))
+        self.assertNotIn(token, str(second))
 
     def test_default_questions_use_neutral_prompt_and_spelling_without_archive_profile(self):
         from question_answers import NEUTRAL_PROMPT, substantive_style
@@ -394,14 +436,16 @@ class InferenceQualityTests(unittest.TestCase):
                        'Проблема в WiFi подтверждена измерениями и диагностикой оборудования.']:
             self.assertIsNone(grounding_problem(answer, subject), answer)
 
-    def test_rejection_capture_is_opt_in_and_never_logs_text_or_feeds_it_to_retry(self):
+    def test_rejection_reports_are_opt_in_and_draft_is_never_logged_or_used_as_instruction(self):
         bad = 'В логах будет точная причина. rejected-answer-sentinel'
         for capture in [False, True]:
             job = self.job('Почему сервер теряет соединение?', _capture_rejections=capture)
             with patch('bot.http_json', return_value=self.result(bad)) as model, self.assertLogs('volodymyr', level='WARNING') as logs:
                 self.assertIsNone(self.bot.generate(job))
             self.assertNotIn('rejected-answer-sentinel', ' '.join(logs.output))
-            self.assertNotIn('rejected-answer-sentinel', str(model.call_args.args[1]))
+            retry = model.call_args.args[1]['messages']
+            self.assertNotIn('rejected-answer-sentinel', retry[0]['content'])
+            self.assertEqual(json.loads(retry[1]['content'])['correction_candidate']['answer'], bad)
             if capture:
                 self.assertEqual(len(job['_rejection_details']), 2)
                 detail = job['_rejection_details'][0]
