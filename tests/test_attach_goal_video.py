@@ -151,6 +151,70 @@ class AttachTests(unittest.TestCase):
         self.assertEqual(self.status(), 'pending')
         self.assertEqual(self.edits, [])
 
+    def cancelled(self, status='cancelled', expires=0, match_id=None, changed_goal=None):
+        job = self.plan()[1]
+        if changed_goal:
+            job['goal'].update(changed_goal)
+        with self.store.db() as db:
+            db.execute('INSERT INTO goal_video_jobs VALUES (-100,55,?,0,?,?,?)',
+                       (match_id or self.match.id, expires, json.dumps(job), status))
+
+    def recover(self, apply=True):
+        return run(DAY, self.path, self.config, 55, 'idmanvideo/7210', apply=apply,
+                   emit=self.output.append, resume_cancelled=True)
+
+    def test_cancelled_recovery_edits_once_and_dry_run_preserves_job(self):
+        self.cancelled()
+        self.assertEqual(self.recover(False), 0)
+        self.assertEqual(self.status(), 'cancelled')
+        self.assertEqual(self.edits, [])
+        self.assertEqual(self.recover(), 0)
+        self.assertEqual(self.status(), 'attached')
+        self.assertEqual(self.recover(), 1)
+        self.assertEqual(len(self.edits), 1)
+
+    def test_recovery_refuses_other_states_unexpired_or_different_goal(self):
+        import time
+        variants = [dict(status=s) for s in ('pending','editing','manual_editing','attached','uncertain','failed')]
+        variants += [dict(expires=time.time()+3600), dict(match_id='other'), dict(changed_goal=dict(score=[2, 0]))]
+        for variant in variants:
+            with self.store.db() as db:
+                db.execute('DELETE FROM goal_video_jobs WHERE message_id=55')
+            self.cancelled(**variant)
+            self.assertEqual(self.recover(), 1, variant)
+            self.assertEqual(self.edits, [])
+        self.assertEqual(self.calls, [])
+
+    def test_recovery_rechecks_state_during_download_and_respects_used_clip(self):
+        self.cancelled()
+        def changed(*args, **kwargs):
+            with self.store.db() as db:
+                db.execute("UPDATE goal_video_jobs SET status='uncertain' WHERE message_id=55")
+            return MP4
+        self.mocks[2].side_effect = changed
+        self.assertEqual(self.recover(), 1)
+        self.assertEqual(self.status(), 'uncertain')
+        self.assertEqual(self.edits, [])
+        self.mocks[2].side_effect = None
+        self.mocks[2].return_value = MP4
+        with self.store.db() as db:
+            db.execute("UPDATE goal_video_jobs SET status='cancelled' WHERE message_id=55")
+            db.execute('INSERT INTO goal_video_used VALUES (-100,?,?,0)', (self.clip.link, 'old-digest'))
+        self.assertEqual(self.recover(), 1)
+        self.assertEqual(self.status(), 'cancelled')
+        self.assertEqual(self.edits, [])
+
+    def test_recovery_timeout_is_uncertain_and_never_retried(self):
+        self.cancelled()
+        def timeout(*args):
+            self.edits.append(args)
+            raise APIError('timeout')
+        self.client.edit_video = timeout
+        self.assertEqual(self.recover(), 1)
+        self.assertEqual(self.status(), 'uncertain')
+        self.assertEqual(self.recover(), 1)
+        self.assertEqual(len(self.edits), 1)
+
     def test_previously_used_video_is_not_attached_to_another_post(self):
         with self.store.db() as db:
             db.execute('INSERT INTO goal_video_used VALUES (-100,?,?,0)', (self.clip.link, 'digest'))

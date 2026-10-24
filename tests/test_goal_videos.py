@@ -435,6 +435,18 @@ class MatchingTests(VideoFixture):
         text = '"Qarabağ" 1 : 3 "Tvente" (2:3)—Vegorst 94`'
         self.assertTrue(matches_goal(dataclasses.replace(self.clip, text=text), job, self.now[0]))
 
+    def test_aston_villa_and_azerbaijani_manchester_city_match_three_scores(self):
+        self.queue()
+        job = json.loads(self.row()[5])
+        job.update(home='Астон Вилла', away='Манчестер Сити')
+        for score, minute, caption_text in [([1,0], '6′', '"Aston Villa" -"Mançester Siti" 1:0 Cekson 6\''),
+                ([1,1], '52′', '"Aston Villa" -"Mançester Siti" 1:1 Erlinq Holand 52\''),
+                ([2,1], '60′', '"Aston Villa" -"Mançester Siti" 2:1 Cekson 60\'')]:
+            job['goal'].update(score=score, minute=minute, player='Автор ФНК')
+            clip = dataclasses.replace(self.clip, text=caption_text)
+            self.assertTrue(matches_goal(clip, job, self.now[0]))
+            self.assertFalse(matches_goal(clip, dict(job, home='Интер', away='Рома'), self.now[0]))
+
 
 class NarrativeCaptionTests(unittest.TestCase):
     def setUp(self):

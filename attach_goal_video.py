@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 from common import APIError, CONFIG, STATE, Telegram
+from football_policy import excluded_competition
 from goal_videos import CHANNELS, KEY, VideoError, caption, fetch_public, matches_goal
 from kulichki_football import fetch_html, parse_broadcast
 from live_football import FootballError, MOSCOW, PREFIX
@@ -89,17 +90,38 @@ def verified_plan(day, path, message_id, source_post, pages):
     return match, job, selection, clips[0], target[0][2]
 
 
-def reserve(path, chat, message_id, match, job, original, clip, digest):
+def check_cancelled(db, chat, message_id, match, job):
+    row = db.execute('SELECT match_id,expires,payload,status FROM goal_video_jobs WHERE chat_id=? AND message_id=?',
+                     (chat, message_id)).fetchone()
+    if not row or row[3] != 'cancelled' or row[1] > time.time():
+        raise AttachError('Восстанавливается только отменённое задание с истёкшим сроком ожидания.')
+    old = json.loads(row[2])
+    target = job['goal']
+    previous = old.get('goal', {})
+    if (row[0] != match.id or excluded_competition(match.competition)
+            or excluded_competition(old.get('competition'))
+            or tuple(previous.get('score', ())) != tuple(target.get('score', ()))
+            or any(previous.get(k) != target.get(k) for k in ('minute', 'player'))):
+        raise AttachError('Сохранённое задание не подтверждает тот же разрешённый матч и гол.')
+
+
+def reserve(path, chat, message_id, match, job, original, clip, digest, resume_cancelled=False):
     with database(path) as db:
-        check_target(db, message_id, original, chat)
+        check_target(db, message_id, original, chat, 'cancelled' if resume_cancelled else None)
+        if resume_cancelled:
+            check_cancelled(db, chat, message_id, match, job)
         if db.execute('SELECT 1 FROM goal_video_used WHERE chat_id=? AND (post=? OR digest=?)',
                       (chat, clip.link, digest)).fetchone():
             raise AttachError('Этот видеопост или файл уже использован в чате.')
         now = time.time()
         # manual_editing is not a pending job: the live worker cannot pick it up.
         # It remains reserved after a process crash and is never blindly retried.
-        db.execute('INSERT INTO goal_video_jobs VALUES (?,?,?,?,?,?,?)',
-                   (chat, message_id, match.id, now, now, json.dumps(job, ensure_ascii=False), 'manual_editing'))
+        if resume_cancelled:
+            db.execute("UPDATE goal_video_jobs SET payload=?,status='manual_editing' WHERE chat_id=? AND message_id=? AND status='cancelled'",
+                       (json.dumps(job, ensure_ascii=False), chat, message_id))
+        else:
+            db.execute('INSERT INTO goal_video_jobs VALUES (?,?,?,?,?,?,?)',
+                       (chat, message_id, match.id, now, now, json.dumps(job, ensure_ascii=False), 'manual_editing'))
         db.execute('INSERT INTO goal_video_used VALUES (?,?,?,?)', (chat, clip.link, digest, now))
 
 
@@ -129,7 +151,7 @@ def connected_telegram(config_path, emit=print):
 
 
 def run(day, path, config_path, message_id, source_post, pages=4, apply=False, emit=print,
-        prepared=None, telegram=None):
+        prepared=None, telegram=None, resume_cancelled=False):
     try:
         match, job, selection, clip, original = prepared or verified_plan(day, path, message_id, source_post, pages)
         goal = job['goal']
@@ -138,12 +160,19 @@ def run(day, path, config_path, message_id, source_post, pages=4, apply=False, e
              f'{goal["score"][0]}:{goal["score"][1]} · {goal["minute"]} · {goal["player"]}')
         emit('Видео: ' + clip.link)
         emit('Будет изменён существующий пост. Новых сообщений и пересылок не будет.')
+        if resume_cancelled:
+            with database(path) as db:
+                chat = check_target(db, message_id, original, expected_status='cancelled')
+                check_cancelled(db, chat, message_id, match, job)
+            emit('Проверено отменённое задание с истёкшим сроком; восстанавливается только выбранный пост.')
         if not apply:
             emit('План проверен без изменений. Для добавления видео укажи --apply.')
             return 0
         # Preflight before downloading; repeat all local checks atomically after it.
         with database(path) as db:
-            chat = check_target(db, message_id, original)
+            chat = check_target(db, message_id, original, expected_status='cancelled' if resume_cancelled else None)
+            if resume_cancelled:
+                check_cancelled(db, chat, message_id, match, job)
         telegram = telegram or connected_telegram(config_path, emit)
         data = fetch_public(clip.url, video=True)
         emit(f'MP4 получен: {len(data)/1024/1024:.2f} МБ.')
@@ -154,7 +183,7 @@ def run(day, path, config_path, message_id, source_post, pages=4, apply=False, e
                         g.player == goal['player'] for g in fresh.goals) or
                 any(s < g for s, g in zip((fresh.home_score, fresh.away_score), goal['score']))):
             raise AttachError('После скачивания ФНК больше не подтверждает этот гол. Редактирование отменено.')
-        reserve(path, chat, message_id, match, job, original, clip, hashlib.sha256(data).hexdigest())
+        reserve(path, chat, message_id, match, job, original, clip, hashlib.sha256(data).hexdigest(), resume_cancelled)
         try:
             result = telegram.edit_video(chat, message_id, data, text)
             if not (isinstance(result, dict) and result.get('message_id') == message_id and
@@ -193,8 +222,10 @@ def main():
     parser.add_argument('--db', default=str(STATE / 'bot.sqlite3'))
     parser.add_argument('--config', default=str(CONFIG))
     parser.add_argument('--apply', action='store_true', help='Actually edit the selected existing post once')
+    parser.add_argument('--resume-cancelled', action='store_true', help='Recover only this expired cancelled job after verification')
     args = parser.parse_args()
-    return run(args.date, args.db, args.config, args.message_id, args.source_post, args.pages, args.apply)
+    return run(args.date, args.db, args.config, args.message_id, args.source_post, args.pages, args.apply,
+               resume_cancelled=args.resume_cancelled)
 
 
 if __name__ == '__main__':
