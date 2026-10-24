@@ -258,6 +258,28 @@ class InferenceQualityTests(unittest.TestCase):
         self.assertEqual(job['_rejection_details'][0]['rule'], 'banter.reported_addressee_reversal')
         self.assertIn('Обсуди рассказ', model.call_args.args[1]['messages'][0]['content'])
 
+    def test_reported_name_with_parenthetical_is_a_subject_not_a_vocative(self):
+        request = 'Мой друг Цацик опять лекцию читает вместо ответа.'
+        for answer in ['Цацик, видимо, решил, что лекция — это форма ответа.',
+                       'Цацик, наверное, считает, что эрудиция — это ответ.',
+                       'Цацик, наш коллега, наконец вернулся.',
+                       'Цацик, похоже, тебя не услышал.']:
+            self.assertIsNone(banter_relation_problem(answer, request), answer)
+        for answer in ['Цацик, ты опять уснул?', 'Цацик а ти где?', 'Цацик, тебе чего надо?']:
+            self.assertEqual(banter_relation_problem(answer, request), 'reported_addressee_reversal')
+        self.assertEqual(banter_relation_problem('Цацик — ето ти а я — твой гад.', 'Цацик, опять лекцию читаешь?'),
+                         'address_role_reversal')
+        self.assertIsNone(banter_relation_problem('Цацик — ето я.', 'Цацик, опять лекцию читаешь?'))
+
+    def test_multiline_dialogue_retry_asks_for_only_bot_reply(self):
+        bad = 'Цацик, ладно, это я всё перепутал.\nНу ты и перепутал, блин.'
+        job = self.job('Цацик, ладно, это я всё перепутал.', thoughtful=False)
+        with patch('bot.http_json', side_effect=[self.result(bad), self.result('ну хоть разобрались')]) as model:
+            self.assertEqual(self.bot.generate(job), 'ну хоть разобрались')
+        self.assertEqual(model.call_count, 2)
+        self.assertIn('Не печатай входную реплику', model.call_args.args[1]['messages'][0]['content'])
+        self.assertEqual(job['_rejections'], ['multiline_response'])
+
     def test_automatic_banter_keeps_bounded_style_examples(self):
         examples = [dict(context='беседа', response='да тут я чего надо')]*4
         with patch('bot.find_examples', return_value=examples), \

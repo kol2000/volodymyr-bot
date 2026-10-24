@@ -1164,6 +1164,8 @@ class Bot:
                     prompt += '\nСохрани event_roles: в этой реплике пришёл бот, а ждал собеседник. Не приписывай ожидание себе.'
                 if reason == 'reported_addressee_reversal':
                     prompt += '\nОтвет адресован собеседнику, который рассказывает о другом человеке или цитирует его. Обсуди рассказ; не зови персонажа рассказа и не отвечай ему напрямую.'
+                if reason == 'multiline_response':
+                    prompt += '\nНе печатай входную реплику и не разыгрывай диалог. Верни только собственный ответ одной строкой, без цитирования current_request.'
             retry_data = dict(data, style_examples=[], live_context=context[-2:],
                               previous_failure=reason) if attempt else data
             if attempt and reason in ('request_echo', 'address_role_reversal', 'event_role_reversal', 'reported_addressee_reversal'):

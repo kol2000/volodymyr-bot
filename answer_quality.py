@@ -65,12 +65,17 @@ def banter_relation_problem(text, request):
     candidate = words(text)
     if roles.get('reply_scope') in ('reported_speech', 'third_person') and roles.get('referenced_alias'):
         alias = roles['referenced_alias']
-        if re.match(r'^\s*(?:(?:ну|а|эй)\s+)?' + re.escape(alias) + r'(?:\s*,|\s+(?:а\s+)?(?:ты|ти)\b)', text, re.I):
+        # A comma after a name also introduces parentheticals/apposition:
+        # "Цацик, видимо, решил..." is a third-person statement, not a call.
+        if re.match(r'^\s*(?:(?:ну|а|эй)\s+)?' + re.escape(alias) +
+                    r'[\s,]+(?:а\s+)?(?:ты|ти|тебе|тебя|твой|твоя)\b', text, re.I):
             return 'reported_addressee_reversal'
     if roles['address_kind'] in ('bot_address', 'ambiguous'):
         alias = roles['bot_alias']
         # Returning the bot's own address as a vocative to the user swaps roles.
         if re.match(r'^\s*(?:(?:ну|а|эй)\s+)?' + re.escape(alias) + r'(?:\s*,|\s+(?:а\s+)?(?:ты|ти)\b)', text, re.I):
+            return 'address_role_reversal'
+        if re.match(r'^\s*' + re.escape(alias) + r'\s*[—–-]?\s*(?:это|ето)\s+(?:ты|ти)\b', text, re.I):
             return 'address_role_reversal'
         candidate = [word for word in candidate if word != alias]
     if roles.get('event_roles', {}).get('event') == 'arrival':

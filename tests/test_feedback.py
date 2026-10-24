@@ -139,7 +139,7 @@ class FeedbackTests(unittest.TestCase):
         self.bot.handle(self.praise({'message_id': row[0], 'text': row[1], 'from': {'id': 99}}, number=101))
         self.assertEqual(self.memories()[0][2], 1)
 
-    def test_relevant_approved_examples_influence_prompt_without_allowing_exact_repeat(self):
+    def test_approved_memory_is_retained_but_manual_prompt_excludes_examples_and_rejects_repeats(self):
         answer = self.answer()
         self.bot.handle(self.praise(answer))
         self.assertEqual(self.store.approved_examples(-200, 'интернет'), [])
@@ -150,8 +150,9 @@ class FeedbackTests(unittest.TestCase):
             reply = self.bot.generate({'chat_id': -100, 'text': 'опять интернет отвалился', 'automatic': False})
         self.assertEqual(reply, fresh['message']['content'])
         first = json.loads(model.call_args_list[0].args[1]['messages'][1]['content'])
-        self.assertEqual(first['style_examples'][0]['approved'], True)
-        self.assertEqual(first['style_examples'][0]['response'], answer['text'])
+        self.assertEqual(first['style_examples'], [])
+        self.assertTrue(self.store.approved_examples(-100, 'опять интернет отвалился')[0]['approved'])
+        self.assertEqual(model.call_count, 2)
         retry = json.loads(model.call_args_list[1].args[1]['messages'][1]['content'])
         self.assertEqual(retry['style_examples'], [])
 
