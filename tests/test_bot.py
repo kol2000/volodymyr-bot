@@ -390,7 +390,7 @@ class BotTests(unittest.TestCase):
                 self.assertEqual(self.bot.generate(job), 'ти холодильник хоть открывал))')
         self.assertEqual(request.call_count, 2)
         data = json.loads(request.call_args_list[0].args[1]['messages'][1]['content'])
-        self.assertEqual(data['current_request'], 'где пивас')
+        self.assertEqual(request.call_args_list[0].args[1]['messages'][-1]['content'], 'где пивас')
         self.assertEqual(data['style_examples'], [])
         self.assertEqual(data['live_context'], [])
         self.assertNotIn('recent_bot_responses_do_not_repeat', data)
@@ -460,7 +460,8 @@ class BotTests(unittest.TestCase):
         self.assertEqual(first['style_examples'], [])
         self.assertEqual(retry['style_examples'], [])
         self.assertEqual(retry['previous_failure'], 'repeated_response')
-        self.assertEqual(retry['current_request'], 'цацик ты где')
+        self.assertNotIn('current_request', retry)
+        self.assertEqual(model.call_args_list[1].args[1]['messages'][-1]['content'], 'ты где')
         self.assertNotIn('recent_bot_responses_do_not_repeat', retry)
         self.assertNotIn('да тут я хватит орать', json.dumps(retry, ensure_ascii=False))
 

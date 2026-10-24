@@ -1136,6 +1136,19 @@ class Bot:
                 'current_request': job['text']}
         data['conversation_roles'] = dialogue_roles(clean_text(job['text']))
         data['reply_brief'] = banter_brief(data['conversation_roles'])
+        model_request = job['text']
+        if direct_reply:
+            if data['conversation_roles']['address_kind'] == 'bot_address':
+                model_request = re.sub(r'\b' + re.escape(data['conversation_roles']['bot_alias']) + r'\b',
+                                       '', job['text'], count=1, flags=re.I).strip(' ,—–-')
+                model_request = re.sub(r',?\s+([.!?])', r'\1', model_request)
+                model_request = re.sub(r',([.!?])', r'\1', model_request)
+            # The actual human turn comes last in the native chat format. Do
+            # not duplicate it as a JSON field or present the vocative as a
+            # subject to be explained. Keep the original job for validation.
+            data.pop('current_request')
+            data['conversation_roles'] = {key: value for key, value in data['conversation_roles'].items()
+                                          if key != 'message_without_address'}
         data['request_updates'] = job.get('request_updates', [])
         data['participant_profiles'] = self.store.participant_profiles(job['chat_id'], job['text'])
         data['approved_corrections'] = self.store.correction_examples(job['chat_id'], subject, 'parody')
@@ -1159,7 +1172,7 @@ class Bot:
                 if reason == 'unconnected_particles':
                     prompt += '\nСформулируй одно законченное предложение обычным русским языком. Поддень конкретную мысль собеседника, не демонстрируй набор ругательств.'
                 if reason in ('request_echo', 'address_role_reversal', 'event_role_reversal'):
-                    prompt += '\nТы отвечаешь от лица бота собеседнику. Не переноси на собеседника обращение к боту и не повторяй его реплику вопросом. Дай собственную короткую реакцию по смыслу message_without_address.'
+                    prompt += '\nТы отвечаешь от лица бота собеседнику. Не переноси на собеседника обращение к боту и не повторяй его реплику вопросом. Дай собственную короткую реакцию по смыслу последнего сообщения пользователя.'
                 if reason == 'event_role_reversal':
                     prompt += '\nСохрани event_roles: в этой реплике пришёл бот, а ждал собеседник. Не приписывай ожидание себе.'
                 if reason == 'reported_addressee_reversal':
@@ -1170,11 +1183,14 @@ class Bot:
                               previous_failure=reason) if attempt else data
             if attempt and reason in ('request_echo', 'address_role_reversal', 'event_role_reversal', 'reported_addressee_reversal'):
                 retry_data['repair_candidate'] = clean_text(answer)[:220]
+            messages = [{'role': 'system', 'content': prompt},
+                        {'role': 'user', 'content': json.dumps(retry_data, ensure_ascii=False)}]
+            if direct_reply:
+                messages.append({'role': 'user', 'content': model_request})
             try:
                 result = self.call_model(job, {
                     'model': self.config['model'], 'stream': False, 'keep_alive': '24h',
-                    'messages': [{'role': 'system', 'content': prompt},
-                                 {'role': 'user', 'content': json.dumps(retry_data, ensure_ascii=False)}],
+                    'messages': messages,
                     'options': runner_options(num_predict=160 if attempt and reason == 'length_limit' else 100,
                                               temperature=0.55, repeat_penalty=1.08),
                 }, timeout=90)
