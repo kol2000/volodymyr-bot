@@ -30,6 +30,33 @@ def ambiguous_subject(text):
     return match[1].casefold() if match and match[1].casefold() in UNSPECIFIED else None
 
 
+REFERENCE_WORDS = set(('он она оно они это ето у меня нам мне а и но ну опять снова '
+                       'вновь уже ещё ещо все всё совсем вообще почему зачем как что шо '
+                       'не ни никак работает работают работал работала работали работало '
+                       'работать перестал перестала перестали перестало стал стала стали стало '
+                       'тормозит тормозят завис зависла зависло зависли зависает зависают '
+                       'включается включаются запускается запускаются открывается открываются '
+                       'отвечает отвечают подключается подключаются греется греются '
+                       'помоги объясни пожалуйста привет понятно ладно спасибо ок да нет').split())
+
+
+def missing_reference(text, references=()):
+    """Bounded pronoun-only fault reports, not general noun/coreference parsing."""
+    tokens = re.findall(r'[а-яёa-z0-9_]+', control_remainder(text).casefold())
+    pronouns = {'он', 'она', 'оно', 'они', 'это', 'ето'}
+    faults = {'работает', 'работают', 'работать', 'тормозит', 'тормозят', 'завис',
+              'зависла', 'зависло', 'зависли', 'зависает', 'зависают', 'включается',
+              'включаются', 'запускается', 'запускаются', 'открывается', 'открываются',
+              'отвечает', 'отвечают', 'подключается', 'подключаются', 'греется', 'греются'}
+    if not (set(tokens) & pronouns and set(tokens) & faults and set(tokens) <= REFERENCE_WORDS):
+        return False
+    for reference in references:
+        named = re.findall(r'[а-яёa-z0-9_]+', reference.casefold())
+        if any(len(word) >= 3 and word not in REFERENCE_WORDS for word in named):
+            return False
+    return True
+
+
 def response_control(text):
     body = CALL.sub('', text.strip()).casefold().strip(' .!?,')
     return CONTROLS.get(body)

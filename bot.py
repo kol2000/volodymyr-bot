@@ -26,7 +26,7 @@ from assistant_features import (FeatureStore, FEATURE_COMMANDS, FOLLOWUP, CALL a
 from style_profile import profile_for_request
 from answer_quality import (answer_problem, checked_concise_extract, concise_extract, concise_problem, concise_word_limit, contextual_request, diagnostic_retry_guidance, explanation_problem,
                             grounding_problem, question_context)
-from conversation import (ambiguous_subject, amendment_request, banter_request, control_remainder, inline_control,
+from conversation import (ambiguous_subject, amendment_request, banter_request, control_remainder, inline_control, missing_reference,
                           response_control as standalone_control, verification_query)
 from learning import LearningStore, LEARNING_COMMANDS, correction_request
 from participants import ParticipantStore, PARTICIPANT_COMMANDS, participant_request
@@ -1239,6 +1239,17 @@ class Bot:
             data['speech_profile']['examples'] = [text for text in data['speech_profile']['examples'] if answer_key(text) not in rejected]
         data['quality_feedback'] = self.store.issue_patterns(job['chat_id'])
         previous = self.store.recent_model_answers(job['chat_id'],limit=30)
+        reference_texts = [quoted] + [row['text'] for row in dialogue if row['human']] + [row['text'] for row in context]
+        if missing_reference(job['text'], reference_texts):
+            choices = ('О ком или о чём именно речь?', 'Что именно ты имеешь в виду?',
+                       'Уточни, что именно не работает?')
+            keys = [answer_key(text) for text in previous]
+            answer = next((text for text in choices if answer_key(text) not in keys), choices[0])
+            if self.superseded(job):
+                return None
+            job['_local_reply'] = 'clarification'
+            job['_clarification_reason'] = 'missing_reference'
+            return render_answer(answer)
         unclear = ambiguous_subject(job['text'])
         if unclear and not (quoted or dialogue or context or data['chat_memories'] or data['participant_profiles']):
             choices = (f'шо именно ти называеш «{unclear}»?',

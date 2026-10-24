@@ -9,7 +9,7 @@ from pathlib import Path
 from bot import Bot, Store, answer_problem
 from common import APIError, CONFIG, MODEL, ROOT, http_json
 from answer_quality import checked_concise_extract, concise_problem, concise_word_limit, grounding_problem, specific_clarification
-from conversation import ambiguous_subject, inline_control, response_control, verification_query
+from conversation import ambiguous_subject, inline_control, missing_reference, response_control, verification_query
 from inference import generation_stats, runner_options
 from question_answers import ends_question, thoughtful_request
 
@@ -26,6 +26,8 @@ def route(case):
 
 def uses_model(case):
     dialogue = case.get('dialogue', [])
+    if missing_reference(case['request'], case.get('history', []) + dialogue[::2] + case.get('updates', [])):
+        return False
     source = dialogue[-1] if dialogue and len(dialogue) % 2 == 0 else ''
     if (response_control(case['request']) == 'concise' and not case.get('updates')
             and len(source.split()) <= 80
@@ -109,6 +111,8 @@ def evaluate(case, config, run_model=False, max_seconds=120, capture_rejections=
                       metrics=job.get('_metrics', {}), calls=job.get('_inference_calls', []),
                       rejections=job.get('_rejections', []), rewrite_fallback=job.get('_rewrite_fallback'))
         result['correction_attempts'] = job.get('_correction_attempts', [])
+        if job.get('_clarification_reason'):
+            result['clarification_reason'] = job['_clarification_reason']
         if capture_rejections:
             result['rejection_details'] = job.get('_rejection_details', [])
         result['errors'].extend(assess(case, answer, elapsed, max_seconds))

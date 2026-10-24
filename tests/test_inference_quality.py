@@ -525,6 +525,52 @@ class InferenceQualityTests(unittest.TestCase):
                      'Фразу «там точно написано» нельзя считать диагнозом.']:
             self.assertIsNone(grounding_problem(text, 'Почему сервер теряет соединение и как проверить резервную копию?'), text)
 
+    def test_pronoun_fault_without_named_subject_gets_local_question_without_model(self):
+        for request in ['Он опять не работает. Почему?', 'Почему она не запускается?',
+                        'Они снова зависают?', 'Бубус, оно не включается?']:
+            with patch('bot.http_json') as model:
+                job = self.job(request)
+                answer = self.bot.generate(job)
+            model.assert_not_called()
+            self.assertTrue(answer.endswith('?'))
+            self.assertEqual(job['_clarification_reason'], 'missing_reference')
+            self.assertEqual(job['_local_reply'], 'clarification')
+
+    def test_named_subject_in_request_quote_or_human_dialogue_preserves_model_explanation(self):
+        for request, quoted in [('Он, принтер, опять не работает. Почему?', ''),
+                                ('Он опять не работает. Почему?', 'Принтер зажевал бумагу.')]:
+            with patch('bot.http_json', return_value=self.result('Проверь подачу бумаги в принтере.')) as model:
+                answer = self.bot.generate(self.job(request, quoted_message=quoted))
+            model.assert_called_once()
+            self.assertIn('принтер', answer)
+        self.store.add_message(dict(chat={'id': -100}, message_id=1, date=time.time(), text='Принтер зажевал бумагу.'))
+        self.store.add_message(dict(chat={'id': -100}, message_id=2, date=time.time(),
+                                    text='Проверь подачу бумаги.', _reply_to=1, _answer_mode='question'), human=False)
+        with patch('bot.http_json', return_value=self.result('Проверь лоток принтера.')) as model:
+            self.bot.generate(self.job('Он опять не работает. Почему?', dialogue_id=2))
+        model.assert_called_once()
+
+    def test_pronoun_only_quote_does_not_invent_a_subject_and_cli_skips_warmup(self):
+        with patch('bot.http_json') as model:
+            job = self.job('Он опять не работает. Почему?', quoted_message='Он опять не работает.')
+            self.bot.generate(job)
+        model.assert_not_called()
+        report = Path(self.temp.name) / 'pronoun.json'
+        output = io.StringIO()
+        with patch('check_dialogues.CONFIG', Path(self.temp.name) / 'missing.json'), \
+                patch('check_dialogues.http_json') as warmup, patch('bot.http_json') as model, \
+                contextlib.redirect_stdout(output):
+            result = main(['--run-model', '--cases', str(ROOT / 'dialogue_cases_fresh.json'),
+                           '--case', 'fresh-missing-reference', '--report', str(report)])
+        self.assertEqual(result, 0)
+        warmup.assert_not_called()
+        model.assert_not_called()
+        data = json.loads(report.read_text())[0]
+        self.assertEqual(data['clarification_reason'], 'missing_reference')
+        self.assertFalse(data['model_checked'])
+        self.assertEqual(data['errors'], [])
+        self.assertIn('локальное уточнение', output.getvalue())
+
     def test_ambiguous_subject_without_context_asks_specific_question_without_inference(self):
         job = self.job('Жёлтые?')
         with patch('bot.http_json') as model:
