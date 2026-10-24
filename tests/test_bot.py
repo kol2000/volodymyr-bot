@@ -413,7 +413,7 @@ class BotTests(unittest.TestCase):
         self.assertIn(reply, self.store.recent_answers(-100))
 
     def manual_job(self, **overrides):
-        return dict({'chat_id': -100, 'text': 'цацик', 'reply_to': 2,
+        return dict({'chat_id': -100, 'text': 'цацик ты где', 'reply_to': 2,
                      'automatic': False, 'queued_at': time.time()}, **overrides)
 
     def test_invalid_output_types_use_a_local_reply(self):
@@ -564,7 +564,7 @@ class BotTests(unittest.TestCase):
         self.bind()
         with patch('bot.http_json', return_value={'message': {'content': 'цыц опять с киборгом?'}}) as model:
             with self.assertLogs('volodymyr', level='INFO') as logs:
-                self.bot.process_job(self.manual_job(text='цацыг'))
+                self.bot.process_job(self.manual_job(text='цацыг ты где'))
         self.assertEqual(model.call_count, 2)
         self.assertEqual(len(self.telegram.sent), 1)
         self.assertNotIn('киборг', self.telegram.sent[-1][1])

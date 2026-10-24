@@ -3,6 +3,7 @@ import re
 from difflib import SequenceMatcher
 
 from common import clean_text, parody_text
+from conversation import dialogue_roles
 
 
 def answer_problem(text, thoughtful=False):
@@ -55,6 +56,22 @@ def banter_coherence_problem(text):
                  'бля блядь блять сука сученок сучонок хуйня лох дурак свиноголовый').split())
     if len(tokens) >= 5 and set(tokens) <= empty:
         return 'unconnected_particles'
+    return None
+
+
+def banter_relation_problem(text, request):
+    roles = dialogue_roles(request)
+    source = words(roles['message_without_address'])
+    candidate = words(text)
+    if roles['address_kind'] == 'bot_address':
+        alias = roles['bot_alias']
+        # Returning the bot's own address as a vocative to the user swaps roles.
+        if re.match(r'^\s*(?:(?:ну|а|эй)\s+)?' + re.escape(alias) + r'(?:\s*,|\s+(?:а\s+)?(?:ты|ти)\b)', text, re.I):
+            return 'address_role_reversal'
+        candidate = [word for word in candidate if word != alias]
+    if len(source) >= 3 and len(candidate) >= 3:
+        if SequenceMatcher(None, source, candidate, autojunk=False).ratio() >= 0.85:
+            return 'request_echo'
     return None
 
 

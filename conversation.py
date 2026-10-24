@@ -24,6 +24,32 @@ PUBLIC_SUBJECT = re.compile(r'\b(?:президент\w*|премьер[- ]ми�
 UNSPECIFIED = set(('жёлтые желтые зелёные зеленые красные белые чёрные черные синие '
                    'большие маленькие старые новые дорогие дешёвые дешевые непонятные').split())
 
+BOT_ALIASES = ('бубус', 'бубуська', 'володька', 'володько', 'цаца', 'цацик', 'цацыг')
+BOT_ALIAS = r'(?:' + '|'.join(BOT_ALIASES) + r')'
+
+
+def dialogue_roles(text):
+    """Conservative surface cues: quoted names are not vocative addresses."""
+    visible = re.sub(r'```.*?```|`[^`]*`|«[^»]*»|"[^"]*"', lambda m: ' ' * len(m[0]), text, flags=re.S)
+    bare = re.fullmatch(r'\s*(' + BOT_ALIAS + r')[\s!?.]*', visible, re.I)
+    # Do not interpret an otherwise quoted name as an empty bare call.
+    if bare and visible.strip() == text.strip():
+        return dict(address_kind='bare_call', bot_alias=bare[1].casefold(), message_without_address='')
+    found = list(re.finditer(r'\b(' + BOT_ALIAS + r')\b', visible, re.I))
+    for match in found:
+        before, after = visible[:match.start()], visible[match.end():]
+        start = not before.strip(' ,!?.')
+        end = not after.strip(' ,!?.')
+        second_person = bool(re.search(r'\b(?:ты|ти|тебя|тебе|твой|твоя)\b', visible, re.I))
+        explicit_prefix = start and bool(re.match(r'\s*,|\s+(?:не\s+)?(?:умничай|тупи|отвечай|проснись|расскажи|объясни)\b', after, re.I))
+        explicit_suffix = end and bool(re.search(r',\s*$|\bявился\s+наконец\s*$', before, re.I))
+        if ((start or end) and second_person) or explicit_prefix or explicit_suffix:
+            body = (text[:match.start()] + text[match.end():]).strip(' ,!?.')
+            return dict(address_kind='bot_address', bot_alias=match[1].casefold(), message_without_address=body)
+    quoted_alias = bool(re.search(r'\b' + BOT_ALIAS + r'\b', text, re.I))
+    return dict(address_kind='mention' if found else 'quoted_mention' if quoted_alias else 'unspecified',
+                message_without_address=text)
+
 
 def ambiguous_subject(text):
     match = re.fullmatch(r'[«"“]?([а-яё]+)\s*\?+[!?.»”"\s]*', control_remainder(text), re.I)

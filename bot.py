@@ -24,9 +24,9 @@ from question_answers import (PROMPT as QUESTION_PROMPT, NEUTRAL_PROMPT, FALLBAC
 from assistant_features import (FeatureStore, FEATURE_COMMANDS, FOLLOWUP, CALL as FEATURE_CALL, feature_request,
                                 negative_reason, memory_context)
 from style_profile import profile_for_request
-from answer_quality import (answer_problem, banter_coherence_problem, checked_concise_extract, concise_extract, concise_problem, concise_word_limit, contextual_request, diagnostic_retry_guidance, explanation_problem,
+from answer_quality import (answer_problem, banter_coherence_problem, banter_relation_problem, checked_concise_extract, concise_extract, concise_problem, concise_word_limit, contextual_request, diagnostic_retry_guidance, explanation_problem,
                             grounding_problem, question_context)
-from conversation import (ambiguous_subject, amendment_request, banter_request, control_remainder, inline_control, missing_reference,
+from conversation import (ambiguous_subject, amendment_request, banter_request, control_remainder, dialogue_roles, inline_control, missing_reference,
                           response_control as standalone_control, verification_query)
 from learning import LearningStore, LEARNING_COMMANDS, correction_request
 from participants import ParticipantStore, PARTICIPANT_COMMANDS, participant_request
@@ -1096,6 +1096,15 @@ class Bot:
                     return parody_text(answer)
             LOG.warning('Случайная реплика не найдена: причина=no_random_quote')
             return None
+        roles = dialogue_roles(job['text'])
+        if roles['address_kind'] == 'bare_call' and not job['automatic'] and not job.get('tease_target'):
+            if self.superseded(job):
+                return None
+            choices = ('тут я чего надо?', 'слушаю чего хотел?', 'ну звал говори')
+            keys = {answer_key(text) for text in previous}
+            answer = next((text for text in choices if answer_key(text) not in keys), choices[0])
+            job['_local_reply'] = 'bot_call'
+            return answer
         # Own previous output must not become the subject of an unrelated request.
         context = [row for row in self.store.context(job['chat_id'], limit=20)
                    if row['human'] and not row['text'].startswith('/')][-6:]
@@ -1124,6 +1133,7 @@ class Bot:
                 'style_examples': examples, 'live_context': context,
                 'trigger_words': job.get('trigger_words', []),
                 'current_request': job['text']}
+        data['conversation_roles'] = dialogue_roles(clean_text(job['text']))
         data['request_updates'] = job.get('request_updates', [])
         data['participant_profiles'] = self.store.participant_profiles(job['chat_id'], job['text'])
         data['approved_corrections'] = self.store.correction_examples(job['chat_id'], subject, 'parody')
@@ -1146,6 +1156,8 @@ class Bot:
                 prompt += '\nПредыдущий вариант не подошёл. Дай новую готовую реплику на 3–12 слов одной строкой по теме current_request. Без анализа, пояснений и оскорблений защищённых групп. Не повторяй уже сказанные реплики, даже с другой пунктуацией.'
                 if reason == 'unconnected_particles':
                     prompt += '\nСформулируй одно законченное предложение обычным русским языком. Поддень конкретную мысль собеседника, не демонстрируй набор ругательств.'
+                if reason in ('request_echo', 'address_role_reversal'):
+                    prompt += '\nТы отвечаешь от лица бота собеседнику. Не переноси на собеседника обращение к боту и не повторяй его реплику вопросом. Дай собственную короткую реакцию по смыслу message_without_address.'
             retry_data = dict(data, style_examples=[], live_context=context[-2:],
                               previous_failure=reason) if attempt else data
             try:
@@ -1177,6 +1189,8 @@ class Bot:
                 reason = 'length_limit'
             else:
                 reason = response_problem(answer, previous, subject)
+                if not reason:
+                    reason = banter_relation_problem(answer, job['text'])
                 if not reason and answer_key(answer) in rejected:
                     reason = 'negative_feedback'
             answer = answer.strip() if isinstance(answer, str) else ''
@@ -1229,6 +1243,7 @@ class Bot:
         data = {'mode': 'question', 'current_request': clean_text(job['text'])[:2000],
                 'quoted_message':quoted,'live_context':context,'dialogue':dialogue,
                 'context_scope':'reply' if quoted or dialogue else 'followup' if context and contextual_request(job['text']) else 'current_request'}
+        data['conversation_roles'] = dialogue_roles(clean_text(job['text']))
         data['detail'] = 'detailed' if job.get('detailed') else 'brief'
         control = job.get('response_control')
         if control:

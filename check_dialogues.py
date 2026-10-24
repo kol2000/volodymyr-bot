@@ -8,8 +8,8 @@ from pathlib import Path
 
 from bot import Bot, Store, answer_problem
 from common import APIError, CONFIG, MODEL, ROOT, http_json
-from answer_quality import banter_coherence_problem, checked_concise_extract, concise_problem, concise_word_limit, grounding_problem, specific_clarification
-from conversation import ambiguous_subject, inline_control, missing_reference, response_control, verification_query
+from answer_quality import banter_coherence_problem, banter_relation_problem, checked_concise_extract, concise_problem, concise_word_limit, grounding_problem, specific_clarification
+from conversation import ambiguous_subject, dialogue_roles, inline_control, missing_reference, response_control, verification_query
 from inference import generation_stats, runner_options
 from question_answers import ends_question, thoughtful_request
 
@@ -25,6 +25,8 @@ def route(case):
 
 
 def uses_model(case):
+    if route(case) == 'parody' and dialogue_roles(case['request'])['address_kind'] == 'bare_call':
+        return False
     dialogue = case.get('dialogue', [])
     if missing_reference(case['request'], case.get('history', []) + dialogue[::2] + case.get('updates', [])):
         return False
@@ -46,6 +48,9 @@ def assess(case, answer, elapsed, max_seconds):
         errors.append(problem)
     if case['mode'] == 'parody':
         problem = banter_coherence_problem(answer)
+        if problem:
+            errors.append(problem)
+        problem = banter_relation_problem(answer, case['request'])
         if problem:
             errors.append(problem)
     lowered = answer.casefold()
@@ -137,7 +142,7 @@ def timing_text(result):
     if not result.get('answer_checked'):
         return 'только маршрут'
     if result.get('local_reply'):
-        label = 'локальное сокращение' if result['local_reply'] == 'concise_extract' else 'локальное уточнение'
+        label = {'concise_extract': 'локальное сокращение', 'bot_call': 'локальный отклик'}.get(result['local_reply'], 'локальное уточнение')
         return f'{label} · {result["seconds"]:.2f} сек. · без Ollama'
     calls = result.get('calls', [])
     metrics = result.get('metrics', {})
@@ -229,7 +234,8 @@ def main(argv=None):
     checked = sum(result['model_checked'] for result in results)
     local = sum(result.get('local_reply') == 'clarification' for result in results)
     shortened = sum(result.get('local_reply') == 'concise_extract' for result in results)
-    print(f'Проверено: {len(results)}; с моделью: {checked}; локальных уточнений: {local}; локальных сокращений: {shortened}; ошибок: {failures}. '
+    calls = sum(result.get('local_reply') == 'bot_call' for result in results)
+    print(f'Проверено: {len(results)}; с моделью: {checked}; локальных уточнений: {local}; локальных сокращений: {shortened}; локальных откликов: {calls}; ошибок: {failures}. '
           'Автопроверки не заменяют оценку смысла ответов человеком.')
     return int(bool(failures))
 

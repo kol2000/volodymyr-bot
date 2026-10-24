@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from answer_quality import banter_coherence_problem, concise_extract, concise_problem, concise_word_limit, explanation_problem, grounding_problem, specific_clarification
+from answer_quality import banter_coherence_problem, banter_relation_problem, concise_extract, concise_problem, concise_word_limit, explanation_problem, grounding_problem, specific_clarification
 from bot import Bot, Store
 from check_dialogues import assess, evaluate, main, timing_text, warm_model
 from common import APIError, MODEL, ROOT
@@ -68,6 +68,68 @@ class InferenceQualityTests(unittest.TestCase):
                      'Если выдаёт ошибку проверь доступ совместимость и настройки.',
                      'Если проверка пройдена значит она не повреждена.']:
             self.assertIsNone(grounding_problem(text, 'Как проверить резервную копию сервера?'), text)
+
+    def test_address_roles_separate_vocatives_mentions_quotes_and_triggers(self):
+        from conversation import dialogue_roles
+        for request in ['Цацик, ты уснул?', 'шо ты опять умничаешь цацик?', 'цацик не умничай', 'явился наконец цацик']:
+            role = dialogue_roles(request)
+            self.assertEqual(role['address_kind'], 'bot_address', request)
+            self.assertNotIn('цацик', role['message_without_address'].casefold())
+        for request in ['Мой друг Цацик опять всё перепутал.', 'Кто такой Цацик?',
+                        'Он сказал: «цацик ты уснул?»', 'крым наш', 'война']:
+            self.assertNotIn(dialogue_roles(request)['address_kind'], ['bot_address', 'bare_call'], request)
+        self.assertEqual(dialogue_roles('ЦАЦИК!')['address_kind'], 'bare_call')
+
+    def test_bare_bot_call_is_local_without_archive_model_or_ambient_topic(self):
+        self.store.add_message(dict(chat={'id': -100}, message_id=1, date=time.time(), text='Обсуждали сборку шкафа.'))
+        replies = []
+        for index in range(3):
+            with patch('bot.http_json') as model, patch('bot.find_examples') as archive:
+                job = self.job('цацик', thoughtful=False)
+                answer = self.bot.generate(job)
+            model.assert_not_called()
+            archive.assert_not_called()
+            self.assertEqual(job['_local_reply'], 'bot_call')
+            self.assertNotIn('шкаф', answer)
+            replies.append(answer)
+            self.store.add_message(dict(chat={'id': -100}, message_id=20 + index, date=time.time(),
+                                        text=answer, _answer_mode='parody'), human=False)
+        self.assertEqual(len(set(replies)), 3)
+
+    def test_echo_and_reversed_address_are_retried_but_third_person_mentions_are_allowed(self):
+        bad_cases = [('цацик опять ты всё перепутал', 'Цацик опять ти всё перепутал?', 'request_echo'),
+                     ('цацик ты уснул?', 'Цацик а ти вообще живой?', 'address_role_reversal')]
+        good = 'сам то понял что написал?'
+        for request, bad, reason in bad_cases:
+            self.assertEqual(banter_relation_problem(bad, request), reason)
+            self.assertIn(reason, assess(dict(mode='parody', request=request), bad, 1, 120))
+            with patch('bot.find_examples', return_value=[]), \
+                    patch('bot.http_json', side_effect=[self.result(bad), self.result(good)]) as model:
+                job = self.job(request, thoughtful=False)
+                self.assertEqual(self.bot.generate(job), good)
+            self.assertEqual(model.call_count, 2)
+            payload = model.call_args.args[1]['messages']
+            data = json.loads(payload[1]['content'])
+            self.assertEqual(data['conversation_roles']['address_kind'], 'bot_address')
+            self.assertEqual(data['current_request'], request)
+            self.assertIn('Не переноси на собеседника', payload[0]['content'])
+        self.assertIsNone(banter_relation_problem('Цацик а ти что натворил?', 'Мой друг Цацик опять всё перепутал.'))
+        self.assertIsNone(banter_relation_problem('А ты?', 'цацик ты уснул?'))
+
+    def test_bare_call_cli_does_not_warm_model_or_count_as_clarification(self):
+        report = Path(self.temp.name) / 'call.json'
+        output = io.StringIO()
+        with patch('check_dialogues.CONFIG', Path(self.temp.name) / 'missing.json'), \
+                patch('check_dialogues.http_json') as warmup, patch('bot.http_json') as model, \
+                contextlib.redirect_stdout(output):
+            result = main(['--run-model', '--cases', str(ROOT / 'dialogue_cases_banter.json'),
+                           '--case', 'banter-bare-call', '--report', str(report)])
+        self.assertEqual(result, 0)
+        warmup.assert_not_called()
+        model.assert_not_called()
+        self.assertIn('локальный отклик', output.getvalue())
+        self.assertIn('локальных откликов: 1', output.getvalue())
+        self.assertEqual(json.loads(report.read_text())[0]['local_reply'], 'bot_call')
 
     def test_known_particle_piles_are_rejected_but_complete_short_reactions_are_allowed(self):
         for answer in ['ти шо ещо било би сечас', 'ти що тут шо бля сученок?', 'ти шо тут ето бля опять']:
@@ -664,7 +726,7 @@ class InferenceQualityTests(unittest.TestCase):
 
     def test_runner_context_stays_the_same_for_question_parody_warmup_summary_and_factcheck(self):
         options = []
-        for text, extra in [('Почему небо синее?', {}), ('цацик', {'thoughtful': False}),
+        for text, extra in [('Почему небо синее?', {}), ('цацик ты где', {'thoughtful': False}),
                             ('короче', {'response_control': 'concise'})]:
             with patch('bot.find_examples', return_value=[]), \
                     patch('bot.http_json', return_value=self.result('ти ещо громче поори')) as call:
