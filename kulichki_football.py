@@ -238,6 +238,7 @@ class KulichkiScoreboard:
         self.lock = threading.Lock()
         self.cache, self.matches, self.final = {}, {}, {}
         self.home_at, self.home_list = None, []
+        self.home_day = None
         self.last_error, self.last_success = '', 0
         if store:
             for row in store.get(PREFIX + 'fnk_selection', []):
@@ -251,13 +252,16 @@ class KulichkiScoreboard:
     def day(self, day):
         with self.lock:
             now = self.clock()
+            today = datetime.fromtimestamp(now,MOSCOW).date()
+            rollover = self.home_day is not None and self.home_day != today
             cached = self.cache.get(day)
-            if cached and now - cached[0] < CACHE_SECONDS:
+            if cached and not rollover and now - cached[0] < CACHE_SECONDS:
                 return [match for match in cached[1] if not excluded_competition(match.competition)], cached[2]
-            due = self.home_at is None or now - self.home_at >= IDLE_INTERVAL
+            due = rollover or self.home_at is None or now - self.home_at >= IDLE_INTERVAL
             if due:
                 self.home_list = parse_home(self.fetch(BASE + '/?_=' + str(time.time_ns())))
                 self.home_at = self.clock()
+                self.home_day = datetime.fromtimestamp(self.home_at,MOSCOW).date()
             selected = {row['id']: row for row in self.home_list if not excluded_competition(row['competition'])}
             for match in self.matches.values():
                 if excluded_competition(match.competition):

@@ -16,6 +16,18 @@ from test_bot import FakeTelegram
 
 
 class ConversationTests(unittest.TestCase):
+    def test_football_followup_without_reply_uses_personal_session_and_source(self):
+        response=self.bot_message('ЦСКА — Спартак · начало 16:00 МСК',question='Когда Спартак играет и с кем',mode='football')
+        self.store.remember_session(-100123,7,response['message_id'])
+        for n,text in enumerate(('А когда','Так сегодня сук'),2):
+            self.store.set('request:-100123',0)
+            self.bot.handle(self.update(text,n))
+            job=self.bot.utility_jobs.get_nowait()
+            self.assertEqual(job['utility']['kind'],'football')
+            self.assertEqual(job['utility']['filter'],'Спартак')
+        self.bot.handle(self.update('Так сегодня',5,user=8))
+        self.assertTrue(self.bot.utility_jobs.empty())
+
     def test_bare_why_uses_own_last_answer_despite_other_participant(self):
         response=self.bot_message('Металл быстрее отводит тепло от кожи.',question='Почему металл кажется холодным?')
         self.store.remember_session(-100123,7,response['message_id'])

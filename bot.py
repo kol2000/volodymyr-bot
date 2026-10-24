@@ -36,7 +36,7 @@ from quality_report import init_quality, record_quality, quality_report
 from goal_videos import GoalVideos
 from football_posts import FootballPosts
 from live_football import (Football, FootballError, PREFIX as FOOTBALL_PREFIX,
-                           COMMANDS as FOOTBALL_COMMANDS, football_request, football_correction,
+                           COMMANDS as FOOTBALL_COMMANDS, football_request, football_correction, football_followup,
                            error_reply as football_error_reply)
 
 LOG = logging.getLogger('volodymyr')
@@ -1054,6 +1054,8 @@ class Bot:
         question_call = not command and ends_question(argument)
         session_id = self.store.session(chat_id, user_id)
         followup = bool(FOLLOWUP.match(FEATURE_CALL.sub('', argument)) or elliptical_followup(argument) or amendment_request(argument))
+        if session_id and self.store.answer_mode(chat_id,session_id)=='football' and football_followup(argument):
+            followup=True
         control_call = bool(session_id and inline_control(argument))
         if inline_control(argument) and not standalone_control(argument) and not contextual_request(control_remainder(argument)):
             followup = False
@@ -1066,8 +1068,8 @@ class Bot:
         utility = football_request(argument, command, addressed=addressed)
         if not utility:
             utility = participant_request(argument, command)
-        if not utility and reply_to_bot and not command:
-            utility = football_correction(argument, self.store.dialogue(chat_id, reply.get('message_id')))
+        if not utility and not command and (reply_to_bot or (dialogue_id and followup and self.store.answer_mode(chat_id,dialogue_id)=='football')):
+            utility = football_correction(argument, self.store.dialogue(chat_id, dialogue_id))
         if not utility:
             utility = feature_request(argument, command, addressed=addressed)
         detailed = bool(utility and utility['kind'] == 'more')
@@ -1725,7 +1727,7 @@ class Bot:
             self.store.add_message(dict(sent, _reply_to=job['reply_to'], _answer_mode=mode), human=False,
                                    request_text=recorded_request, learnable=not utility and not thoughtful,
                                    rateable=not utility or utility['kind'] != 'bank')
-            if thoughtful or (utility and utility['kind'] == 'factcheck'):
+            if thoughtful or (utility and utility['kind'] in ('factcheck','football')):
                 self.store.remember_session(chat_id, job.get('user_id'), sent['message_id'])
             self.store.finish_send(send_id, 'sent')
             job['_outcome'] = 'sent'

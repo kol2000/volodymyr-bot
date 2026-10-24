@@ -244,6 +244,8 @@ class ParsingTests(unittest.TestCase):
     def test_natural_kickoff_and_verification_keep_only_team_and_date(self):
         now = datetime(2026, 10, 15, 19, 50, tzinfo=MOSCOW).timestamp()
         cases = [('бубус, во сколько сегодня играет СПАРТАК?', ''),
+                 ('Когда Спартак играет и с кем', '/bubus'),
+                 ('С кем сегодня играет Спартак?', '/bubus'),
                  ('Бубус проверь играет ли сегодня СПАРТАК?', ''),
                  ('Бубус, когда матч Спартак?', ''),
                  ('Бубус, Спартак сегодня играет?', ''),
@@ -277,6 +279,16 @@ class ParsingTests(unittest.TestCase):
         self.assertIsNone(football_correction('проверь цену биткоина', dialogue))
         self.assertIsNone(football_correction('вот пиздабол', dialogue + [dict(human=True, text='Почему небо синее?')]))
         self.assertIsNone(football_correction('вот пиздабол', []))
+
+    def test_football_date_and_time_followups_preserve_team_and_stop_at_new_subject(self):
+        chain=[dict(human=True,text='Когда Спартак играет и с кем'),dict(human=False,text='Матчи дня')]
+        now=datetime(2026,10,25,0,1,tzinfo=MOSCOW).timestamp()
+        for value in ('А когда','С кем?','Так сегодня сук'):
+            self.assertEqual(football_correction(value,chain,now),dict(kind='football',day='2026-10-25',filter='Спартак'))
+        chain.extend([dict(human=True,text='а когда'),dict(human=False,text='Ответ')])
+        self.assertEqual(football_correction('а завтра?',chain,now)['day'],'2026-10-26')
+        chain.append(dict(human=True,text='Почему небо синее?'))
+        self.assertIsNone(football_correction('а когда',chain,now))
 
     def test_team_and_competition_filters(self):
         matches = [fixture(), dataclasses.replace(fixture(), id='2', competition='Кубок России', home='ЦСКА')]

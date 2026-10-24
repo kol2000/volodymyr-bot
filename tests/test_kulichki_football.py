@@ -262,6 +262,18 @@ class ParsingTests(unittest.TestCase):
 
 
 class SourceTests(unittest.TestCase):
+    def test_moscow_midnight_refreshes_home_and_discards_prefetched_empty_day(self):
+        self.now[0]=datetime(2026,10,13,23,59,58,tzinfo=MOSCOW).timestamp()
+        source=self.source()
+        self.assertEqual(source.day(date(2026,10,14))[0],[])
+        self.html=home([('25708','ЦСКА','Спартак','16:00')])
+        self.pages['25708']=broadcast(day=14,a='ЦСКА',b='Спартак')
+        self.now[0]+=3
+        matches,_=source.day(date(2026,10,14))
+        self.assertEqual([(m.home,m.away,m.status) for m in matches],[('ЦСКА','Спартак','scheduled')])
+        self.assertEqual(datetime.fromtimestamp(matches[0].kickoff,MOSCOW).hour,16)
+        self.assertEqual(len([u for u in self.calls if '/trans/' not in u]),2)
+
     def setUp(self):
         self.now = [START - 900]
         self.html = home()

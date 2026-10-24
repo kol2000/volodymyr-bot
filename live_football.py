@@ -519,14 +519,16 @@ def football_request(value, command='', addressed=False, now=None):
             playing = r'\bигра(?:ет|ют)\b'
             match_word = r'\bматч(?:и)?\b'
             time_question = re.match(r'^(?:во\s+сколько|когда)\b', body, re.I)
+            opponent_question = re.match(r'^(?:с\s+кем|против\s+кого)\b',body,re.I)
             yes_no = re.match(r'^игра(?:ет|ют)\s+ли\b', body, re.I)
             dated_play = (re.search(playing, body, re.I) and
                           re.search(r'\b(?:сегодня|завтра|вчера)\b|\d{1,2}\.\d{1,2}', body, re.I))
-            if not ((time_question and re.search(f'{playing}|{match_word}', body, re.I))
+            if not (((time_question or opponent_question) and re.search(f'{playing}|{match_word}', body, re.I))
                     or yes_no or dated_play):
                 return None
             body = re.sub(r'\b(?:во\s+сколько|когда|играет|играют|ли|кто|матч|матчи|'
                           r'будет|будут|начнется|начнётся|начинается)\b', '', body, flags=re.I)
+        body = re.sub(r'\b(?:и\s+)?(?:с\s+кем|против\s+кого)\b','',body,flags=re.I)
     if command in ('/football_on', '/football_off'):
         return {'kind': 'football_switch', 'enabled': command == '/football_on'}
     if command == '/football_status':
@@ -553,20 +555,42 @@ def football_request(value, command='', addressed=False, now=None):
     return {'kind': 'football', 'day': day.isoformat(), 'filter': ' '.join(body.split()).strip(' ,.!?')}
 
 
+def football_followup(value):
+    body=value.casefold().strip(' .!?,')
+    body=re.sub(r'\s+(?:же|блин|сук|сука)$','',body).strip()
+    body=re.sub(r'^(?:(?:а|ну|так|и|это|ето)\s+){0,3}','',body)
+    return body if body in ('когда','во сколько','с кем','против кого','сегодня','завтра','вчера') else None
+
+
 def football_correction(value, dialogue, now=None):
     """Recheck the original football question; a user's correction is not evidence."""
     correction = re.match(r'^(?:(?:вот\s+)?(?:ти|ты)\s+)?(?:вот\s+)?'
                           r'(?:пиздабол|ошиб(?:ся|ка)|вр[её]ш[ь]?|неправильно|неверно|'
                           r'перепроверь|проверь\s+е(?:щ[её]|що)\s+раз)\b', value.strip(), re.I)
-    if not correction:
+    followup=football_followup(value)
+    if not correction and not followup:
         return None
     # Only the immediately preceding human turn belongs to this correction.
     # Do not revive an old football topic through an unrelated question.
-    previous = next((row['text'] for row in reversed(dialogue) if row['human']), '')
-    command = previous.split(maxsplit=1)[0].lower().split('@')[0] if previous.startswith('/') else ''
-    if command == '/bubus':
-        previous = previous.split(maxsplit=1)[1] if len(previous.split(maxsplit=1)) > 1 else ''
-    return football_request(previous, command, addressed=True, now=now)
+    date_override=followup if followup in ('сегодня','завтра','вчера') else None
+    for row in reversed(dialogue):
+        if not row['human']:
+            continue
+        previous=row['text']
+        command = previous.split(maxsplit=1)[0].lower().split('@')[0] if previous.startswith('/') else ''
+        if command == '/bubus':
+            previous = previous.split(maxsplit=1)[1] if len(previous.split(maxsplit=1)) > 1 else ''
+        request=football_request(previous,command,addressed=True,now=now)
+        if request and request['kind']=='football':
+            if date_override:
+                request['day']=football_request('/football '+date_override,'/football',now=now)['day']
+            return request
+        previous_followup=football_followup(previous)
+        if not previous_followup:
+            return None
+        if date_override is None and previous_followup in ('сегодня','завтра','вчера'):
+            date_override=previous_followup
+    return None
 
 
 def normalize(value):
@@ -598,7 +622,7 @@ def scoreboard_text(matches, day, checked, query=''):
     selected = select_matches(matches, query)
     lines = [f'⚽ <b>Матчи дня · {day.strftime("%d.%m.%Y")}</b>']
     if not selected:
-        lines.append('На эту дату в доступной выборке подходящих матчей нет.' if query
+        lines.append(f'По запросу «{escape(query)}» на эту дату в доступной выборке подходящих матчей нет.' if query
                      else 'В доступной выборке нет матчей на эту дату.')
     displayed = 0
     for match in selected[:12]:
