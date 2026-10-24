@@ -9,7 +9,7 @@ from pathlib import Path
 from bot import Bot, Store, answer_problem
 from common import APIError, CONFIG, MODEL, ROOT, http_json
 from answer_quality import banter_coherence_problem, banter_relation_problem, checked_concise_extract, concise_problem, concise_word_limit, grounding_problem, specific_clarification
-from conversation import ambiguous_subject, dialogue_roles, inline_control, missing_reference, response_control, verification_query
+from conversation import ambiguous_subject, dialogue_roles, elliptical_followup, inline_control, missing_reference, response_control, verification_query
 from inference import generation_stats, runner_options
 from question_answers import ends_question, thoughtful_request
 
@@ -25,6 +25,8 @@ def route(case):
 
 
 def uses_model(case):
+    if elliptical_followup(case['request']) == 'reverse_condition' or (elliptical_followup(case['request']) and not case.get('dialogue')):
+        return False
     if route(case) == 'parody' and dialogue_roles(case['request'])['address_kind'] == 'bare_call':
         return False
     dialogue = case.get('dialogue', [])
@@ -58,6 +60,8 @@ def assess(case, answer, elapsed, max_seconds):
         errors.append('forbidden_topic_or_phrase')
     if case.get('must_any') and not any(word.casefold() in lowered for word in case['must_any']):
         errors.append('missing_expected_subject')
+    if any(not any(word.casefold() in lowered for word in group) for group in case.get('must_all_groups', [])):
+        errors.append('missing_semantic_constraint')
     if case.get('max_words') and len(answer.split()) > case['max_words']:
         errors.append('too_many_words')
     if case.get('control') == 'concise' and case.get('dialogue'):

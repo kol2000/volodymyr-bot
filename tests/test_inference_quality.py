@@ -18,6 +18,27 @@ from test_bot import FakeTelegram
 
 
 class InferenceQualityTests(unittest.TestCase):
+    def test_scientific_liquid_terms_do_not_trigger_the_slur_filter(self):
+        from answer_quality import answer_problem
+        for text in ('Плотность льда меньше плотности жидкой воды.', 'Жидкость испаряется.', 'В жидком состоянии молекулы движутся.'):
+            self.assertIsNone(answer_problem(text,thoughtful=True))
+        for text in ('жиды', 'жидовский'):
+            self.assertEqual(answer_problem(text,thoughtful=True),'restricted_terms')
+
+    def test_semantic_groups_require_each_key_part_not_just_a_topic_word(self):
+        case=dict(request='почему?',mode='question',must_all_groups=[['тепл'],['кож','рук']])
+        self.assertIn('missing_semantic_constraint',assess(case,'Тепло имеет значение.',1,120))
+        self.assertNotIn('missing_semantic_constraint',assess(case,'Тепло быстрее уходит от кожи.',1,120))
+
+    def test_unspecified_reversal_asks_which_condition_without_guessing(self):
+        self.store.add_message(dict(chat={'id':-100},message_id=50,date=time.time(),text='Влияют температура, влажность и ветер.'),human=False,request_text='От чего зависит высыхание?')
+        job=self.job('а если наоборот?',dialogue_id=50)
+        with patch('bot.http_json') as model:
+            answer=self.bot.generate(job)
+        model.assert_not_called()
+        self.assertIn('условие',answer)
+        self.assertEqual(job['_clarification_reason'],'unspecified_reversed_condition')
+
     def test_reported_action_and_invented_memory_are_rejected(self):
         from answer_quality import banter_relation_problem
         self.assertEqual(banter_relation_problem('Я опять всё перепутал.',

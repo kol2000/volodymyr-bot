@@ -24,7 +24,7 @@ def answer_problem(text, thoughtful=False):
         return 'multiline_response'
     if re.match(r'(?i)(хорошо[, ]+пользователь|пользователь (пишет|спрашивает)|нужно ответить|анализ|вот (ответ|реплика)|я должен)', text):
         return 'reasoning_in_response'
-    if re.search(r'(?i)чурк|свинорус|хохл|негр|пидор|пидар|ниггер|жид[а-я]|москал', text):
+    if re.search(r'(?i)чурк|свинорус|хохл|негр|пидор|пидар|ниггер|\bжид(?:ы|а|у|ом|ов|ам|ами|ах)?\b|\bжидов\w*|москал', text):
         return 'restricted_terms'
     if re.search(r'\b\d{6,12}:[A-Za-z0-9_-]{25,}\b', text):
         return 'sensitive_data'

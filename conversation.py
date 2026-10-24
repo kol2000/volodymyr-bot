@@ -171,6 +171,17 @@ def amendment_request(text):
     return bool(response_control(text) or AMENDMENT.match(CALL.sub('', text.strip())))
 
 
+def elliptical_followup(text):
+    """These complete turns need an explicit subject from a personal dialogue."""
+    body = CALL.sub('', text.strip()).casefold().strip(' .!?,')
+    body = re.sub(r'^а\s+', '', body)
+    if body in ('почему', 'зачем', 'как'):
+        return 'reason' if body != 'как' else 'method'
+    if body in ('если наоборот', 'наоборот'):
+        return 'reverse_condition'
+    return None
+
+
 def verification_query(text):
     """Only public, time-dependent questions. Never send private chat context out."""
     body = control_remainder(text)

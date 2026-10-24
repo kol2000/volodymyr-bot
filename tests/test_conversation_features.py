@@ -16,6 +16,43 @@ from test_bot import FakeTelegram
 
 
 class ConversationTests(unittest.TestCase):
+    def test_bare_why_uses_own_last_answer_despite_other_participant(self):
+        response=self.bot_message('Металл быстрее отводит тепло от кожи.',question='Почему металл кажется холодным?')
+        self.store.remember_session(-100123,7,response['message_id'])
+        self.store.add_message(dict(chat={'id':-100123},message_id=101,date=time.time(),text='Мой сервер завис.',**{'from':{'id':8,'first_name':'Другой'}}))
+        self.bot.handle(self.update('почему?',102))
+        job=self.bot.jobs.get_nowait()
+        self.assertEqual(job['dialogue_id'],100)
+        with patch('bot.http_json',return_value=self.model('Тепло уходит от кожи в металл быстрее.')) as model:
+            self.bot.generate(job)
+        data=json.loads(model.call_args.args[1]['messages'][1]['content'])
+        self.assertEqual(data['followup_focus']['kind'],'reason')
+        self.assertEqual(data['live_context'],[])
+        self.assertNotIn('сервер',json.dumps(data,ensure_ascii=False))
+
+    def test_bare_why_without_own_session_does_not_guess_from_crowd(self):
+        self.store.add_message(dict(chat={'id':-100123},message_id=10,date=time.time(),text='У меня роутер сломался.',**{'from':{'id':8}}))
+        self.bot.handle(self.update('почему?',11,user=7))
+        job=self.bot.jobs.get_nowait()
+        with patch('bot.http_json') as model:
+            answer=self.bot.generate(job)
+        model.assert_not_called()
+        self.assertEqual(job['_clarification_reason'],'missing_dialogue_anchor')
+        self.assertIn('речь',answer)
+
+    def test_explicit_subject_correction_continues_own_session(self):
+        response=self.bot_message(question='Как проверить резервную копию?')
+        self.store.remember_session(-100123,7,response['message_id'])
+        self.bot.handle(self.update('я про хранение копии, а не проверку',2))
+        job=self.bot.jobs.get_nowait()
+        self.assertEqual(job['dialogue_id'],100)
+        self.assertTrue(self.bot.is_thoughtful(job))
+
+    def test_context_can_be_scoped_to_a_participant(self):
+        for n,user,text in [(1,7,'Мой принтер'),(2,8,'Чужой роутер')]:
+            self.store.add_message(dict(chat={'id':-100123},message_id=n,date=time.time(),text=text,**{'from':{'id':user}}))
+        self.assertEqual([r['text'] for r in self.store.context(-100123,user_id=7)],['Мой принтер'])
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.store = Store(Path(self.temp.name) / 'bot.sqlite3')

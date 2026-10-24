@@ -26,7 +26,7 @@ from assistant_features import (FeatureStore, FEATURE_COMMANDS, FOLLOWUP, CALL a
 from style_profile import profile_for_request
 from answer_quality import (answer_problem, banter_coherence_problem, banter_relation_problem, checked_concise_extract, concise_extract, concise_problem, concise_word_limit, contextual_request, diagnostic_retry_guidance, explanation_problem,
                             grounding_problem, question_context)
-from conversation import (BOT_ALIASES, ambiguous_subject, amendment_request, banter_brief, banter_request, control_remainder, dialogue_roles, inline_control, missing_reference,
+from conversation import (BOT_ALIASES, ambiguous_subject, amendment_request, banter_brief, banter_request, control_remainder, dialogue_roles, elliptical_followup, inline_control, missing_reference,
                           response_control as standalone_control, verification_query)
 from learning import LearningStore, LEARNING_COMMANDS, correction_request
 from participants import ParticipantStore, PARTICIPANT_COMMANDS, participant_request
@@ -308,12 +308,15 @@ class Store(FeatureStore, LearningStore, ParticipantStore):
                                      (chat_id, now - 60, now)).fetchone()
         return count >= 8 and users >= 2
 
-    def context(self, chat_id, limit=10, *, before=None, before_id=None, max_age=7200, human_only=False):
+    def context(self, chat_id, limit=10, *, before=None, before_id=None, max_age=7200, human_only=False, user_id=None):
         before=time.time() if before is None else before
         where='chat_id=? AND timestamp>? AND timestamp<=?'
         args=[chat_id,before-max_age,before]
         if human_only:
             where+=' AND human=1'
+        if user_id is not None:
+            where+=' AND user_id=?'
+            args.append(user_id)
         if type(before_id) is int and before_id>0:
             where+=' AND message_id<?'
             args.append(before_id)
@@ -1026,7 +1029,7 @@ class Bot:
         triggers = list(dict.fromkeys(TRIGGER_FORMS.get(word, word) for word in matches))
         question_call = not command and ends_question(argument)
         session_id = self.store.session(chat_id, user_id)
-        followup = bool(FOLLOWUP.match(FEATURE_CALL.sub('', argument)))
+        followup = bool(FOLLOWUP.match(FEATURE_CALL.sub('', argument)) or elliptical_followup(argument) or amendment_request(argument))
         control_call = bool(session_id and inline_control(argument))
         if inline_control(argument) and not standalone_control(argument) and not contextual_request(control_remainder(argument)):
             followup = False
@@ -1290,13 +1293,32 @@ class Bot:
         quoted='' if fresh_call else clean_text(job.get('quoted_message',''))[:1000]
         if fresh_call:
             dialogue=[]
+        followup_kind = elliptical_followup(job['text'])
+        if followup_kind and not (quoted or dialogue):
+            if self.superseded(job):
+                return None
+            job['_local_reply'] = 'clarification'
+            job['_clarification_reason'] = 'missing_dialogue_anchor'
+            return render_answer('Ответь на нужное сообщение: о чём именно речь?')
+        if followup_kind == 'reverse_condition':
+            if self.superseded(job):
+                return None
+            job['_local_reply'] = 'clarification'
+            job['_clarification_reason'] = 'unspecified_reversed_condition'
+            return render_answer('Какое именно условие ты хочешь изменить на противоположное?')
         context=question_context(self.store.context(job['chat_id'],limit=20,before=job['queued_at'],
-                                 before_id=job.get('reply_to'),max_age=600,human_only=True),
+                                 before_id=job.get('reply_to'),max_age=600,human_only=True,
+                                 user_id=job.get('user_id') if contextual_request(job['text']) else None),
                                  job['text'],quoted,dialogue,fresh_call)
         data = {'mode': 'question', 'current_request': clean_text(job['text'])[:2000],
                 'quoted_message':quoted,'live_context':context,'dialogue':dialogue,
                 'context_scope':'reply' if quoted or dialogue else 'followup' if context and contextual_request(job['text']) else 'current_request'}
         data['conversation_roles'] = dialogue_roles(clean_text(job['text']))
+        if followup_kind:
+            data['followup_focus'] = dict(kind=followup_kind, refers_to='latest_reply',
+                instruction=('Продолжи последний ответ в dialogue или quoted_message. '
+                             'При обратном условии измени только указанное условие; остальные сведения сохрани. '
+                             'Если непонятно, какое условие обратить, уточни его.'))
         data['detail'] = 'detailed' if job.get('detailed') else 'brief'
         control = job.get('response_control')
         if control:
