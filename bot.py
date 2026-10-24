@@ -1156,8 +1156,10 @@ class Bot:
                 prompt += '\nПредыдущий вариант не подошёл. Дай новую готовую реплику на 3–12 слов одной строкой по теме current_request. Без анализа, пояснений и оскорблений защищённых групп. Не повторяй уже сказанные реплики, даже с другой пунктуацией.'
                 if reason == 'unconnected_particles':
                     prompt += '\nСформулируй одно законченное предложение обычным русским языком. Поддень конкретную мысль собеседника, не демонстрируй набор ругательств.'
-                if reason in ('request_echo', 'address_role_reversal'):
+                if reason in ('request_echo', 'address_role_reversal', 'event_role_reversal'):
                     prompt += '\nТы отвечаешь от лица бота собеседнику. Не переноси на собеседника обращение к боту и не повторяй его реплику вопросом. Дай собственную короткую реакцию по смыслу message_without_address.'
+                if reason == 'event_role_reversal':
+                    prompt += '\nСохрани event_roles: в этой реплике пришёл бот, а ждал собеседник. Не приписывай ожидание себе.'
             retry_data = dict(data, style_examples=[], live_context=context[-2:],
                               previous_failure=reason) if attempt else data
             try:

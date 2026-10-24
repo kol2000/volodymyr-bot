@@ -28,6 +28,15 @@ BOT_ALIASES = ('бубус', 'бубуська', 'володька', 'волод
 BOT_ALIAS = r'(?:' + '|'.join(BOT_ALIASES) + r')'
 
 
+def address_roles(kind, alias, body):
+    result = dict(address_kind=kind, bot_alias=alias, message_without_address=body,
+                  perspective=dict(incoming_you='bot', outgoing_you='speaker', incoming_i='speaker', outgoing_i='bot'))
+    if re.match(r'^\s*(?:(?:ну|вот|наконец|наконец-то|ты|ти|опять|снова)\s+){0,4}'
+                r'(?:явился|появился|приш[её]л|вернулся)\b', body, re.I):
+        result['event_roles'] = dict(event='arrival', arrived='bot', waited='speaker')
+    return result
+
+
 def dialogue_roles(text):
     """Conservative surface cues: quoted names are not vocative addresses."""
     visible = re.sub(r'```.*?```|`[^`]*`|«[^»]*»|"[^"]*"', lambda m: ' ' * len(m[0]), text, flags=re.S)
@@ -41,11 +50,24 @@ def dialogue_roles(text):
         start = not before.strip(' ,!?.')
         end = not after.strip(' ,!?.')
         second_person = bool(re.search(r'\b(?:ты|ти|тебя|тебе|твой|твоя)\b', visible, re.I))
+        reported = start and bool(re.match(r'\s+(?:сказал|написал|ответил|спросил|сообщил|рассказал|объяснил)\b', after, re.I))
+        if reported:
+            continue
         explicit_prefix = start and bool(re.match(r'\s*,|\s+(?:не\s+)?(?:умничай|тупи|отвечай|проснись|расскажи|объясни)\b', after, re.I))
-        explicit_suffix = end and bool(re.search(r',\s*$|\bявился\s+наконец\s*$', before, re.I))
+        explicit_suffix = end and bool(re.search(r',\s*$|\b(?:явился|появился|приш[её]л|вернулся)\s+наконец\s*$', before, re.I))
         if ((start or end) and second_person) or explicit_prefix or explicit_suffix:
             body = (text[:match.start()] + text[match.end():]).strip(' ,!?.')
-            return dict(address_kind='bot_address', bot_alias=match[1].casefold(), message_without_address=body)
+            return address_roles('bot_address', match[1].casefold(), body)
+    # A boundary alias without a vocative cue can name a person or address the
+    # bot. Preserve that ambiguity rather than pretending it is resolved.
+    if found:
+        match = found[0]
+        before, after = visible[:match.start()], visible[match.end():]
+        if (not before.strip(' ,!?.') and not re.match(
+                r'\s+(?:сказал|написал|ответил|спросил|сообщил|рассказал|объяснил|он|она|они)\b', after, re.I)):
+            body = (text[:match.start()] + text[match.end():]).strip(' ,!?.')
+            result = dict(address_kind='ambiguous', bot_alias=match[1].casefold(), message_without_address=body)
+            return result
     quoted_alias = bool(re.search(r'\b' + BOT_ALIAS + r'\b', text, re.I))
     return dict(address_kind='mention' if found else 'quoted_mention' if quoted_alias else 'unspecified',
                 message_without_address=text)

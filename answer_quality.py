@@ -63,12 +63,25 @@ def banter_relation_problem(text, request):
     roles = dialogue_roles(request)
     source = words(roles['message_without_address'])
     candidate = words(text)
-    if roles['address_kind'] == 'bot_address':
+    if roles['address_kind'] in ('bot_address', 'ambiguous'):
         alias = roles['bot_alias']
         # Returning the bot's own address as a vocative to the user swaps roles.
         if re.match(r'^\s*(?:(?:ну|а|эй)\s+)?' + re.escape(alias) + r'(?:\s*,|\s+(?:а\s+)?(?:ты|ти)\b)', text, re.I):
             return 'address_role_reversal'
         candidate = [word for word in candidate if word != alias]
+    if roles.get('event_roles', {}).get('event') == 'arrival':
+        for match in re.finditer(r'[^.!?]+[.!?]?', text):
+            clause = match[0].casefold()
+            waiting = re.search(r'\b(?:дождал(?:ся|ась)|ждал[аи]?)\b', clause)
+            if waiting:
+                prefix = clause[:waiting.start()]
+                first_person = re.search(r'\bя\b', prefix)
+                addressed_waiter = re.search(r'\b(?:ты|ти)\b', prefix) or re.search(r'\bменя\b', clause[waiting.end():])
+                negated = re.search(r'\bне\s*$', prefix)
+                if not negated and (first_person or (not addressed_waiter and not clause.rstrip().endswith('?'))):
+                    return 'event_role_reversal'
+            if re.search(r'\b(?:ты|ти)\b.{0,30}\b(?:явился|появился|приш[её]л|вернулся)\b', clause):
+                return 'event_role_reversal'
     if len(source) >= 3 and len(candidate) >= 3:
         if SequenceMatcher(None, source, candidate, autojunk=False).ratio() >= 0.85:
             return 'request_echo'

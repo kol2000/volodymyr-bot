@@ -69,6 +69,49 @@ class InferenceQualityTests(unittest.TestCase):
                      'Если проверка пройдена значит она не повреждена.']:
             self.assertIsNone(grounding_problem(text, 'Как проверить резервную копию сервера?'), text)
 
+    def test_ambiguous_boundary_alias_does_not_become_a_user_name(self):
+        from conversation import dialogue_roles
+        request = 'цацик опять диванный чемпион?'
+        roles = dialogue_roles(request)
+        self.assertEqual(roles['address_kind'], 'ambiguous')
+        self.assertEqual(roles['message_without_address'], 'опять диванный чемпион')
+        bad = 'Цацик ти вообще где? Опять в боте сидиш?'
+        self.assertEqual(banter_relation_problem(bad, request), 'address_role_reversal')
+        self.assertIn('address_role_reversal', assess(dict(mode='parody', request=request), bad, 1, 120))
+        self.assertIsNone(banter_relation_problem('дивану без меня никак', request))
+        for phrase in ['Мой друг Цацик опять всё перепутал.', 'Цацик сказал что ты ошибся.',
+                       'Он написал: «цацик опять диванный чемпион?»']:
+            self.assertIn(dialogue_roles(phrase)['address_kind'], ['mention', 'quoted_mention'])
+            self.assertIsNone(banter_relation_problem('Цацик ти вообще где?', phrase))
+
+    def test_arrival_frame_preserves_who_arrived_and_who_waited(self):
+        from conversation import dialogue_roles
+        request = 'явился наконец цацик'
+        roles = dialogue_roles(request)
+        self.assertEqual(roles['event_roles'], dict(event='arrival', arrived='bot', waited='speaker'))
+        self.assertEqual(roles['perspective']['outgoing_i'], 'bot')
+        for answer in ['Ну наконец-то дождался.', 'Я уже ждал тебя.', 'Ну наконец ты явился.']:
+            self.assertEqual(banter_relation_problem(answer, request), 'event_role_reversal', answer)
+        for answer in ['ну дождался меня?', 'Ты дождался.', 'Дождался?', 'Я уже тут.',
+                       'Я тебя не ждал.', 'Ну дождался меня.']:
+            self.assertIsNone(banter_relation_problem(answer, request), answer)
+        for phrase in ['Мой друг Цацик пришёл.', 'цацик ты сказал что он пришёл', 'цацик ты не пришёл']:
+            self.assertNotIn('event_roles', dialogue_roles(phrase))
+        self.assertIsNone(banter_relation_problem('Я дождался.', 'Мой друг Цацик пришёл.'))
+
+    def test_reversed_arrival_is_retried_with_event_frame_and_checked_again(self):
+        good = 'ну дождался меня?'
+        with patch('bot.find_examples', return_value=[]), \
+                patch('bot.http_json', side_effect=[self.result('Ну наконец-то дождался.'), self.result(good)]) as model:
+            job = self.job('явился наконец цацик', thoughtful=False, _capture_rejections=True)
+            self.assertEqual(self.bot.generate(job), good)
+        self.assertEqual(model.call_count, 2)
+        self.assertEqual(job['_rejection_details'][0]['rule'], 'banter.event_role_reversal')
+        retry = model.call_args.args[1]['messages']
+        self.assertIn('пришёл бот, а ждал собеседник', retry[0]['content'])
+        data = json.loads(retry[1]['content'])
+        self.assertEqual(data['conversation_roles']['event_roles']['waited'], 'speaker')
+
     def test_address_roles_separate_vocatives_mentions_quotes_and_triggers(self):
         from conversation import dialogue_roles
         for request in ['Цацик, ты уснул?', 'шо ты опять умничаешь цацик?', 'цацик не умничай', 'явился наконец цацик']:
