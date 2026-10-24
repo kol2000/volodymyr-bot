@@ -40,6 +40,21 @@ def quoted_post(row):
 
 
 class ParserTests(unittest.TestCase):
+    def test_final_history_paginates_nonvideo_pages_and_caches_bounded_scan(self):
+        calls=[]
+        def fetch(url):
+            calls.append(url)
+            channel='matchpremier' if 'matchpremier' in url else 'idmanvideo'
+            if '?before=' not in url:
+                return post(channel=channel,number=30).replace('<video src="'+MEDIA+'"></video>','')
+            return post(channel=channel,number=20)
+        source=PublicClips(fetch=fetch,clock=lambda:START)
+        self.assertEqual(len(source.history()),2)
+        self.assertEqual(len(calls),6)
+        self.assertTrue(any('?before=30' in u for u in calls))
+        source.history()
+        self.assertEqual(len(calls),6)
+
     def test_reply_quote_cannot_label_current_video_or_supply_its_date(self):
         current = '"Real Madrid" 4:1 "Leypsiq" Yan Diomande, 87`'
         quoted = '"Real Madrid" 3:1 "Leypsiq" Tidiam Gomis, 85`'
@@ -161,6 +176,64 @@ class ParserTests(unittest.TestCase):
 
 
 class VideoFixture(unittest.TestCase):
+    def diagnosis(self):
+        with self.store.db() as db:
+            return db.execute('SELECT reason,final_checked FROM goal_video_diagnostics WHERE message_id=55').fetchone()
+
+    def test_final_scan_finds_older_clip_and_edits_original_only(self):
+        self.queue()
+        self.source.recent=lambda:[]
+        calls=[]
+        self.source.history=lambda:calls.append(1) or [self.clip]
+        self.now[0]+=TTL-240
+        self.poll()
+        self.assertEqual(calls,[1])
+        self.assertEqual([e[1] for e in self.edits],[55])
+        self.assertEqual(self.diagnosis()[0],'attached')
+
+    def test_final_scan_once_across_restart_and_never_after_expiry(self):
+        self.queue()
+        self.source.recent=lambda:[]
+        calls=[]
+        self.source.history=lambda:calls.append(1) or []
+        self.now[0]+=TTL-240
+        self.poll()
+        self.videos=GoalVideos(self.store,self.source,clock=lambda:self.now[0])
+        self.now[0]+=31
+        self.poll()
+        self.assertEqual(calls,[1])
+        self.now[0]+=300
+        self.poll()
+        self.assertEqual(calls,[1])
+        self.assertEqual(self.diagnosis()[0],'expired')
+        self.assertFalse(self.edits)
+
+    def test_failed_final_scan_retries_and_reports_source_failure(self):
+        self.queue()
+        self.source.recent=lambda:[]
+        self.source.errors={'matchpremier':'network_error'}
+        calls=[]
+        self.source.history=lambda:calls.append(1) or []
+        self.now[0]+=TTL-240
+        self.poll()
+        self.assertEqual(self.diagnosis(),('source_unavailable',0))
+        self.source.errors={}
+        self.now[0]+=61
+        self.poll()
+        self.assertEqual(calls,[1,1])
+        self.assertGreater(self.diagnosis()[1],0)
+        self.assertIn('подходящий ролик пока не найден',self.videos.answer({'kind':'status'},-100))
+
+    def test_download_and_telegram_failures_have_separate_diagnostics(self):
+        self.queue()
+        self.videos.download=lambda u:(_ for _ in ()).throw(VideoError('http_500'))
+        self.poll()
+        self.assertEqual(self.diagnosis()[0],'download_failed')
+        self.videos.download=lambda u:MP4
+        self.now[0]+=31
+        self.poll(edit=lambda *a:(_ for _ in ()).throw(APIError('bad',400)))
+        self.assertEqual(self.diagnosis()[0],'telegram_failed')
+
     def setUp(self):
         self.folder = tempfile.TemporaryDirectory()
         self.path = Path(self.folder.name) / 'bot.sqlite3'

@@ -23,6 +23,7 @@ CHANNELS = ('matchpremier', 'idmanvideo')
 KEY = PREFIX + 'videos:'
 INTERVAL = 30
 TTL = 2 * 60 * 60
+FINAL_SCAN_WINDOW = 5 * 60
 MAX_VIDEO = 45 * 1024 * 1024
 MAX_PAGE = 2 * 1024 * 1024
 
@@ -173,6 +174,37 @@ class PublicClips:
     def __init__(self, fetch=fetch_public, clock=time.time):
         self.fetch, self.clock = fetch, clock
         self.cached_at, self.cached, self.errors = None, [], {}
+        self.history_at, self.history_cached, self.history_errors = None, [], {}
+
+    def history(self, pages=4):
+        """Bounded final sweep, including pages with no native video posts."""
+        now = self.clock()
+        if self.history_at is not None and now-self.history_at < 60:
+            self.errors = dict(self.history_errors)
+            return self.history_cached
+        def read(channel):
+            found, cursor, error = {}, None, ''
+            try:
+                for _ in range(min(4, max(1, pages))):
+                    html = self.fetch('https://t.me/s/'+channel+(f'?before={cursor}' if cursor else ''))
+                    for clip in parse_channel(html, channel):
+                        found[clip.post_id] = clip
+                    ids = [int(m[1]) for n in Document(html).root.walk()
+                           if (m := re.fullmatch(re.escape(channel)+r'/(\d+)', n.attrs.get('data-post', '')))]
+                    if not ids or (cursor is not None and min(ids) >= cursor):
+                        break
+                    cursor = min(ids)
+            except VideoError as exc:
+                error = str(exc)
+            except (FootballError, ValueError, RecursionError):
+                error = 'invalid_channel_page'
+            return list(found.values()), error, channel
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            rows = list(pool.map(read, CHANNELS))
+        self.history_cached = [c for clips, _, _ in rows for c in clips]
+        self.history_errors = {channel: error for _, error, channel in rows if error}
+        self.history_at, self.errors = now, dict(self.history_errors)
+        return self.history_cached
 
     def recent(self):
         now = self.clock()
@@ -427,6 +459,10 @@ class GoalVideos:
                     chat_id INTEGER, post TEXT, digest TEXT, created REAL,
                     PRIMARY KEY(chat_id,post));
                 CREATE INDEX IF NOT EXISTS goal_video_digest ON goal_video_used(chat_id,digest);
+                CREATE TABLE IF NOT EXISTS goal_video_diagnostics (
+                    chat_id INTEGER, message_id INTEGER, checked REAL, reason TEXT,
+                    detail TEXT, final_checked REAL DEFAULT 0,
+                    PRIMARY KEY(chat_id,message_id));
             ''')
             # A crash after editing must not repeat work or create a replacement post.
             db.execute("UPDATE goal_video_jobs SET status='uncertain' WHERE status='editing'")
@@ -445,11 +481,28 @@ class GoalVideos:
                     else 'Добавление видео голов выключено.')
         with self.store.db() as db:
             waiting = db.execute("SELECT count(*) FROM goal_video_jobs WHERE chat_id=? AND status='pending'", (chat_id,)).fetchone()[0]
+            diagnostics = db.execute('SELECT message_id,reason,detail FROM goal_video_diagnostics WHERE chat_id=? ORDER BY checked DESC LIMIT 5', (chat_id,)).fetchall()
+        labels = dict(waiting='подходящий ролик пока не найден', source_unavailable='источник недоступен',
+                      context_missing='неполные подробности гола', ambiguous='неоднозначное совпадение',
+                      download_failed='не удалось скачать видео', used='ролик уже использован',
+                      telegram_failed='Telegram отклонил загрузку', uncertain='результат загрузки не подтверждён',
+                      attached='видео добавлено', expired='срок ожидания истёк', cancelled='задание отменено')
+        details = '\n'.join(f'Пост {n}: {labels.get(reason, reason)}' +
+                            (f'; {labels[detail]}' if reason=='expired' and detail in labels else '')
+                            for n, reason, detail in diagnostics)
         return ('Видео голов: ' + ('включены' if self.enabled() else 'выключены') +
                 '\nИсточники: @matchpremier, @idmanvideo\n'
                 f'Ожидают ролик: {waiting}\nПоследняя ошибка: {self.store.get(KEY + "error", "") or "нет"}\n'
                 f'Проверка каждые 30 секунд при ожидающих голах; ожидание до {TTL // 60} минут.\n'
+                'За 5 минут до конца — повторная сверка до 4 страниц каждого канала.\n' +
+                (details+'\n' if details else '') +
                 'Видео добавляется в исходное сообщение без пересылки и нового поста.')
+
+    def diagnose(self, row, reason, detail='', final=False):
+        with self.store.db() as db:
+            db.execute('INSERT INTO goal_video_diagnostics VALUES (?,?,?,?,?,?) '
+                       'ON CONFLICT(chat_id,message_id) DO UPDATE SET checked=excluded.checked,reason=excluded.reason,detail=excluded.detail,final_checked=max(final_checked,excluded.final_checked)',
+                       (row[0],row[1],self.clock(),reason,detail,self.clock() if final else 0))
 
     def cancel(self):
         with self.store.db() as db:
@@ -516,6 +569,7 @@ class GoalVideos:
         with self.store.db() as db:
             db.execute('DELETE FROM goal_video_jobs WHERE created<?', (now - 2 * 86400,))
             db.execute('DELETE FROM goal_video_used WHERE created<?', (now - 2 * 86400,))
+            db.execute('DELETE FROM goal_video_diagnostics WHERE checked<?', (now - 2 * 86400,))
             rows = db.execute("SELECT * FROM goal_video_jobs WHERE status='pending' ORDER BY created LIMIT 30").fetchall()
         current = []
         for row in rows:
@@ -523,25 +577,45 @@ class GoalVideos:
                 current.append((row, json.loads(row[5])))
             else:
                 self.mark(row, 'cancelled')
+                with self.store.db() as db:
+                    previous = db.execute('SELECT reason FROM goal_video_diagnostics WHERE chat_id=? AND message_id=?', (row[0],row[1])).fetchone()
+                self.diagnose(row, 'expired' if now >= row[4] else 'cancelled', previous[0] if previous else '')
         if not current:
             return
         clips = self.source.recent()
+        with self.store.db() as db:
+            scanned = dict(db.execute('SELECT message_id,final_checked FROM goal_video_diagnostics WHERE chat_id=?', (self.store.get('chat_id'),)))
+        sweep = [row for row, _ in current if row[4]-now <= FINAL_SCAN_WINDOW and not scanned.get(row[1])]
+        if sweep and hasattr(self.source, 'history'):
+            history = self.source.history()
+            clips = list({c.link:c for c in [*clips,*history]}.values())
+            for row in sweep:
+                self.diagnose(row, 'waiting', final=not self.source.errors)
         self.store.set(KEY + 'checked', now)
         self.store.set(KEY + 'error', '; '.join(f'{c}:{e}' for c, e in self.source.errors.items()))
         for row, job in current:
+            reasons = [goal_match_reason(c, job, now) for c in clips]
+            reason = ('source_unavailable' if self.source.errors else
+                      'context_missing' if 'narrative_context_missing' in reasons else
+                      'ambiguous' if 'ambiguous_narrative_goal' in reasons else 'waiting')
+            self.diagnose(row, reason, '; '.join(sorted(set(reasons))))
             # Preference for the domestic broadcaster; the second source remains
             # useful for European matches and as a fallback when a clip is missing.
             options = [c for c in clips if matches_goal(c, job, now)
                        and sum(matches_goal(c, other, now) for _, other in current) == 1]
             options.sort(key=lambda c: (CHANNELS.index(c.channel), -c.post_id))
+            if any(not goal_match_reason(c,job,now) for c in clips) and not options:
+                self.diagnose(row, 'ambiguous')
             for clip in options:
                 with self.store.db() as db:
                     used = db.execute('SELECT 1 FROM goal_video_used WHERE chat_id=? AND post=?', (row[0], clip.link)).fetchone()
                 if used:
+                    self.diagnose(row, 'used')
                     continue
                 try:
                     data = self.download(clip.url)
                 except VideoError as error:
+                    self.diagnose(row, 'download_failed', str(error))
                     self.store.set(KEY + 'error', str(error))
                     continue
                 digest = hashlib.sha256(data).hexdigest()
@@ -560,9 +634,12 @@ class GoalVideos:
                         duplicate = db.execute('SELECT 1 FROM goal_video_used WHERE chat_id=? AND digest=?', (row[0], digest)).fetchone()
                         if duplicate:
                             db.execute('INSERT OR IGNORE INTO goal_video_used VALUES (?,?,?,?)', (row[0], clip.link, digest, now))
-                            continue
-                        db.execute('INSERT OR IGNORE INTO goal_video_used VALUES (?,?,?,?)', (row[0], clip.link, digest, now))
-                        claimed = db.execute("UPDATE goal_video_jobs SET status='editing' WHERE chat_id=? AND message_id=? AND status='pending'", (row[0], row[1])).rowcount
+                        else:
+                            db.execute('INSERT OR IGNORE INTO goal_video_used VALUES (?,?,?,?)', (row[0], clip.link, digest, now))
+                            claimed = db.execute("UPDATE goal_video_jobs SET status='editing' WHERE chat_id=? AND message_id=? AND status='pending'", (row[0], row[1])).rowcount
+                    if duplicate:
+                        self.diagnose(row, 'used')
+                        continue
                     if not claimed:
                         break
                     try:
@@ -571,6 +648,7 @@ class GoalVideos:
                         if error.retry_after:
                             self.store.set('blocked_until', self.clock() + error.retry_after)
                         if error.code == 429:
+                            self.diagnose(row, 'telegram_failed', 'http_429')
                             with self.store.db() as db:
                                 db.execute('DELETE FROM goal_video_used WHERE chat_id=? AND post=?', (row[0], clip.link))
                             self.mark(row, 'pending')
@@ -580,9 +658,11 @@ class GoalVideos:
                         # blindly retry an upload whose result was not confirmed.
                         self.mark(row, 'uncertain' if not error.code or error.code >= 500 else 'failed')
                         self.store.set(KEY + 'error', f'edit_http_{error.code}')
+                        self.diagnose(row, 'uncertain' if not error.code or error.code >= 500 else 'telegram_failed', f'http_{error.code}')
                         LOG.warning('Добавление видео не подтверждено: HTTP=%s; пост=%s', error.code, row[1])
                     else:
                         self.mark(row, 'attached')
+                        self.diagnose(row, 'attached')
                         with self.store.db() as db:
                             columns = {r[1] for r in db.execute('PRAGMA table_info(messages)')}
                             if 'body' in columns:
