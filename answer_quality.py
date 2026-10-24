@@ -63,6 +63,27 @@ def banter_relation_problem(text, request):
     roles = dialogue_roles(request)
     source = words(roles['message_without_address'])
     candidate = words(text)
+    habit = re.search(r'\b(?:всегда|постоянно|как обычно)\b', text, re.I)
+    if habit and habit[0].casefold() not in request.casefold() and not re.search(
+            r'\b(?:не|если|разве)\s*(?:он\s+|ты\s+|ти\s+)?$', text[:habit.start()], re.I):
+        return 'unsupported_habit'
+    # Only explicit claims about remembered/datable events. This does not try to
+    # classify every joke or reject ordinary hypothetical suggestions.
+    if not re.search(r'\b(?:если|допустим|представь)\b', text, re.I):
+        for marker in ('вчера', 'позавчера', 'на прошлой неделе'):
+            if marker in text.casefold() and marker not in request.casefold() and re.search(
+                    r'\b(?:был[аи]?|встречал\w*|видел\w*|ходил\w*|говорил\w*|писал\w*|обсуждал\w*)\b', text, re.I):
+                return 'unsupported_memory'
+        if re.search(r'\bя\s+(?:же\s+)?помню\b', text, re.I) and not re.search(r'помн|вспом', request, re.I):
+            return 'unsupported_memory'
+    if roles.get('reply_scope') in ('reported_speech', 'third_person'):
+        if re.search(r'\b(?:значит\s+(?:точно\s+)?(?:правда|так и есть|он прав)|если[^.!?]{0,60}считает\s*[,—–-]\s*(?:значит\s+)?так и есть)\b', text, re.I):
+            return 'reported_truth_assertion'
+        action = r'(?:читал|написал|сказал|перепутал|вернулся|приш[её]л)[аи]?'
+        if re.search(r'(?<!не )\bя\s+(?:(?:же|ведь|тогда|уже|опять|снова|вс[её]|это|ето)\s+){0,3}'+action+r'\b(?!\s+бы\b)', text, re.I):
+            return 'reported_action_reversal'
+        if re.search(r'\b(?:значит|так что)\s+(?:я\s+)?(?:читаю|пишу|говорю|спрашиваю|вернулся)\b',text,re.I):
+            return 'reported_action_reversal'
     if roles.get('reply_scope') in ('reported_speech', 'third_person') and roles.get('referenced_alias'):
         alias = roles['referenced_alias']
         # A comma after a name also introduces parentheticals/apposition:

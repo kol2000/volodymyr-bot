@@ -79,6 +79,9 @@ def dialogue_roles(text):
         r'\b(?:мой|моя|наш|наша)\s+(?:друг|подруга|коллега|сосед|знакомый)\s*$',
         visible[:found[0].start()], re.I) or re.match(
         r'\s+' + REPORTING_VERB + r'\b', visible[found[0].end():], re.I))
+    third_person = third_person or re.match(
+        r'^\s*(?:(?:мой|моя|наш|наша)\s+(?:друг|подруга|коллега|сосед|знакомый)\b|'
+        r'(?:он|она|они)\s+' + REPORTING_VERB + r'\b)', visible, re.I)
     relay = re.search(r'\b(?:ответь|скажи|передай|позови|обратись)\b', visible, re.I)
     if (reporting or third_person) and not relay:
         result['reply_scope'] = 'reported_speech' if reporting else 'third_person'
@@ -94,6 +97,8 @@ def banter_brief(roles):
     if scope == 'third_person':
         return 'Обсуди с собеседником названного третьего человека. Не обращайся к этому человеку напрямую и не присваивай его поступки себе.'
     if roles['address_kind'] == 'bot_address':
+        if roles.get('event_roles', {}).get('event') == 'arrival':
+            return 'Собеседник приветствует твоё возвращение. Вернулся ты, ждал собеседник. Откликнись от себя; причина отсутствия неизвестна.'
         return 'Это реплика тебе. Ответь от себя на её смысл. Не пересказывай обвинение обратно собеседнику и не объясняй ему кто из вас бот.'
     if roles['address_kind'] == 'ambiguous':
         return 'Адресат прозвища неясен. Реагируй на смысл без назначения прозвища собеседнику; если без адресата непонятно — уточни.'

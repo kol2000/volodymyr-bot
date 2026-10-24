@@ -635,6 +635,7 @@ class Bot:
         self.bot_id = 0
         self.username = ''
         self.prompt = (ROOT / 'prompt.txt').read_text(encoding='utf-8')
+        self.manual_prompt = (ROOT / 'manual_reply_prompt.txt').read_text(encoding='utf-8')
         self.random = random.SystemRandom()
 
     def allowed(self, chat_id):
@@ -1162,7 +1163,7 @@ class Bot:
         for attempt in range(2):
             if self.superseded(job):
                 return None
-            prompt = self.prompt
+            prompt = self.manual_prompt + '\n' + data['reply_brief'] if direct_reply else self.prompt
             if job.get('tease_target'):
                 prompt += ('\nСейчас напиши короткий дружеский язвительный подкол участнику франки по его '
                            'реплике current_request. Не выдумывай его поступки или биографию. '
@@ -1178,6 +1179,10 @@ class Bot:
                     prompt += '\nСохрани event_roles: в этой реплике пришёл бот, а ждал собеседник. Не приписывай ожидание себе.'
                 if reason == 'reported_addressee_reversal':
                     prompt += '\nОтвет адресован собеседнику, который рассказывает о другом человеке или цитирует его. Обсуди рассказ; не зови персонажа рассказа и не отвечай ему напрямую.'
+                if reason in ('reported_action_reversal', 'unsupported_memory', 'unsupported_habit'):
+                    prompt += '\nНе придумывай воспоминания и прошлые события. Чужое действие остаётся чужим. Ответь на текущую мысль без объяснения неупомянутого прошлого.'
+                if reason == 'reported_truth_assertion':
+                    prompt += '\nПересказ чужого мнения не подтверждает его истинность. Обсуди мнение без объявления его фактом.'
                 if reason == 'multiline_response':
                     prompt += '\nНе печатай входную реплику и не разыгрывай диалог. Верни только собственный ответ одной строкой, без цитирования current_request.'
             retry_data = dict(data, style_examples=[], live_context=context[-2:],
@@ -1191,11 +1196,18 @@ class Bot:
                         {'role': 'user', 'content': json.dumps(retry_data, ensure_ascii=False)}]
             if direct_reply:
                 messages.append({'role': 'user', 'content': model_request})
+                messages[0]['content'] += ('\nВерни JSON: сначала interpretation — краткий смысл реплики и кто действует, '
+                                          'до 20 слов, без догадок о мотивах и привычках; затем reply — короткий ответ '
+                                          'по этому смыслу. Только reply показывается собеседнику.')
+            output_format = {'format': dict(type='object', properties=dict(
+                interpretation=dict(type='string'), reply=dict(type='string')),
+                required=['interpretation','reply'], additionalProperties=False)} if direct_reply else {}
             try:
                 result = self.call_model(job, {
                     'model': self.config['model'], 'stream': False, 'keep_alive': '24h',
                     'messages': messages,
-                    'options': runner_options(num_predict=160 if attempt and reason == 'length_limit' else 100,
+                    **output_format,
+                    'options': runner_options(num_predict=220 if direct_reply else 160 if attempt and reason == 'length_limit' else 100,
                                               temperature=0.55, repeat_penalty=1.08),
                 }, timeout=90)
             except APIError as error:
@@ -1211,6 +1223,12 @@ class Bot:
                 result = {}
             message = result.get('message')
             answer = message.get('content') if isinstance(message, dict) else None
+            if direct_reply and isinstance(answer, str) and answer.lstrip().startswith('{'):
+                try:
+                    parsed = json.loads(answer)
+                    answer = parsed['reply'] if isinstance(parsed.get('interpretation'), str) else None
+                except (ValueError, KeyError, TypeError, AttributeError):
+                    answer = None
             if result.get('error'):
                 reason = 'model_error'
             elif not isinstance(answer, str):

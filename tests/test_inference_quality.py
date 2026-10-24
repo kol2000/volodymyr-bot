@@ -18,6 +18,65 @@ from test_bot import FakeTelegram
 
 
 class InferenceQualityTests(unittest.TestCase):
+    def test_reported_action_and_invented_memory_are_rejected(self):
+        from answer_quality import banter_relation_problem
+        self.assertEqual(banter_relation_problem('Я опять всё перепутал.',
+            'Мой друг Цацик опять всё перепутал.'), 'reported_action_reversal')
+        self.assertEqual(banter_relation_problem('Вроде был вчера на совещании.',
+            'Наш коллега Цацик наконец вернулся.'), 'unsupported_memory')
+        self.assertEqual(banter_relation_problem('Я помню нашу встречу.',
+            'Цацик, ты здесь?'), 'unsupported_memory')
+        self.assertIsNone(banter_relation_problem('Он вчера был на совещании?',
+            'Наш коллега вчера был на совещании.'))
+        self.assertIsNone(banter_relation_problem('Если он был вчера на совещании, спроси его.',
+            'Наш коллега вернулся.'))
+        self.assertIsNone(banter_relation_problem('Я не знаю, почему он вернулся.',
+            'Наш коллега вернулся.'))
+        self.assertIsNone(banter_relation_problem('Я сказал бы ему ответить короче.',
+            'Мой друг Цацик опять лекцию читает.'))
+
+    def test_third_person_scope_does_not_require_a_bot_nickname(self):
+        from conversation import dialogue_roles
+        for text in ('Мой друг Петя опять всё перепутал.', 'Она сказала что уже вернулась.'):
+            self.assertEqual(dialogue_roles(text).get('reply_scope'), 'third_person')
+        self.assertNotIn('reply_scope', dialogue_roles('Скажи моему другу Пете привет.'))
+
+    def test_manual_instruction_is_separate_and_includes_current_audience(self):
+        with patch('bot.http_json', return_value=self.result('Долго же он собирался.')) as model:
+            self.bot.generate(self.job('Наш коллега Цацик наконец вернулся.', thoughtful=False))
+        system=model.call_args.args[1]['messages'][0]['content']
+        self.assertTrue(system.startswith(self.bot.manual_prompt))
+        self.assertIn('Обсуди с собеседником',system)
+        self.assertNotIn('В mode=automatic',system)
+
+    def test_manual_structured_response_exposes_only_reply(self):
+        structured=json.dumps(dict(interpretation='Собеседник приветствует возвращение бота.',reply='Да, снова здесь. Что нового?'),ensure_ascii=False)
+        with patch('bot.http_json', return_value=self.result(structured)) as model:
+            answer=self.bot.generate(self.job('Ну вот ты и вернулся, цацик.',thoughtful=False))
+        self.assertEqual(answer,'Да снова здесь. Что нового?')
+        self.assertEqual(model.call_args.args[1]['format']['required'],['interpretation','reply'])
+        self.assertNotIn('interpretation',answer)
+
+    def test_malformed_structured_reply_is_never_shown(self):
+        with patch('bot.http_json', return_value=self.result('{"interpretation":"test"}')):
+            self.assertIsNone(self.bot.generate(self.job('цацик ты уснул?',thoughtful=False)))
+
+    def test_automatic_banter_keeps_its_own_prompt_and_plain_output(self):
+        with patch('bot.find_examples',return_value=[]), patch('bot.http_json',return_value=self.result('ну и спорщик нашёлся')) as model:
+            self.bot.generate(self.job('я опять спорю',thoughtful=False,automatic=True))
+        payload=model.call_args.args[1]
+        self.assertNotIn('format',payload)
+        self.assertTrue(payload['messages'][0]['content'].startswith(self.bot.prompt))
+
+    def test_reported_opinion_is_not_proof_but_can_be_described_as_opinion(self):
+        from answer_quality import banter_relation_problem
+        request='Он написал: «цацик опять лекцию читаешь?»'
+        self.assertEqual(banter_relation_problem('Если он так считает — так и есть.',request),'reported_truth_assertion')
+        self.assertEqual(banter_relation_problem('Если он так считает — значит читаю.',request),'reported_action_reversal')
+        self.assertIsNone(banter_relation_problem('Он, видимо, считает, что так и есть.',request))
+        self.assertEqual(banter_relation_problem('Цацик всегда так, когда не знает ответа.',request),'unsupported_habit')
+        self.assertIsNone(banter_relation_problem('Не всегда он так отвечает.',request))
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
