@@ -8,6 +8,7 @@ from dataclasses import asdict, replace
 from html import escape
 
 from common import APIError, HTMLMessage, visible_text
+from football_policy import excluded_competition
 from goal_videos import caption, minute_values
 from live_football import (ACTIVE, FINISHED, Goal, Match, PREFIX, already_started,
                            changes, event_text, goals_between, remembered_state)
@@ -115,6 +116,8 @@ class FootballPosts:
         return candidates[0] if candidates else payload.get('cancellation')
 
     def observe(self, chat, previous, match, checked, send, allowed):
+        if excluded_competition(match.competition):
+            return
         if not self.valid(chat, allowed) or None in (match.home_score, match.away_score):
             return
         now, current = self.clock(), [match.home_score, match.away_score]
@@ -219,6 +222,8 @@ class FootballPosts:
                 if video and video[0] in ('editing','manual_editing'):
                     continue
                 payload, sig = json.loads(row[5]), row[6]
+                if excluded_competition(payload['match']['competition']):
+                    continue
                 text = render(payload)
                 job = dict(home=payload['match']['home'],away=payload['match']['away'],
                            competition=payload['match']['competition'],match_url=payload['match']['url'],

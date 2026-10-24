@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import datetime
 from urllib.parse import urljoin, urlsplit
+from football_policy import excluded_competition
 
 from live_football import (ACTIVE, FINISHED, CACHE_SECONDS, IDLE_INTERVAL, MOSCOW,
                            MONTHS, PREFIX, Document, Node, Match, Goal, FootballError,
@@ -72,6 +73,8 @@ def parse_home(html):
             continue
         cells = [n for n in row.children if isinstance(n, Node) and n.tag == 'td']
         if not cells:
+            continue
+        if excluded_competition(competition):
             continue
         for anchor in (n for n in cells[0].walk() if n.tag == 'a'):
             label = re.fullmatch(r'(.+?)\s+-\s+(.+?)\s+-\s+(\d{1,2}:\d{1,2})(?:\s.*)?', text(anchor))
@@ -239,7 +242,7 @@ class KulichkiScoreboard:
         if store:
             for row in store.get(PREFIX + 'fnk_selection', []):
                 try:
-                    if not valid_url(row['url']) or not row['id'].startswith('fnk:'):
+                    if excluded_competition(row.get('competition')) or not valid_url(row['url']) or not row['id'].startswith('fnk:'):
                         continue
                     self.matches[row['id']] = Match(**row)
                 except (ValueError, TypeError, KeyError):
@@ -250,13 +253,15 @@ class KulichkiScoreboard:
             now = self.clock()
             cached = self.cache.get(day)
             if cached and now - cached[0] < CACHE_SECONDS:
-                return cached[1], cached[2]
+                return [match for match in cached[1] if not excluded_competition(match.competition)], cached[2]
             due = self.home_at is None or now - self.home_at >= IDLE_INTERVAL
             if due:
                 self.home_list = parse_home(self.fetch(BASE + '/?_=' + str(time.time_ns())))
                 self.home_at = self.clock()
-            selected = {row['id']: row for row in self.home_list}
+            selected = {row['id']: row for row in self.home_list if not excluded_competition(row['competition'])}
             for match in self.matches.values():
+                if excluded_competition(match.competition):
+                    continue
                 # Keep previously selected ongoing games across the midnight homepage rollover.
                 if match.id not in selected and (match.status in ACTIVE or
                         getattr(self, 'follow_updates', False) and match.status == FINISHED) and 0 <= now - match.kickoff < 6 * 3600:
@@ -288,7 +293,7 @@ class KulichkiScoreboard:
                 self.matches[match.id] = match
                 if match.status == FINISHED and len(goals_between(match, [0, 0])) == match.home_score + match.away_score:
                     self.final[match.id] = match
-            self.matches = {key: m for key, m in self.matches.items() if m.kickoff >= now - 8 * 86400
+            self.matches = {key: m for key, m in self.matches.items() if not excluded_competition(m.competition) and m.kickoff >= now - 8 * 86400
                             and (key in selected or m.status == FINISHED or m.status in ACTIVE)}
             self.final = {key: m for key, m in self.final.items() if key in self.matches}
             if self.store:

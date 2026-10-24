@@ -15,6 +15,7 @@ from html import escape, unescape
 from urllib.parse import urlsplit
 
 from common import APIError, HTMLMessage, visible_text
+from football_policy import excluded_competition
 from live_football import Document, FootballError, Node, PREFIX
 
 LOG = logging.getLogger('volodymyr')
@@ -361,6 +362,8 @@ class GoalVideos:
             db.execute("UPDATE goal_video_jobs SET status='cancelled' WHERE status='pending'")
 
     def enqueue(self, chat_id, match, goals, message_id, original, created=None):
+        if excluded_competition(match.competition):
+            return
         if not goals or not self.enabled():
             return
         now = self.clock() if created is None else created
@@ -377,6 +380,8 @@ class GoalVideos:
 
     def current(self, row, allowed):
         chat, message, match_id, created, expires, payload, status = row
+        if excluded_competition(json.loads(payload).get('competition')):
+            return False
         if not self.enabled() or chat != self.store.get('chat_id') or not allowed(chat) or self.clock() >= expires:
             return False
         score = self.store.get(PREFIX + f'seen:{chat}', {}).get(match_id, {}).get('score')

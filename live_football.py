@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from common import HTMLMessage
+from football_policy import excluded_competition
 
 LOG = logging.getLogger('volodymyr')
 MOSCOW = ZoneInfo('Europe/Moscow')
@@ -573,6 +574,7 @@ def normalize(value):
 
 
 def select_matches(matches, query):
+    matches = [match for match in matches if not excluded_competition(match.competition)]
     terms = normalize(query).split()
     if not terms:
         return matches
@@ -712,6 +714,7 @@ class Football:
             reason = self.store.get(PREFIX + 'error', '') or 'нет'
             return ('Футбол: ' + ('включён' if self.enabled() else 'выключен') + '\n'
                     f'Источник: {getattr(self.source, "name", "Спорт-Экспресс")}; выбранные матчи дня\n'
+                    'Первая лига России полностью исключена.\n'
                     f'Последняя проверка: {last}\nПоследняя ошибка: {reason}\n'
                     'Текущие матчи: прямые страницы каждые 20 секунд; кэш 10 секунд.\n'
                     'Расписание: каждые 5 минут; перед стартом ожидание сокращается.\n'
@@ -723,6 +726,7 @@ class Football:
         if kind == 'football':
             day = datetime.strptime(request['day'], '%Y-%m-%d').date()
         matches, checked = self.source.day(day)
+        matches = [match for match in matches if not excluded_competition(match.competition)]
         self.store.set(PREFIX + 'success', checked)
         self.store.set(PREFIX + 'error', '')
         if kind == 'football_switch':
@@ -770,7 +774,7 @@ class Football:
         try:
             for requested_day in days:
                 items, checked = self.source.day(requested_day)
-                snapshots.extend((match, match.checked or checked) for match in items)
+                snapshots.extend((match, match.checked or checked) for match in items if not excluded_competition(match.competition))
                 self.store.set(PREFIX + 'success', checked)
             self.store.set(PREFIX + 'error', getattr(self.source, 'last_error', ''))
         except FootballError as error:
