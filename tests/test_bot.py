@@ -32,6 +32,34 @@ class FakeTelegram:
 
 
 class BotTests(unittest.TestCase):
+    def test_fast_football_request_is_not_dropped_after_another_conversation(self):
+        self.store.set('chat_id',-100)
+        self.store.set('request:-100',time.time())
+        self.bot.handle(self.update('бубус с кем играет зенит',user=7,number=900))
+        job=self.bot.utility_jobs.get_nowait()
+        self.assertEqual(job['utility']['kind'],'football')
+        self.bot.handle(self.update('бубус с кем играет зенит',user=7,number=901))
+        self.assertTrue(self.bot.utility_jobs.empty())
+        self.bot.handle(self.update('бубус с кем играет зенит',user=8,number=902))
+        self.assertEqual(self.bot.utility_jobs.qsize(),1)
+
+    def test_fast_send_keeps_atomic_reservation_and_one_second_spacing(self):
+        with self.store.db() as db:
+            db.execute("INSERT INTO sends(timestamp,day,kind,chat_id,status) VALUES (?,'test','manual',-100,'sent')",(time.time()-2,))
+        self.assertIsNone(self.store.claim_send('manual',-100))
+        self.assertIsNotNone(self.store.claim_send('manual',-100,fast_utility=True))
+        self.assertIsNone(self.store.claim_send('manual',-100,fast_utility=True))
+
+    def test_visual_joke_routes_to_short_reply_but_real_questions_stay_factual(self):
+        from conversation import banter_request
+        from question_answers import thoughtful_request
+        joke='Только я вижу лицо Донцовой в тюрбане?'
+        self.assertTrue(banter_request(joke))
+        self.assertFalse(thoughtful_request(joke))
+        for text in ['Почему я вижу лица на картинке?', 'Без приколов только я вижу лицо на фото?',
+                     'Только я вижу лицо и вспышки в глазах?', 'Почему WiFi медленнее кабеля?']:
+            self.assertFalse(banter_request(text),text)
+            self.assertTrue(thoughtful_request(text),text)
     def setUp(self):
         self.folder = tempfile.TemporaryDirectory()
         self.database = Path(self.folder.name) / 'bot.sqlite3'
@@ -345,7 +373,7 @@ class BotTests(unittest.TestCase):
                 clock[0] += seconds
             with patch('bot.time.sleep', side_effect=advance) as wait, patch.object(self.bot.services, 'answer', return_value='100 USD ≈ 8450 RUB'):
                 self.bot.process_job(job)
-            wait.assert_called_once_with(15)
+            wait.assert_called_once_with(1)
         self.assertEqual(len(self.telegram.sent), 1)
         self.assertEqual(self.store.counts()['manual'], 2)
 

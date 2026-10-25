@@ -182,7 +182,7 @@ def main(argv=None):
     parser.add_argument('--show-rejections', action='store_true',
                         help='include redacted rejected answers and rule IDs in console and report')
     parser.add_argument('--question-style', choices=('standard', 'parody', 'neutral', 'compare'), default='standard',
-                        help='standard: neutral prompt with spelling only; compare: legacy parody versus neutral')
+                        help='standard: conversational factual prompt with spelling; compare: legacy parody versus neutral')
     args = parser.parse_args(argv)
     saved = json.loads(CONFIG.read_text()) if CONFIG.exists() else {}
     config = dict(owner_id=42, model=args.model or saved.get('model', MODEL),

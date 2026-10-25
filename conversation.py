@@ -164,6 +164,11 @@ def banter_request(text):
     body = control_remainder(text)
     if inline_control(text) or FACTUAL.search(body):
         return False
+    visual_joke = (re.search(r'^(?:только\s+я|я\s+один|мне\s+одному)\b.{0,30}(?:вижу|кажется)\b',body,re.I)
+                   and re.search(r'лицо|похож|напомина|фото|картин|мем',body,re.I)
+                   and not re.search(r'врач|зрени|глаз|вспышк|мушки|болит|галлюцина',body,re.I))
+    if visual_joke and len(body.split()) <= 25:
+        return True
     return bool(TEASING.search(body) and len(body.split()) <= 14)
 
 

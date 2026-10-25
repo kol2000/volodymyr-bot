@@ -94,6 +94,9 @@ NEUTRAL_PROMPT = re.sub(r'Манера:.*?(?=current_request —)',
                         'Сохраняй обычное написание слов, терминов, чисел и команд.\n\n', NEUTRAL_PROMPT, flags=re.S)
 NEUTRAL_PROMPT = re.sub(r'speech_profile —.*?(?=quality_feedback —)', '', NEUTRAL_PROMPT, flags=re.S)
 
+STANDARD_PROMPT = NEUTRAL_PROMPT.replace('Отвечай нейтральным русским языком.',
+    'Отвечай коротко и по делу простыми разговорными словами. Обращайся на «ты».', 1)
+
 FALLBACK = 'не буду сочинять наугад етот вопрос пока оставлю открытым'
 FALLBACKS = (
     FALLBACK,

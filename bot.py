@@ -19,7 +19,7 @@ from community import (COMMUNITY_COMMANDS, GREETINGS, OWNER_FEATURES, community_
                        help_text, period_start, statistics_text, summary_excerpt, summary_text)
 from retrieval import build_index, find_examples, random_candidates
 from feedback import praise_signal, rating_signal, relevant_approved, salary_acknowledgement
-from question_answers import (PROMPT as QUESTION_PROMPT, NEUTRAL_PROMPT, FALLBACKS as QUESTION_FALLBACKS,
+from question_answers import (PROMPT as QUESTION_PROMPT, NEUTRAL_PROMPT, STANDARD_PROMPT, FALLBACKS as QUESTION_FALLBACKS,
                               ends_question, thoughtful_request, answer_style, substantive_style)
 from assistant_features import (FeatureStore, FEATURE_COMMANDS, FOLLOWUP, CALL as FEATURE_CALL, feature_request,
                                 negative_reason, memory_context)
@@ -509,7 +509,7 @@ class Store(FeatureStore, LearningStore, ParticipantStore):
     def tease_available(self, chat_id, user_id, now):
         return tease_available(self.get(f'tease_attempts:{chat_id}:{user_id}', []), now)
 
-    def claim_send(self, kind, chat_id, tease_user_id=None):
+    def claim_send(self, kind, chat_id, tease_user_id=None, fast_utility=False):
         now = time.time()
         day = datetime.now(MOSCOW).strftime('%Y-%m-%d')
         with self.db() as db:
@@ -521,7 +521,7 @@ class Store(FeatureStore, LearningStore, ParticipantStore):
                     return None
             row = db.execute('SELECT max(timestamp) FROM sends WHERE chat_id=?', (chat_id,)).fetchone()
             last = row[0] or 0
-            if now - last < (3600 if kind == 'automatic' else 15):
+            if now - last < (3600 if kind == 'automatic' else 1 if fast_utility else 15):
                 LOG.info('Отправка пропущена: причина=send_cooldown; режим=%s', kind)
                 return None
             if tease_user_id is not None:
@@ -697,7 +697,13 @@ class Bot:
                 LOG.info('Уточнение объединено с ожидающим обращением; версия=%s', pending['_revision'])
                 return True
             if not automatic:
-                if time.time() - self.store.get(f'request:{chat_id}', 0) < 15:
+                fast_utility = bool(utility and utility['kind'] in ('football','weather','currency'))
+                request_key = f'utility_request:{chat_id}:{user_id}' if fast_utility else f'request:{chat_id}'
+                previous = self.store.get(request_key, {}) if fast_utility else self.store.get(request_key, 0)
+                fingerprint = ' '.join(text.casefold().split()) if fast_utility else ''
+                duplicate = (isinstance(previous,dict) and previous.get('text') == fingerprint
+                             and time.time()-previous.get('at',0)<2) if fast_utility else time.time()-previous<15
+                if duplicate:
                     self.record_skip(chat_id, 'request_cooldown')
                     return False
             try:
@@ -728,7 +734,7 @@ class Bot:
             if automatic:
                 self.auto_pending = True
             else:
-                self.store.set(f'request:{chat_id}', time.time())
+                self.store.set(request_key, dict(at=time.time(),text=fingerprint) if fast_utility else time.time())
                 LOG.info('Обращение поставлено в очередь')
         return True
 
@@ -1424,7 +1430,7 @@ class Bot:
         for attempt in range(2):
             if self.superseded(job):
                 return None
-            prompt = NEUTRAL_PROMPT if neutral else QUESTION_PROMPT
+            prompt = (STANDARD_PROMPT if question_style == 'standard' else NEUTRAL_PROMPT) if neutral else QUESTION_PROMPT
             if data['reply_tone']=='calm':
                 prompt += '\nОтветь спокойно и по существу, без подколов и встречных обвинений.'
             if attempt:
@@ -1744,6 +1750,7 @@ class Bot:
     def reserve_utility_send(self, job):
         # Fast API calls must not lose their answer to a simultaneous LLM reply.
         chat_id = job['chat_id']
+        fast = (job.get('utility') or {}).get('kind') in ('football','weather','currency')
         while True:
             if self.superseded(job):
                 return None
@@ -1754,14 +1761,14 @@ class Bot:
             if now < self.store.get('blocked_until', 0):
                 self.record_skip(chat_id, 'telegram_retry_after')
                 return None
-            delay = max(0, 15 - (now - self.store.last_send(chat_id)))
+            delay = max(0, (1 if fast else 15) - (now - self.store.last_send(chat_id)))
             if now + delay - job['queued_at'] > (360 if self.is_thoughtful(job) or (job.get('utility') or {}).get('kind') == 'factcheck' else 180):
                 self.record_skip(chat_id, 'job_expired')
                 return None
             if delay:
                 time.sleep(delay)
                 continue
-            send_id = self.store.claim_send('manual', chat_id)
+            send_id = self.store.claim_send('manual', chat_id, fast_utility=fast)
             if send_id is not None:
                 return send_id
             time.sleep(0.1)
