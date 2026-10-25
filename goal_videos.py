@@ -24,6 +24,7 @@ KEY = PREFIX + 'videos:'
 INTERVAL = 30
 TTL = 2 * 60 * 60
 FINAL_SCAN_WINDOW = 5 * 60
+RPL_RECOVERY_AFTER = 90
 MAX_VIDEO = 45 * 1024 * 1024
 MAX_PAGE = 2 * 1024 * 1024
 
@@ -302,8 +303,8 @@ def narrative_goal_reason(clip, job):
     if not goals or previous != tuple(job.get('match_score', ())):
         return 'narrative_context_missing'
     text = clip.text.casefold().replace('ё', 'е')
-    if re.search(r'начинал|отбор|разбор|повтор|вспомина|год назад|лучшие голы|'
-                 r'не\s+(?:забил|забит|забивает|сравнял|помог)|мог\s+забить|забил\s+бы', text):
+    if re.search(r'начинал|отбор|разбор|повтор|вспомина|год назад|лучшие голы|почти|едва\s+не|чуть\s+не|мимо|перекладин|штанг|'
+                 r'не\s+(?:забил|забит|забивает|сравнял|помог|замкнул|вколотил|поразил|расстрелял|отправил)|мог\s+забить|забил\s+бы', text):
         return 'narrative_not_goal_clip'
     ordinal = {'первый': 1, 'второй': 2, 'третий': 3, 'четвертый': 4, 'пятый': 5,
                'шестой': 6, 'седьмой': 7}
@@ -338,6 +339,12 @@ def narrative_goal_reason(clip, job):
         surname = goal['player'].split()[-1] if goal['player'].split() else ''
         scorer = len(surname) >= 4 and russian_named(text, surname)
         direct_scorer = scorer and cue and (scoring_team or draw)
+        # A native RPL clip may describe only the finishing action or the
+        # provider's decisive pass. Require a unique confirmed FNK episode,
+        # a narrow playing-time window and independently named participants.
+        close_episode = -180 <= clip.timestamp-expected <= 600
+        finish = bool(close_episode and scorer and re.search(
+            r'\b(?:замкнул|вколотил|поразил|расстрелял)\b|отправил.{0,35}в\s+сетк',text))
         own_goal = bool(scorer and scoring_team and goal['kind'] == 'own-goal' and re.search(
             r'срезал\s+в\s+свои\b|в\s+свои\s+ворота\b|\bавтогол\b', text))
         penalty = bool(first and scoring_team and 'пенальти' in text and goal['kind'] == 'penalty-goal')
@@ -346,12 +353,24 @@ def narrative_goal_reason(clip, job):
         # insufficient; require the same ricochet and a separate named person
         # in FNK's own episode description, with a positive scoring assertion.
         description = goal.get('description', '')
+        participants=[]
+        for person in re.finditer(r'\b[А-ЯЁ][а-яё]{3,}\b',description):
+            if re.search(r'(?:^|[.!?])\s*$',description[:person.start()]):
+                continue
+            name=person[0]
+            if not any(russian_named(name, value) for value in (job['home'],job['away'],*goal['player'].split())):
+                participants.append(name)
+        assist = bool(close_episode and scoring_team and
+            re.search(r'\b(?:отрезал|разрезал|вывел|выдал)\b.{0,55}(?:передач|пас|заброс)|'
+                      r'(?:передач|пас|заброс).{0,55}\b(?:отрезал|разрезал|вывел)\b',text) and
+            re.search(r'передач|пас|заброс|навес',description,re.I) and
+            any(russian_named(text,person) for person in participants))
         people = [w for w in re.findall(r'\b[А-ЯЁ][а-яё]{4,}\b', description)
                   if not russian_named(w, job['home']) and not russian_named(w, job['away'])]
         ricochet = bool(scoring_team and re.search(r'помог\s+рикошет', text)
                         and re.search(r'рикошет', description, re.I)
                         and any(russian_named(text, person) for person in people))
-        if direct_scorer or own_goal or penalty or conceded_goal or ricochet:
+        if direct_scorer or finish or assist or own_goal or penalty or conceded_goal or ricochet:
             candidates.append((tuple(score), goal['minute'], goal['player']))
     target = job['goal']
     identity = (tuple(target['score']), target['minute'], target['player'])
@@ -483,6 +502,7 @@ class GoalVideos:
             waiting = db.execute("SELECT count(*) FROM goal_video_jobs WHERE chat_id=? AND status='pending'", (chat_id,)).fetchone()[0]
             diagnostics = db.execute('SELECT message_id,reason,detail FROM goal_video_diagnostics WHERE chat_id=? ORDER BY checked DESC LIMIT 5', (chat_id,)).fetchall()
         labels = dict(waiting='подходящий ролик пока не найден', source_unavailable='источник недоступен',
+                      identity_unresolved='есть связанный ролик, эпизод не подтверждён',
                       context_missing='неполные подробности гола', ambiguous='неоднозначное совпадение',
                       download_failed='не удалось скачать видео', used='ролик уже использован',
                       telegram_failed='Telegram отклонил загрузку', uncertain='результат загрузки не подтверждён',
@@ -494,15 +514,19 @@ class GoalVideos:
                 '\nИсточники: @matchpremier, @idmanvideo\n'
                 f'Ожидают ролик: {waiting}\nПоследняя ошибка: {self.store.get(KEY + "error", "") or "нет"}\n'
                 f'Проверка каждые 30 секунд при ожидающих голах; ожидание до {TTL // 60} минут.\n'
+                'РПЛ: через 90 секунд повторно просматриваем до 4 страниц; кэш ленты — 60 секунд.\n'
                 'За 5 минут до конца — повторная сверка до 4 страниц каждого канала.\n' +
                 (details+'\n' if details else '') +
                 'Видео добавляется в исходное сообщение без пересылки и нового поста.')
 
     def diagnose(self, row, reason, detail='', final=False):
         with self.store.db() as db:
+            old=db.execute('SELECT reason,detail FROM goal_video_diagnostics WHERE chat_id=? AND message_id=?',(row[0],row[1])).fetchone()
             db.execute('INSERT INTO goal_video_diagnostics VALUES (?,?,?,?,?,?) '
                        'ON CONFLICT(chat_id,message_id) DO UPDATE SET checked=excluded.checked,reason=excluded.reason,detail=excluded.detail,final_checked=max(final_checked,excluded.final_checked)',
                        (row[0],row[1],self.clock(),reason,detail,self.clock() if final else 0))
+        if reason in ('identity_unresolved','source_unavailable','download_failed') and old != (reason,detail):
+            LOG.warning('Мониторинг видео: пост=%s; причина=%s',row[1],reason)
 
     def cancel(self):
         with self.store.db() as db:
@@ -586,7 +610,9 @@ class GoalVideos:
         with self.store.db() as db:
             scanned = dict(db.execute('SELECT message_id,final_checked FROM goal_video_diagnostics WHERE chat_id=?', (self.store.get('chat_id'),)))
         sweep = [row for row, _ in current if row[4]-now <= FINAL_SCAN_WINDOW and not scanned.get(row[1])]
-        if sweep and hasattr(self.source, 'history'):
+        recovery=any(now-row[3]>=RPL_RECOVERY_AFTER and not scanned.get(row[1]) and re.match(r'^(?:Премьер-лига|РПЛ|Чемпионат России)\b',job.get('competition',''),re.I)
+                     for row,job in current)
+        if (sweep or recovery) and hasattr(self.source, 'history'):
             history = self.source.history()
             clips = list({c.link:c for c in [*clips,*history]}.values())
             for row in sweep:
@@ -598,6 +624,11 @@ class GoalVideos:
             reason = ('source_unavailable' if self.source.errors else
                       'context_missing' if 'narrative_context_missing' in reasons else
                       'ambiguous' if 'ambiguous_narrative_goal' in reasons else 'waiting')
+            related=[c for c in clips if c.channel=='matchpremier' and row[3]-180<=c.timestamp<=row[3]+900 and
+                     (russian_named(c.text,job['home']) or russian_named(c.text,job['away']) or
+                      any(russian_named(c.text,name) for name in job['goal']['player'].split()[-1:]))]
+            if reason=='waiting' and related and not any(not r for r in reasons):
+                reason='identity_unresolved'
             self.diagnose(row, reason, '; '.join(sorted(set(reasons))))
             # Preference for the domestic broadcaster; the second source remains
             # useful for European matches and as a fallback when a clip is missing.

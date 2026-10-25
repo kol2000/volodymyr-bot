@@ -176,6 +176,18 @@ class ParserTests(unittest.TestCase):
 
 
 class VideoFixture(unittest.TestCase):
+    def test_rpl_recovers_older_feed_pages_before_final_window(self):
+        self.queue()
+        self.source.recent=lambda:[]
+        calls=[]
+        self.source.history=lambda:calls.append(1) or [self.clip]
+        self.poll()
+        self.assertFalse(calls)
+        self.now[0]+=91
+        self.poll()
+        self.assertEqual(calls,[1])
+        self.assertEqual([e[1] for e in self.edits],[55])
+
     def diagnosis(self):
         with self.store.db() as db:
             return db.execute('SELECT reason,final_checked FROM goal_video_diagnostics WHERE message_id=55').fetchone()
@@ -522,6 +534,21 @@ class MatchingTests(VideoFixture):
 
 
 class NarrativeCaptionTests(unittest.TestCase):
+    def test_finishing_and_assist_captions_match_real_rostov_episodes(self):
+        data = json.loads((Path(__file__).parent / 'fixtures/matchpremier_rostov_goal_posts_20261025.json').read_text(encoding='utf-8'))
+        m = data['matches'][0]
+        jobs = [dict(home=m['home'], away=m['away'], competition=m['competition'],
+                     kickoff=m['kickoff'], created=m['kickoff'], goal=g,
+                     match_goals=m['goals'], match_score=[m['home_score'], m['away_score']]) for g in m['goals']]
+        expected = {30124: [(1, 0)], 30125: [(2, 0)], 30126: []}
+        for p in data['posts']:
+            clip = Clip('matchpremier', p['post_id'], p['timestamp'], p['text'], MEDIA)
+            self.assertEqual([tuple(j['goal']['score']) for j in jobs if matches_goal(clip,j,p['timestamp']+60)], expected[p['post_id']])
+            for text in ['Лангович не замкнул в прыжке.', 'Лангович почти замкнул в прыжке.',
+                         'Повтор: Лангович замкнул в прыжке.', 'Петров отрезал всех одной передачей. Атака Ростова.']:
+                changed = dataclasses.replace(clip,text=text)
+                self.assertFalse(any(matches_goal(changed,j,p['timestamp']+60) for j in jobs),text)
+
     def test_evening_own_goal_penalty_and_cordoba_match_uniquely(self):
         data = json.loads((Path(__file__).parent / 'fixtures/matchpremier_evening_goal_posts_20261024.json').read_text(encoding='utf-8'))
         jobs = [dict(home=m['home'], away=m['away'], competition=m['competition'],
