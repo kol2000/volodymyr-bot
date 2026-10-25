@@ -90,11 +90,12 @@ def verified_plan(day, path, message_id, source_post, pages):
     return match, job, selection, clips[0], target[0][2]
 
 
-def check_cancelled(db, chat, message_id, match, job):
+def check_cancelled(db, chat, message_id, match, job, pending=False):
     row = db.execute('SELECT match_id,expires,payload,status FROM goal_video_jobs WHERE chat_id=? AND message_id=?',
                      (chat, message_id)).fetchone()
-    if not row or row[3] != 'cancelled' or row[1] > time.time():
-        raise AttachError('Восстанавливается только отменённое задание с истёкшим сроком ожидания.')
+    expected = 'pending' if pending else 'cancelled'
+    if not row or row[3] != expected or (row[1] <= time.time() if pending else row[1] > time.time()):
+        raise AttachError('Состояние или срок выбранного задания не допускает восстановление.')
     old = json.loads(row[2])
     target = job['goal']
     previous = old.get('goal', {})
@@ -105,20 +106,21 @@ def check_cancelled(db, chat, message_id, match, job):
         raise AttachError('Сохранённое задание не подтверждает тот же разрешённый матч и гол.')
 
 
-def reserve(path, chat, message_id, match, job, original, clip, digest, resume_cancelled=False):
+def reserve(path, chat, message_id, match, job, original, clip, digest, resume_cancelled=False, resume_pending=False):
+    expected = 'pending' if resume_pending else 'cancelled' if resume_cancelled else None
     with database(path) as db:
-        check_target(db, message_id, original, chat, 'cancelled' if resume_cancelled else None)
-        if resume_cancelled:
-            check_cancelled(db, chat, message_id, match, job)
+        check_target(db, message_id, original, chat, expected)
+        if expected:
+            check_cancelled(db, chat, message_id, match, job, pending=resume_pending)
         if db.execute('SELECT 1 FROM goal_video_used WHERE chat_id=? AND (post=? OR digest=?)',
                       (chat, clip.link, digest)).fetchone():
             raise AttachError('Этот видеопост или файл уже использован в чате.')
         now = time.time()
         # manual_editing is not a pending job: the live worker cannot pick it up.
         # It remains reserved after a process crash and is never blindly retried.
-        if resume_cancelled:
-            db.execute("UPDATE goal_video_jobs SET payload=?,status='manual_editing' WHERE chat_id=? AND message_id=? AND status='cancelled'",
-                       (json.dumps(job, ensure_ascii=False), chat, message_id))
+        if expected:
+            db.execute("UPDATE goal_video_jobs SET payload=?,status='manual_editing' WHERE chat_id=? AND message_id=? AND status=?",
+                       (json.dumps(job, ensure_ascii=False), chat, message_id, expected))
         else:
             db.execute('INSERT INTO goal_video_jobs VALUES (?,?,?,?,?,?,?)',
                        (chat, message_id, match.id, now, now, json.dumps(job, ensure_ascii=False), 'manual_editing'))
@@ -151,8 +153,11 @@ def connected_telegram(config_path, emit=print):
 
 
 def run(day, path, config_path, message_id, source_post, pages=4, apply=False, emit=print,
-        prepared=None, telegram=None, resume_cancelled=False):
+        prepared=None, telegram=None, resume_cancelled=False, resume_pending=False):
     try:
+        if resume_cancelled and resume_pending:
+            raise AttachError('Выбери один режим восстановления.')
+        expected = 'pending' if resume_pending else 'cancelled' if resume_cancelled else None
         match, job, selection, clip, original = prepared or verified_plan(day, path, message_id, source_post, pages)
         goal = job['goal']
         text = caption(job, clip)
@@ -160,19 +165,19 @@ def run(day, path, config_path, message_id, source_post, pages=4, apply=False, e
              f'{goal["score"][0]}:{goal["score"][1]} · {goal["minute"]} · {goal["player"]}')
         emit('Видео: ' + clip.link)
         emit('Будет изменён существующий пост. Новых сообщений и пересылок не будет.')
-        if resume_cancelled:
+        if expected:
             with database(path) as db:
-                chat = check_target(db, message_id, original, expected_status='cancelled')
-                check_cancelled(db, chat, message_id, match, job)
-            emit('Проверено отменённое задание с истёкшим сроком; восстанавливается только выбранный пост.')
+                chat = check_target(db, message_id, original, expected_status=expected)
+                check_cancelled(db, chat, message_id, match, job, pending=resume_pending)
+            emit('Проверено задание '+expected+'; восстанавливается только выбранный пост.')
         if not apply:
             emit('План проверен без изменений. Для добавления видео укажи --apply.')
             return 0
         # Preflight before downloading; repeat all local checks atomically after it.
         with database(path) as db:
-            chat = check_target(db, message_id, original, expected_status='cancelled' if resume_cancelled else None)
-            if resume_cancelled:
-                check_cancelled(db, chat, message_id, match, job)
+            chat = check_target(db, message_id, original, expected_status=expected)
+            if expected:
+                check_cancelled(db, chat, message_id, match, job, pending=resume_pending)
         telegram = telegram or connected_telegram(config_path, emit)
         data = fetch_public(clip.url, video=True)
         emit(f'MP4 получен: {len(data)/1024/1024:.2f} МБ.')
@@ -183,7 +188,7 @@ def run(day, path, config_path, message_id, source_post, pages=4, apply=False, e
                         g.player == goal['player'] for g in fresh.goals) or
                 any(s < g for s, g in zip((fresh.home_score, fresh.away_score), goal['score']))):
             raise AttachError('После скачивания ФНК больше не подтверждает этот гол. Редактирование отменено.')
-        reserve(path, chat, message_id, match, job, original, clip, hashlib.sha256(data).hexdigest(), resume_cancelled)
+        reserve(path, chat, message_id, match, job, original, clip, hashlib.sha256(data).hexdigest(), resume_cancelled, resume_pending)
         try:
             result = telegram.edit_video(chat, message_id, data, text)
             if not (isinstance(result, dict) and result.get('message_id') == message_id and
@@ -222,10 +227,12 @@ def main():
     parser.add_argument('--db', default=str(STATE / 'bot.sqlite3'))
     parser.add_argument('--config', default=str(CONFIG))
     parser.add_argument('--apply', action='store_true', help='Actually edit the selected existing post once')
-    parser.add_argument('--resume-cancelled', action='store_true', help='Recover only this expired cancelled job after verification')
+    recovery = parser.add_mutually_exclusive_group()
+    recovery.add_argument('--resume-cancelled', action='store_true', help='Recover only this expired cancelled job after verification')
+    recovery.add_argument('--resume-pending', action='store_true', help='Atomically claim only this verified pending job')
     args = parser.parse_args()
     return run(args.date, args.db, args.config, args.message_id, args.source_post, args.pages, args.apply,
-               resume_cancelled=args.resume_cancelled)
+               resume_cancelled=args.resume_cancelled, resume_pending=args.resume_pending)
 
 
 if __name__ == '__main__':

@@ -163,6 +163,60 @@ class AttachTests(unittest.TestCase):
         return run(DAY, self.path, self.config, 55, 'idmanvideo/7210', apply=apply,
                    emit=self.output.append, resume_cancelled=True)
 
+    def recover_pending(self, apply=True):
+        return run(DAY,self.path,self.config,55,'idmanvideo/7210',apply=apply,
+                   emit=self.output.append,resume_pending=True)
+
+    def test_explicit_pending_recovery_claims_one_post_once(self):
+        import time
+        self.cancelled(status='pending',expires=time.time()+3600)
+        self.assertEqual(self.recover_pending(False),0)
+        self.assertEqual(self.status(),'pending')
+        self.assertEqual(self.edits,[])
+        self.assertEqual(self.recover_pending(),0)
+        self.assertEqual(self.status(),'attached')
+        self.assertEqual(self.recover_pending(),1)
+        self.assertEqual(len(self.edits),1)
+
+    def test_pending_recovery_rechecks_worker_claim_after_download(self):
+        import time
+        self.cancelled(status='pending',expires=time.time()+3600)
+        def changed(*args,**kwargs):
+            with self.store.db() as db:
+                db.execute("UPDATE goal_video_jobs SET status='editing' WHERE message_id=55")
+            return MP4
+        self.mocks[2].side_effect=changed
+        self.assertEqual(self.recover_pending(),1)
+        self.assertEqual(self.status(),'editing')
+        self.assertEqual(self.edits,[])
+
+    def test_pending_recovery_refuses_expiry_wrong_goal_and_used_video(self):
+        import time
+        for change in [dict(expires=0),dict(changed_goal=dict(score=[2,0])),dict(status='uncertain')]:
+            with self.store.db() as db:
+                db.execute('DELETE FROM goal_video_jobs WHERE message_id=55')
+            self.cancelled(**(dict(status='pending',expires=time.time()+3600)|change))
+            self.assertEqual(self.recover_pending(),1)
+            self.assertEqual(self.edits,[])
+        with self.store.db() as db:
+            db.execute('DELETE FROM goal_video_jobs WHERE message_id=55')
+            db.execute('INSERT INTO goal_video_used VALUES (-100,?,?,0)',(self.clip.link,'used'))
+        self.cancelled(status='pending',expires=time.time()+3600)
+        self.assertEqual(self.recover_pending(),1)
+        self.assertEqual(self.edits,[])
+
+    def test_pending_recovery_timeout_is_not_retried(self):
+        import time
+        self.cancelled(status='pending',expires=time.time()+3600)
+        def timeout(*args):
+            self.edits.append(args)
+            raise APIError('timeout')
+        self.client.edit_video=timeout
+        self.assertEqual(self.recover_pending(),1)
+        self.assertEqual(self.status(),'uncertain')
+        self.assertEqual(self.recover_pending(),1)
+        self.assertEqual(len(self.edits),1)
+
     def test_cancelled_recovery_edits_once_and_dry_run_preserves_job(self):
         self.cancelled()
         self.assertEqual(self.recover(False), 0)

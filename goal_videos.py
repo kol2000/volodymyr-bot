@@ -386,6 +386,31 @@ def narrative_goal_reason(clip, job):
     return '' if candidates == [identity] else 'insufficient_narrative_identity'
 
 
+def observed_goal_finish(clip, job):
+    """Fallback for native RPL captions near the recorded goal-card time."""
+    text = clip.text.casefold().replace('ё', 'е')
+    if not -180 <= clip.timestamp-job['created'] <= 300 or re.search(
+            r'почти|едва|чуть не|повтор|разбор|вспомина|обзор|отмен|офсайд|не засчита|'
+            r'мимо|штанг|перекладин|не\s+(?:вонзил|замкнул|забил|отправил)|начинал|\bбы\b', text):
+        return False
+    if not re.search(r'\b(?:вонзил|вколотил|забил|замкнул|поразил)\b|'
+                     r'отправил.{0,40}(?:в\s+девятку|в\s+сетку|в\s+ворота)', text):
+        return False
+    numbers = {'ноль':0,'один':1,'два':2,'три':3,'четыре':4,'пять':5,
+               'шесть':6,'семь':7,'восемь':8,'девять':9,'десять':10}
+    words = '|'.join(numbers)
+    scores = {(numbers[m[1]],numbers[m[2]]) for m in
+              re.finditer(r'\b('+words+r')\s+('+words+r')\b',text)}
+    candidates = []
+    for goal in job.get('match_goals', []):
+        surname = goal['player'].split()[-1:]
+        if (surname and len(surname[0]) >= 4 and russian_named(text, surname[0])
+                and (not scores or scores == {tuple(goal['score'])})):
+            candidates.append((tuple(goal['score']),goal['minute'],goal['player']))
+    target = job['goal']
+    return candidates == [(tuple(target['score']),target['minute'],target['player'])]
+
+
 def goal_match_reason(clip, job, now):
     """Empty for a match; fixed codes for diagnostic use, never signed URLs."""
     if clip.timestamp < max(job['kickoff'] - 300, job['created'] - 600):
@@ -419,7 +444,10 @@ def goal_match_reason(clip, job, now):
                (teams >= 1 and minutes and cue) or (scorer and scores and minutes))
     if matched:
         return ''
-    return narrative_goal_reason(clip, job) if not scores and not minutes else 'insufficient_goal_identity'
+    reason = narrative_goal_reason(clip, job) if not scores and not minutes else 'insufficient_goal_identity'
+    if reason == 'insufficient_narrative_identity' and observed_goal_finish(clip, job):
+        return ''
+    return reason
 
 
 def matches_goal(clip, job, now):
