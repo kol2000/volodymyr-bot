@@ -8,6 +8,7 @@ import re
 import sqlite3
 import threading
 import time
+from panel_settings import trigger_matches, apply_football_request
 from datetime import datetime
 from difflib import SequenceMatcher
 from html import escape
@@ -1055,9 +1056,8 @@ class Bot:
         # A user replying here solely to summon another bot is not addressing us.
         if not command and not mentioned and re.fullmatch(r'(?:@[a-z0-9_]*bot\s*)+', text.strip(), re.I):
             return
-        matches = (' '.join(match.group().casefold().split()) for match in TRIGGER_PATTERN.finditer(text))
-        triggers = list(dict.fromkeys(TRIGGER_FORMS.get(word, word) for word in matches))
-        question_call = not command and ends_question(argument)
+        triggers = trigger_matches(text,self.store.get('trigger_words'),TRIGGER_PATTERN,TRIGGER_FORMS)
+        question_call = self.store.get('respond_questions',True) and not command and ends_question(argument)
         session_id = self.store.session(chat_id, user_id)
         followup = bool(FOLLOWUP.match(FEATURE_CALL.sub('', argument)) or elliptical_followup(argument) or amendment_request(argument))
         if session_id and self.store.answer_mode(chat_id,session_id)=='football' and football_followup(argument):
@@ -1173,6 +1173,8 @@ class Bot:
         data['conversation_roles'] = dialogue_roles(clean_text(job['text']))
         data['reply_brief'] = banter_brief(data['conversation_roles'])
         tone = dialogue_tone(job['text'])
+        if self.store.get('reply_tone','ironic')=='calm':
+            tone='calm'
         if self.store.get(f'calm_until:{job["chat_id"]}:{job.get("user_id")}',0)>time.time():
             tone = 'calm'
         data['reply_tone'] = tone
@@ -1814,6 +1816,7 @@ class Bot:
         while True:
             try:
                 now = time.time()
+                apply_football_request(self)
                 next_time = self.store.get('next_auto', now + 3600)
                 chat_id = self.store.get('chat_id')
                 if now >= next_time:

@@ -32,6 +32,21 @@ class FakeTelegram:
 
 
 class BotTests(unittest.TestCase):
+    def test_panel_triggers_apply_without_restarting_and_can_be_removed(self):
+        from panel_settings import SettingsDB
+        self.store.set('chat_id',-100)
+        adapter=SettingsDB(self.database)
+        adapter.save({'trigger_words':['компот'],'respond_questions':False},adapter.read()['revision'])
+        self.bot.handle(self.update('компот остыл',user=7,number=910))
+        self.assertEqual(self.bot.jobs.get_nowait()['trigger_words'],['компот'])
+        self.store.set('request:-100',0)
+        adapter.save({'trigger_words':[]},adapter.read()['revision'])
+        self.bot.handle(self.update('компот остыл',user=7,number=911))
+        self.bot.handle(self.update('почему небо синее?',user=8,number=912))
+        self.assertTrue(self.bot.jobs.empty())
+        self.bot.handle(self.update('@parody_bot привет',user=8,number=913))
+        self.assertFalse(self.bot.jobs.empty())
+
     def test_fast_football_request_is_not_dropped_after_another_conversation(self):
         self.store.set('chat_id',-100)
         self.store.set('request:-100',time.time())
