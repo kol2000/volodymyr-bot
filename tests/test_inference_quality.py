@@ -541,14 +541,14 @@ class InferenceQualityTests(unittest.TestCase):
         self.assertNotIn('correction_candidate', json.loads(second['messages'][1]['content']))
         self.assertNotIn(token, str(second))
 
-    def test_default_questions_use_neutral_prompt_and_spelling_without_archive_profile(self):
-        from question_answers import NEUTRAL_PROMPT, substantive_style
+    def test_default_questions_use_conversational_prompt_and_spelling_without_archive_profile(self):
+        from question_answers import STANDARD_PROMPT, substantive_style
         raw = 'Это, возможно, помехи. Ты проверь 0,25 и `ты, это`, а также «ты, это».'
         with patch('bot.profile_for_request') as profile, patch('bot.http_json', return_value=self.result(raw)) as model:
             answer = self.bot.generate(self.job('Почему WiFi медленнее кабеля?'))
         profile.assert_not_called()
         payload = model.call_args.args[1]
-        self.assertEqual(payload['messages'][0]['content'], NEUTRAL_PROMPT)
+        self.assertEqual(payload['messages'][0]['content'], STANDARD_PROMPT)
         self.assertNotIn('speech_profile', json.loads(payload['messages'][1]['content']))
         self.assertEqual(answer, 'Ето, возможно, помехи. Ти проверь 0,25 и `ты, это`, а также «ты, это».')
         self.assertEqual(substantive_style('Спасибо, пожалуйста, проверь.'), 'Спасибо, пожалуйста, проверь.')
