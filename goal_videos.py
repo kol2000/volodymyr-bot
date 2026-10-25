@@ -311,6 +311,7 @@ def narrative_goal_reason(clip, job):
     first = re.search(r'\b(' + '|'.join(ordinal) + r')\s+гол\b', text)
     conceded = re.search(r'\b(' + '|'.join(ordinal) + r')\s+(?:пропущенн\w*\s+у|в\s+воротах)\s+[«"]?([а-я]+)', text)
     draw = bool(re.search(r'\bсравнял[аи]?\b', text))
+    seconds = re.search(r'(?<!\w)([1-9]\d{0,2})\s*секунд\w*\b', text)
     cue = bool(re.search(r'\bгол\b|\bзабил[аи]?\b|\bсравнял[аи]?\b|\bвпереди\b', text))
     candidates = []
     for goal, side in zip(goals, sides):
@@ -339,6 +340,12 @@ def narrative_goal_reason(clip, job):
         surname = goal['player'].split()[-1] if goal['player'].split() else ''
         scorer = len(surname) >= 4 and russian_named(text, surname)
         direct_scorer = scorer and cue and (scoring_team or draw)
+        # Broadcaster: "40 СЕКУНД!!! ЦСКА УЖЕ ВПЕРЕДИ!!!". Elapsed
+        # seconds identify a playing minute, not the clip publication delay.
+        timed_lead = bool(seconds and scoring_team and re.search(r'\bвпереди\b', text)
+                          and not re.search(r'секунд\w*\s+до\b|\b(?:осталось|через)\b',text)
+                          and minute == (int(seconds[1])+59)//60
+                          and score[side] == score[1-side]+1)
         # A native RPL clip may describe only the finishing action or the
         # provider's decisive pass. Require a unique confirmed FNK episode,
         # a narrow playing-time window and independently named participants.
@@ -370,7 +377,7 @@ def narrative_goal_reason(clip, job):
         ricochet = bool(scoring_team and re.search(r'помог\s+рикошет', text)
                         and re.search(r'рикошет', description, re.I)
                         and any(russian_named(text, person) for person in people))
-        if direct_scorer or finish or assist or own_goal or penalty or conceded_goal or ricochet:
+        if direct_scorer or timed_lead or finish or assist or own_goal or penalty or conceded_goal or ricochet:
             candidates.append((tuple(score), goal['minute'], goal['player']))
     target = job['goal']
     identity = (tuple(target['score']), target['minute'], target['player'])

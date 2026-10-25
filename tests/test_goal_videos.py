@@ -534,6 +534,18 @@ class MatchingTests(VideoFixture):
 
 
 class NarrativeCaptionTests(unittest.TestCase):
+    def test_elapsed_seconds_and_named_leader_identify_first_minute_goal(self):
+        g=dict(score=[1,0],minute='1′',player='Кирилл Глебов',kind='goal')
+        job=dict(home='ЦСКА',away='Спартак',competition='Премьер-лига, 12-й тур',
+                 kickoff=1792933200,created=1792934252,goal=g,match_goals=[g],match_score=[1,0])
+        clip=Clip('matchpremier',30134,1792934289,'40 СЕКУНД!!! ЦСКА УЖЕ ВПЕРЕДИ!!!',MEDIA)
+        self.assertTrue(matches_goal(clip,job,clip.timestamp+480))
+        for text in ['40 секунд!!! Спартак уже впереди!!!', 'ЦСКА уже впереди!!!',
+                     '140 секунд!!! ЦСКА уже впереди!!!', 'Повтор: 40 секунд!!! ЦСКА уже впереди!!!',
+                     '40 секунд! ЦСКА почти впереди!', '40 секунд до перерыва. ЦСКА впереди!']:
+            self.assertFalse(matches_goal(dataclasses.replace(clip,text=text),job,clip.timestamp+480),text)
+        self.assertFalse(matches_goal(dataclasses.replace(clip,channel='idmanvideo'),job,clip.timestamp+480))
+
     def test_finishing_and_assist_captions_match_real_rostov_episodes(self):
         data = json.loads((Path(__file__).parent / 'fixtures/matchpremier_rostov_goal_posts_20261025.json').read_text(encoding='utf-8'))
         m = data['matches'][0]
