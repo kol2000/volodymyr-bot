@@ -6,6 +6,37 @@ from goal_videos import Clip, matches_goal
 
 
 class RPLHistoryTests(unittest.TestCase):
+    def test_zenit_penalties_and_all_neighbouring_posts(self):
+        data=json.loads((Path(__file__).parent/'fixtures/matchpremier_zenit_20261025.json').read_text(encoding='utf-8'))
+        for p in data['posts']:
+            clip=Clip('matchpremier',p['post_id'],p['timestamp'],p['text'],'https://cdn4.telesco.pe/file/fixture.mp4')
+            found=[j['goal']['player'] for j in self.jobs+data['jobs'] if matches_goal(clip,j,clip.timestamp+600)]
+            if p['post_id'] in (30143,30144):
+                self.assertEqual(found,['Фелипе Аугусто' if p['post_id']==30143 else 'Максим Глушенков'])
+            else:
+                self.assertFalse(any(matches_goal(clip,j,clip.timestamp+600) for j in data['jobs']),p['post_id'])
+
+    def test_penalty_caption_rejects_miss_wrong_team_kind_ordinal_and_old_clip(self):
+        data=json.loads((Path(__file__).parent/'fixtures/matchpremier_zenit_20261025.json').read_text(encoding='utf-8'))
+        job=next(j for j in data['jobs'] if j['goal']['player']=='Максим Глушенков')
+        post=next(p for p in data['posts'] if p['post_id']==30144)
+        clip=Clip('matchpremier',30144,post['timestamp'],post['text'],'https://cdn4.telesco.pe/file/fixture.mp4')
+        for text in ['Глушенков не реализовал пенальти. Второй «Зенита».',
+                     'Глушенков хорошо бьет пенальти. Третий «Зенита».',
+                     'Глушенков хорошо бьет пенальти. Второй «Динамо».',
+                     'Глушенков хорошо бьет пенальти, но вратарь отбил. Второй «Зенита».',
+                     'Глушенков заработал пенальти. Второй «Зенита».',
+                     'Повтор: Глушенков хорошо бьет пенальти. Второй «Зенита».',
+                     'Глушенков хорошо бьет пенальти. Второй «Зенита». 3:0!',
+                     'Глушенков хорошо бьет пенальти. Второй «Зенита». 12′!']:
+            self.assertFalse(matches_goal(dataclasses.replace(clip,text=text),job,clip.timestamp+600),text)
+        self.assertFalse(matches_goal(dataclasses.replace(clip,timestamp=job['created']+301),job,clip.timestamp+600))
+        goals=[dict(g,kind='goal') for g in job['match_goals']]
+        self.assertFalse(matches_goal(clip,dict(job,goal=goals[-1],match_goals=goals),clip.timestamp+600))
+        for change in [dict(competition='Первая лига'),dict(match_score=[3,0]),dict(match_goals=[])]:
+            self.assertFalse(matches_goal(clip,dict(job,**change),clip.timestamp+600))
+        self.assertFalse(matches_goal(dataclasses.replace(clip,channel='idmanvideo'),job,clip.timestamp+600))
+
     def setUp(self):
         self.data=json.loads((Path(__file__).parent/'fixtures/matchpremier_history_20261025.json').read_text(encoding='utf-8'))
         self.jobs=self.data['jobs']

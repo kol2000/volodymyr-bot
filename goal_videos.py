@@ -391,20 +391,32 @@ def observed_goal_finish(clip, job):
     text = clip.text.casefold().replace('ё', 'е')
     if not -180 <= clip.timestamp-job['created'] <= 300 or re.search(
             r'почти|едва|чуть не|повтор|разбор|вспомина|обзор|отмен|офсайд|не засчита|'
-            r'мимо|штанг|перекладин|не\s+(?:вонзил|замкнул|забил|отправил)|начинал|\bбы\b', text):
+            r'мимо|штанг|перекладин|не\s+(?:вонзил|замкнул|забил|отправил|реализовал|точен|попал)|'
+            r'не\s+очень|плохо|отбил|сейв|сэйв|спас|назнач|заработал|пробьет|будет\s+бить|начинал|\bбы\b', text):
         return False
-    if not re.search(r'\b(?:вонзил|вколотил|забил|замкнул|поразил)\b|'
-                     r'отправил.{0,40}(?:в\s+девятку|в\s+сетку|в\s+ворота)', text):
-        return False
+    finish = bool(re.search(r'\b(?:вонзил|вколотил|забил|замкнул|поразил)\b|'
+                     r'отправил.{0,40}(?:в\s+девятку|в\s+сетку|в\s+ворота)', text))
+    penalty = bool(re.search(r'\bреализовал\s+пенальти\b|\bточен\s+с\s+точки\b|'
+                            r'\bхорошо\s+бьет\s+пенальти\b',text))
     numbers = {'ноль':0,'один':1,'два':2,'три':3,'четыре':4,'пять':5,
                'шесть':6,'семь':7,'восемь':8,'девять':9,'десять':10}
     words = '|'.join(numbers)
     scores = {(numbers[m[1]],numbers[m[2]]) for m in
               re.finditer(r'\b('+words+r')\s+('+words+r')\b',text)}
     candidates = []
+    previous = [0,0]
+    ordinals = {'первый':1,'второй':2,'третий':3,'четвертый':4,'пятый':5}
+    ordinal = re.search(r'\b('+'|'.join(ordinals)+r')\b',text)
     for goal in job.get('match_goals', []):
+        delta = [a-b for a,b in zip(goal['score'],previous)]
+        previous = goal['score']
+        if delta not in ([1,0],[0,1]):return False
+        side = delta.index(1)
+        penalty_finish = (penalty and goal['kind']=='penalty-goal'
+                          and russian_named(text,(job['home'],job['away'])[side])
+                          and (not ordinal or goal['score'][side]==ordinals[ordinal[1]]))
         surname = goal['player'].split()[-1:]
-        if (surname and len(surname[0]) >= 4 and russian_named(text, surname[0])
+        if ((finish or penalty_finish) and surname and len(surname[0]) >= 4 and russian_named(text, surname[0])
                 and (not scores or scores == {tuple(goal['score'])})):
             candidates.append((tuple(goal['score']),goal['minute'],goal['player']))
     target = job['goal']
