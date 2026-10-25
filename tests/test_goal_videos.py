@@ -686,6 +686,16 @@ class UploadTests(unittest.TestCase):
                 with self.assertRaisesRegex(VideoError, reason):
                     fetch_public(MEDIA, video=True)
 
+    def test_slow_video_has_bounded_two_minute_budget(self):
+        for ticks,ok in [([0,0,90],True),([0,0,121],False)]:
+            headers=Message();headers['Content-Type']='video/mp4'
+            response=io.BytesIO(MP4);response.url=MEDIA;response.headers=headers
+            opener=SimpleNamespace(open=lambda *args,**kwargs:response)
+            with patch('goal_videos.urllib.request.build_opener',return_value=opener),patch('goal_videos.time.monotonic',side_effect=ticks):
+                if ok:self.assertEqual(fetch_public(MEDIA,video=True),MP4)
+                else:
+                    with self.assertRaisesRegex(VideoError,'download_timeout'):fetch_public(MEDIA,video=True)
+
     def test_video_commands_are_routed_and_switch_is_owner_only(self):
         self.assertEqual(football_request('/football_videos_on', '/football_videos_on'), dict(kind='football_video_switch', enabled=True))
         with tempfile.TemporaryDirectory() as folder:

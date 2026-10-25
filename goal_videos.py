@@ -77,7 +77,7 @@ def fetch_public(url, video=False):
             size = response.headers.get('Content-Length', '')
             if size.isdigit() and int(size) > limit:
                 raise VideoError('video_too_large' if video else 'page_too_large')
-            chunks, total, deadline = [], 0, time.monotonic() + (60 if video else 20)
+            chunks, total, deadline = [], 0, time.monotonic() + (120 if video else 20)
             while True:
                 if time.monotonic() > deadline:
                     raise VideoError('download_timeout')
