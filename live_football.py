@@ -155,8 +155,8 @@ class Match:
                 'extra': self.extra, 'kickoff': self.kickoff}
 
 
-def parse_page(html, day):
-    """Read only score cards below the exact supported competition headings."""
+def parse_page(html, day, champions_only=False):
+    """Read the original Russian competitions, or only UEFA Champions League."""
     root = Document(html).root
     centre = root.find('se-matchcenter-sports-list')
     if not centre:
@@ -174,7 +174,13 @@ def parse_page(html, day):
             competition = 'РПЛ'
         elif re.fullmatch(r'(?:fonbet |фонбет )?кубок россии', title):
             competition = 'Кубок России'
+        elif re.fullmatch(r'лига чемпионов', title):
+            if not champions_only:
+                continue
+            competition = 'Лига чемпионов'
         else:
+            continue
+        if champions_only and competition != 'Лига чемпионов':
             continue
         for card in group.walk():
             if card.tag != 'a' or not card.has('se-matchcenter-matches__match'):
@@ -263,10 +269,14 @@ def parse_match_page(html, expected):
         components = json.loads(payload)['props']['pageProps']['vm']['components']
         board = components['scoreboard']
         row = board['match']
+        supported = {
+            'РПЛ': ('чемпионат россии. премьер-лига',),
+            'Кубок России': ('кубок россии', 'fonbet кубок россии', 'фонбет кубок россии'),
+            'Лига чемпионов': ('лига чемпионов',),
+        }
         if (str(row['id']) != expected.id or row['homeTeam']['name'] != expected.home
                 or row['guestTeam']['name'] != expected.away
-                or row['competition']['name'].casefold() not in
-                ('чемпионат россии. премьер-лига', 'кубок россии', 'fonbet кубок россии', 'фонбет кубок россии')):
+                or row['competition']['name'].casefold() not in supported.get(expected.competition, ())):
             raise ValueError()
         # This source puts Moscow wall time in a string ending in Z. Validate the
         # displayed local clock against discovery; do not apply a second UTC offset.
@@ -419,8 +429,10 @@ def goal_updates(previous, match, now):
 
 
 class Scoreboard:
-    def __init__(self, fetch=fetch_html, clock=time.time, match_fetch=fetch_html):
+    def __init__(self, fetch=fetch_html, clock=time.time, match_fetch=fetch_html, champions_only=False):
         self.fetch, self.clock, self.match_fetch = fetch, clock, match_fetch
+        self.champions_only = champions_only
+        self.follow_updates = False
         self.cache = {}
         self.discovery = {}
         self.final = {}
@@ -443,12 +455,14 @@ class Scoreboard:
                 discovery = self.discovery.get(day)
                 if not discovery or now - discovery[0] >= IDLE_INTERVAL:
                     html = self.fetch(BASE + '/live/football/' + day.strftime('%d-%m-%Y') + '/')
-                    discovery = (self.clock(), parse_page(html, day))
+                    discovery = (self.clock(), parse_page(html, day, champions_only=self.champions_only))
                     self.discovery[day] = discovery
                 matches = list(discovery[1])
                 checked = discovery[0]
                 if self.match_fetch:
-                    candidates = [m for m in matches if near_match(m, now) and m.id not in self.final]
+                    candidates = [m for m in matches if near_match(m, now) and
+                                  (m.id not in self.final or self.follow_updates and
+                                   0 <= now - m.kickoff < 6 * 3600)]
                     def refresh(match):
                         started = time.monotonic()
                         # The site's upstream cache has served a pre-match/early
@@ -634,7 +648,8 @@ def scoreboard_text(matches, day, checked, query=''):
     if len(selected) > displayed:
         lines.append(f'\nЕщё матчей: {len(selected) - displayed}. Уточни команду: /football Ростов')
     stamp = datetime.fromtimestamp(checked, MOSCOW).strftime('%H:%M:%S МСК')
-    source = matches[0].source if matches else 'Футбол на Куличках'
+    sources = list(dict.fromkeys(m.source for m in selected))
+    source = ' + '.join(sources) if sources else 'Футбол на Куличках'
     lines.append(f'\n<i>Источник: {escape(source)} · проверено {stamp}</i>')
     return HTMLMessage('\n'.join(lines))
 
@@ -715,7 +730,8 @@ class Football:
     def __init__(self, store, source=None, clock=time.time):
         if source is None:
             from kulichki_football import KulichkiScoreboard
-            source = KulichkiScoreboard(store, clock=clock)
+            source = KulichkiScoreboard(store, clock=clock,
+                                        champions=Scoreboard(clock=clock, champions_only=True))
         self.store, self.source, self.clock = store, source, clock
         self.lock = threading.Lock()
         self.first_poll = True
@@ -766,7 +782,7 @@ class Football:
                 self.store.set(PREFIX + 'next_poll', 0)
             return HTMLMessage('⚽ <b>Уведомления включены в подключённой группе</b>\n'
                                'Начало, изменение счета, перерыв и финал.\n'
-                               'Матчи из блока «Онлайн трансляции» на главной ФНК; /football_off — выключить.\n\n'
+                               'ФНК + недостающие матчи Лиги чемпионов из Спорт-Экспресса; /football_off — выключить.\n\n'
                                + scoreboard_text(matches, day, checked))
         return scoreboard_text(matches, day, checked, request.get('filter', ''))
 
@@ -783,8 +799,9 @@ class Football:
         self.first_poll = False
         day = datetime.fromtimestamp(now, MOSCOW).date()
         seen = self.store.get(PREFIX + f'seen:{chat_id}', {})
-        if getattr(self.source, 'name', '') == 'Футбол на Куличках':
-            current = {key: row for key, row in seen.items() if key.startswith('fnk:')}
+        if getattr(self.source, 'name', '').startswith('Футбол на Куличках'):
+            current = {key: row for key, row in seen.items()
+                       if key.startswith(('fnk:', 'se:ucl:'))}
             if len(current) != len(seen):
                 self.store.set(PREFIX + f'seen:{chat_id}', current)
             seen = current
