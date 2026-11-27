@@ -1,0 +1,10 @@
+[Unit]
+Description=Bubus chat awards schedule
+
+[Timer]
+OnCalendar=Sun *-*-* 21:00:00 Europe/Moscow
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target
