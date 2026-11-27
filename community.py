@@ -44,6 +44,7 @@ def community_request(text, command='', addressed=False):
     if command and command not in COMMUNITY_COMMANDS:
         return None
     body = text.strip()
+    named_call = bool(NICKNAME.match(body))
     if command in COMMUNITY_COMMANDS:
         body = body.split(maxsplit=1)[1] if len(body.split(maxsplit=1)) > 1 else ''
         addressed = True
@@ -81,10 +82,15 @@ def community_request(text, command='', addressed=False):
         return {'kind': 'adaptive', 'enabled': command == '/adaptive_on' or lowered == 'включи автоактивность'}
     if command in ('/greetings_on', '/greetings_off') or lowered in ('включи приветствия', 'отключи приветствия'):
         return {'kind': 'greetings', 'enabled': command == '/greetings_on' or lowered == 'включи приветствия'}
-    explicit = command == '/choose' or lowered.startswith('выбери ')
-    implicit = ' или ' in lowered and not re.match(r'^(?:что|как|какая|почему|кто|где|когда|сколько|правда|погода|курс)\b', lowered)
+    explicit = command == '/choose' or lowered.startswith(('выбери ', 'вибери '))
+    # Replying to the bot is not a request to randomly choose. Only a direct
+    # named call with short alternatives may omit the imperative /choose.
+    alternatives = re.split(r'\s+или\s+',lowered)
+    implicit = (named_call and 2 <= len(alternatives) <= 4
+                and all(1 <= len(part.split()) <= 4 and part not in ('нет','да','не знаю') for part in alternatives)
+                and not re.match(r'^(?:что|как|какая|почему|кто|где|когда|сколько|правда|погода|курс|не знаю|работает)\b', lowered))
     if explicit or implicit:
-        options = re.split(r'\s+или\s+|[|;]', re.sub(r'^выбери\s+', '', body, flags=re.I), flags=re.I)
+        options = re.split(r'\s+или\s+|[|;]', re.sub(r'^в[ыи]бери\s+', '', body, flags=re.I), flags=re.I)
         options = list(dict.fromkeys(part.strip(' ,.!?') for part in options if part.strip(' ,.!?')))
         if not 2 <= len(options) <= 10 or any(len(part) > 100 for part in options):
             return {'kind': 'fixed', 'text': 'дай от 2 до 10 вариантов например /choose пицца | шаурма'}

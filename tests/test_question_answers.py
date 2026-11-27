@@ -178,7 +178,7 @@ class QuestionTests(unittest.TestCase):
             with self.assertLogs('volodymyr', 'WARNING') as logs:
                 self.bot.process_job(self.job())
         self.assertEqual(model.call_count, 1)
-        self.assertEqual(self.telegram.sent[0][1], FALLBACK)
+        self.assertEqual(self.telegram.sent[0][1], FALLBACK.replace('ы','и').replace('Ы','И'))
         self.assertNotIn('private-url-token', '\n'.join(logs.output))
         parody.assert_not_called()
 

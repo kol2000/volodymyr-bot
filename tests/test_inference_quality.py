@@ -550,8 +550,8 @@ class InferenceQualityTests(unittest.TestCase):
         payload = model.call_args.args[1]
         self.assertEqual(payload['messages'][0]['content'], STANDARD_PROMPT)
         self.assertNotIn('speech_profile', json.loads(payload['messages'][1]['content']))
-        self.assertEqual(answer, 'Ето, возможно, помехи. Ти проверь 0,25 и `ты, это`, а также «ты, это».')
-        self.assertEqual(substantive_style('Спасибо, пожалуйста, проверь.'), 'Спасибо, пожалуйста, проверь.')
+        self.assertEqual(answer, 'Ето возможно помехи. Ти проверь 0,25 и `ты, это` а также «ты, это».')
+        self.assertEqual(substantive_style('Спасибо, пожалуйста, проверь.'), 'Спасибо пожалуйста проверь.')
         self.assertEqual(substantive_style('```python\nprint("ты, это", [1, 2])\n```'),
                          '```python\nprint("ты, это", [1, 2])\n```')
 

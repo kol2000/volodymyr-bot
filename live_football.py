@@ -507,6 +507,18 @@ def football_request(value, command='', addressed=False, now=None):
         if not addressed:
             return None
         body = re.sub(r'^(?:проверь|перепроверь|скажи|посмотри)\b[\s,:]+', '', body, flags=re.I)
+        # Natural schedule questions use the same dated scoreboard as /football.
+        schedule = re.match(
+            r'^(?:(?:какой|какие)\s+(?:(сегодня|завтра|вчера)\s+)?'
+            r'(?:футбол|(?:футбольные\s+)?матчи)|'
+            r'(?:что|шо)\s+(?:(сегодня|завтра|вчера)\s+)?(?:там\s+)?(?:по|из)\s+футбол[ау]|'
+            r'(?:расписание|список|календарь)\s+(?:футбола|(?:футбольных\s+)?матчей))\b(.*)$',
+            body, re.I)
+        if schedule and re.search(r'\b(?:лучше|купить|выбрать|означает|называется|нравится|любишь|правила)\b', schedule[3], re.I):
+            return None
+        if schedule:
+            tail = re.sub(r'\b(?:будет|будут|есть|идут|у\s+нас)\b', '', schedule[3], flags=re.I)
+            body = 'футбол ' + (schedule[1] or schedule[2] or '') + ' ' + tail
         match = re.match(r'^(?:какой\s+сч[её]т|сч[её]т(?:\s+матч[аей]+)?|футбол|'
                          r'что\s+там\s+футбол|как\s+игра(?:ет|ют)|'
                          r'кто\s+играет(?:\s+в\s+футбол)?|результаты\s+матчей|'
@@ -599,12 +611,20 @@ def normalize(value):
 
 def select_matches(matches, query):
     matches = [match for match in matches if not excluded_competition(match.competition)]
-    terms = normalize(query).split()
+    # Preserve the requested competition, but accept its grammatical forms.
+    # In particular, "на матч кубка" must match FNK's "Кубок России".
+    def search_words(value):
+        forms = {'кубка': 'кубок', 'кубке': 'кубок', 'кубку': 'кубок',
+                 'кубком': 'кубок'}
+        return [forms.get(word, word) for word in normalize(value).split()]
+    for alias,team in {'мю':'манчестер юнайтед','манчестер юнайтед':'манчестер юнайтед','шахта':'шахтер'}.items():
+        query=re.sub(r'(?<!\w)'+re.escape(alias)+r'(?!\w)',team,query,flags=re.I)
+    terms = search_words(query)
     if not terms:
         return matches
     terms = [word for word in terms if word not in ('и', 'против', 'vs')]
-    return [match for match in matches if all(word in normalize(
-        f'{match.home} {match.away} {match.competition}').split() for word in terms)]
+    return [match for match in matches if all(word in search_words(
+        f'{match.home} {match.away} {match.competition}') for word in terms)]
 
 
 def match_line(match, show_status=True):
@@ -618,7 +638,7 @@ def match_line(match, show_status=True):
     return f'<b>{teams} · {score}</b>{extra}' + (f'\n{escape(match.label)}' if show_status else '')
 
 
-def scoreboard_text(matches, day, checked, query=''):
+def scoreboard_text(matches, day, checked, query='', goal_links=None):
     selected = select_matches(matches, query)
     lines = [f'⚽ <b>Матчи дня · {day.strftime("%d.%m.%Y")}</b>']
     if not selected:
@@ -627,6 +647,8 @@ def scoreboard_text(matches, day, checked, query=''):
     displayed = 0
     for match in selected[:12]:
         line = f'\n{escape(match.competition)}\n{match_line(match)}'
+        if match.status == 'finished' and (goal_links or {}).get(match.id):
+            line += '\n' + goal_links[match.id]
         if len('\n'.join(lines)) + len(line) > 3500:
             break
         lines.append(line)
@@ -634,9 +656,11 @@ def scoreboard_text(matches, day, checked, query=''):
     if len(selected) > displayed:
         lines.append(f'\nЕщё матчей: {len(selected) - displayed}. Уточни команду: /football Ростов')
     stamp = datetime.fromtimestamp(checked, MOSCOW).strftime('%H:%M:%S МСК')
-    source = matches[0].source if matches else 'Футбол на Куличках'
+    source = ' + '.join(dict.fromkeys(m.source for m in selected)) if selected else 'Футбол на Куличках'
     lines.append(f'\n<i>Источник: {escape(source)} · проверено {stamp}</i>')
-    return HTMLMessage('\n'.join(lines))
+    answer = HTMLMessage('\n'.join(lines))
+    from prediction_buttons import decorate
+    return decorate(answer, selected[:displayed], day)
 
 
 def changes(previous, match, now):
@@ -714,8 +738,8 @@ def event_text(match, event, checked, goals=()):
 class Football:
     def __init__(self, store, source=None, clock=time.time):
         if source is None:
-            from kulichki_football import KulichkiScoreboard
-            source = KulichkiScoreboard(store, clock=clock)
+            from soccer365_football import SupplementedScoreboard
+            source = SupplementedScoreboard(store, clock=clock)
         self.store, self.source, self.clock = store, source, clock
         self.lock = threading.Lock()
         self.first_poll = True
@@ -766,9 +790,11 @@ class Football:
                 self.store.set(PREFIX + 'next_poll', 0)
             return HTMLMessage('⚽ <b>Уведомления включены в подключённой группе</b>\n'
                                'Начало, изменение счета, перерыв и финал.\n'
-                               'Матчи из блока «Онлайн трансляции» на главной ФНК; /football_off — выключить.\n\n'
+                               'Матчи ФНК и дополнение крупных турниров из Soccer365; /football_off — выключить.\n\n'
                                + scoreboard_text(matches, day, checked))
-        return scoreboard_text(matches, day, checked, request.get('filter', ''))
+        from prediction_buttons import completed_goal_links
+        return scoreboard_text(matches, day, checked, request.get('filter', ''),
+                               completed_goal_links(self.store, chat_id, matches))
 
     def poll(self, send, allowed, on_goal=None, staged=None):
         """Single poll; state reserved before send, including uncertain Telegram sends."""
@@ -795,23 +821,29 @@ class Football:
                and datetime.fromtimestamp(row['kickoff'], MOSCOW).date() < day for row in seen.values()):
             days.insert(0, day - timedelta(days=1))
         snapshots = []
-        try:
-            for requested_day in days:
+        errors = []
+        successful_days = 0
+        for requested_day in days:
+            try:
                 items, checked = self.source.day(requested_day)
                 snapshots.extend((match, match.checked or checked) for match in items if not excluded_competition(match.competition))
                 self.store.set(PREFIX + 'success', checked)
-            self.store.set(PREFIX + 'error', getattr(self.source, 'last_error', ''))
-        except FootballError as error:
-            self.store.set(PREFIX + 'error', str(error))
+                successful_days += 1
+                if getattr(self.source, 'last_error', ''):
+                    errors.append(str(requested_day) + ': ' + self.source.last_error)
+            except FootballError as error:
+                errors.append(str(requested_day) + ': ' + str(error))
+                LOG.warning('Футбольный источник недоступен: дата=%s; причина=%s', requested_day, error)
+        self.store.set(PREFIX + 'error', '; '.join(errors))
+        if not successful_days:
             self.store.set(PREFIX + 'next_poll', now + 30)
-            LOG.warning('Футбольный источник недоступен: причина=%s', error)
             return
         active = any(match.status in ACTIVE or (match.status in ('scheduled', 'paused', 'unknown')
                      and near_match(match, now)) for match, _ in snapshots)
         interval = LIVE_INTERVAL if active else IDLE_INTERVAL
         if staged is not None and any(m.status == FINISHED and 0 <= now-m.kickoff < 6*3600 for m, _ in snapshots):
             interval = LIVE_INTERVAL
-        if getattr(self.source, 'last_error', ''):
+        if errors:
             interval = min(interval, LIVE_INTERVAL)
         # An idle check must not sleep through the next match's warm-up window.
         upcoming = [match.kickoff - 15 * 60 - now for match, _ in snapshots

@@ -162,8 +162,25 @@ def control_remainder(text):
 
 def banter_request(text):
     body = control_remainder(text)
-    if inline_control(text) or FACTUAL.search(body):
+    if inline_control(text):
         return False
+    # A direct creative request supersedes a factual topic (e.g. a joke about a server).
+    visible=re.sub(r'«[^»]*»|"[^"]*"|`[^`]*`',' ',body)
+    if re.match(r'^(?:(?:ну|го|давай|а)\s+)*(?:пошути|пошутим|шутить|сочини\s+шутку|'
+                r'придумай\s+(?:шутку|прикол)|расскажи\s+(?:шутку|анекдот)|выдай\s+шутку)\b',visible,re.I):
+        return True
+    if re.fullmatch(r'(?:испортил[сc][яа]|душнила|зануда)[.!? ]*', visible, re.I):
+        return True
+    # Short persona complaints and hypothetical social jokes are banter, even in a factual reply chain.
+    if len(body.split()) <= 22 and re.search(r'\b(?:ты|ти|он|бубус)\b.{0,35}\b(?:политкоррект\w*|политкорект\w*|испортил\w*|зануд\w*|душнил\w*)', visible, re.I):
+        return True
+    if len(body.split()) <= 22 and re.search(r'\b(?:стал|пош[её]л)\s+бы\s+(?:его|её|ее|ему|ей)\s+(?:зятем|в зятья|мужем|женой)\b', visible, re.I):
+        return True
+    if FACTUAL.search(body):return False
+    if len(body.split()) <= 8 and re.fullmatch(r'(?:(?:ну|ах|ти|ты|вы|ви|вот|и|же|бля|блядь|блять|ебуч\w*|сосатк\w*|мудак\w*|балбес\w*|охуел\w*|охренел\w*|сук[аи])(?:[\s!?.,—-]+|$))+', visible, re.I):
+        return True
+    if re.fullmatch(r'(?:а\s+)?(?:где|куда\s+делся|шо\s+там|что\s+там)\s+(?:брат\s+бубус|брат\s+бубуса)[?! .]*',body,re.I):
+        return True
     visual_joke = (re.search(r'^(?:только\s+я|я\s+один|мне\s+одному)\b.{0,30}(?:вижу|кажется)\b',body,re.I)
                    and re.search(r'лицо|похож|напомина|фото|картин|мем',body,re.I)
                    and not re.search(r'врач|зрени|глаз|вспышк|мушки|болит|галлюцина',body,re.I))

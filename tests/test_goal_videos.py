@@ -203,7 +203,7 @@ class VideoFixture(unittest.TestCase):
         self.assertEqual([e[1] for e in self.edits],[55])
         self.assertEqual(self.diagnosis()[0],'attached')
 
-    def test_final_scan_once_across_restart_and_never_after_expiry(self):
+    def test_pending_scan_continues_across_restart_but_stops_after_expiry(self):
         self.queue()
         self.source.recent=lambda:[]
         calls=[]
@@ -213,10 +213,10 @@ class VideoFixture(unittest.TestCase):
         self.videos=GoalVideos(self.store,self.source,clock=lambda:self.now[0])
         self.now[0]+=31
         self.poll()
-        self.assertEqual(calls,[1])
+        self.assertEqual(calls,[1,1])
         self.now[0]+=300
         self.poll()
-        self.assertEqual(calls,[1])
+        self.assertEqual(calls,[1,1])
         self.assertEqual(self.diagnosis()[0],'expired')
         self.assertFalse(self.edits)
 
@@ -686,8 +686,8 @@ class UploadTests(unittest.TestCase):
                 with self.assertRaisesRegex(VideoError, reason):
                     fetch_public(MEDIA, video=True)
 
-    def test_slow_video_has_bounded_two_minute_budget(self):
-        for ticks,ok in [([0,0,90],True),([0,0,121],False)]:
+    def test_slow_video_has_bounded_five_minute_budget(self):
+        for ticks,ok in [([0,0,90],True),([0,0,180],True),([0,0,301],False)]:
             headers=Message();headers['Content-Type']='video/mp4'
             response=io.BytesIO(MP4);response.url=MEDIA;response.headers=headers
             opener=SimpleNamespace(open=lambda *args,**kwargs:response)

@@ -71,7 +71,7 @@ def verified_plan(day, path, message_id, source_post, pages):
         body = norm(target[0][2])
         if not (named(body, row['home']) and named(body, row['away'])):
             continue
-        selection = {k: row[k] for k in ('id', 'url', 'home', 'away', 'competition')}
+        selection = {k: row[k] for k in ('id', 'url', 'home', 'away', 'competition', 'kickoff')}
         selection['clock'] = datetime.fromtimestamp(row['kickoff'], MOSCOW).strftime('%H:%M')
         match = parse_broadcast(fetch_html(row['url']), selection)
         for job in jobs_for_posts(match, target):
@@ -94,7 +94,10 @@ def check_cancelled(db, chat, message_id, match, job, pending=False):
     row = db.execute('SELECT match_id,expires,payload,status FROM goal_video_jobs WHERE chat_id=? AND message_id=?',
                      (chat, message_id)).fetchone()
     expected = 'pending' if pending else 'cancelled'
-    if not row or row[3] != expected or (row[1] <= time.time() if pending else row[1] > time.time()):
+    confirmed_finished = (getattr(match,'status',None)=='finished' and any(
+        tuple(g.score)==tuple(job['goal']['score']) and g.minute==job['goal']['minute']
+        and g.player==job['goal']['player'] for g in getattr(match,'goals',())))
+    if not row or row[3] != expected or (row[1] <= time.time() if pending else row[1] > time.time() and not confirmed_finished):
         raise AttachError('Состояние или срок выбранного задания не допускает восстановление.')
     old = json.loads(row[2])
     target = job['goal']

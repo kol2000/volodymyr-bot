@@ -19,6 +19,20 @@ from common import HTMLMessage
 
 
 class ServiceTests(unittest.TestCase):
+    def test_euro_amounts_and_real_rate_calculation(self):
+        for text in ['116 EUR','116 eur','116 евро','116 €','€116']:
+            self.assertEqual(service_request(text),{'kind':'currency','amounts':[{'amount':'116','unit':'EUR'}]})
+        for text in ['116 EURABC','@116EUR','https://example.test/116EUR']:
+            self.assertEqual(amounts_in(text),[])
+        xml=ET.fromstring(f'<ValCurs Date="{self.today}"><Valute><CharCode>USD</CharCode><Nominal>1</Nominal><Value>80</Value></Valute><Valute><CharCode>EUR</CharCode><Nominal>10</Nominal><Value>1000</Value></Valute></ValCurs>')
+        with patch('chat_services.get_data',return_value=xml):
+            text=self.client.answer(service_request('116 EUR'))
+        self.assertIn('11 600,00 RUB',text)
+        self.assertIn('145,00 USD',text)
+        with patch.object(self.client,'cbr',return_value=({'USD':Decimal('80')},self.today)):
+            with self.assertRaisesRegex(ServiceError,'missing_fiat_rate'):
+                self.client.convert([{'amount':'116','unit':'EUR'}])
+
     def setUp(self):
         self.client = ChatServices()
         self.calls = []

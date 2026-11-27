@@ -17,6 +17,15 @@ from test_bot import FakeTelegram
 
 
 class CommunityTests(unittest.TestCase):
+    def test_screenshot_reply_does_not_choose_and_bare_eur_routes_to_conversion(self):
+        update=self.update('ну вон есть тг воллет я не ебу ворк или нет')
+        update['message']['reply_to_message']={'message_id':555,'from':{'id':99},'text':'ну ти ж сам трон не оплатил брат'}
+        self.bot.handle(update)
+        self.assertTrue(self.bot.utility_jobs.empty())
+        self.assertIsNone(self.bot.jobs.get_nowait().get('utility'))
+        self.bot.handle(self.update('116 EUR',number=2))
+        self.assertEqual(self.bot.utility_jobs.get_nowait()['utility'],{'kind':'currency','amounts':[{'amount':'116','unit':'EUR'}]})
+
     def setUp(self):
         self.folder = tempfile.TemporaryDirectory()
         self.path = Path(self.folder.name) / 'bot.sqlite3'
@@ -71,8 +80,13 @@ class CommunityTests(unittest.TestCase):
         self.assertEqual(self.bot.jobs.qsize(), 0)
         with patch.object(self.bot.random, 'choice', return_value='<кот>'), patch.object(self.bot, 'generate') as model:
             self.bot.process_job(job)
-        self.assertIn('Случайный выбор: <b>&lt;кот&gt;</b>', self.telegram.sent[-1][1])
+        self.assertIn('Случайний вибор: <b>&lt;кот&gt;</b>', self.telegram.sent[-1][1])
         model.assert_not_called()
+        for text in ['ну вон есть тг воллет я не ебу ворк или нет','работает или нет?',
+                     'Реал или Барса?', 'Бубус, работает или нет?', 'Бубус я не знаю работает или нет']:
+            self.assertIsNone(community_request(text,addressed=True),text)
+        self.assertEqual(community_request('Бубус, Реал или Барса?')['kind'],'choose')
+        self.assertEqual(community_request('вибери да или нет',addressed=True)['options'],['да','нет'])
         for text in ('/choose кот', '/choose ' + ' | '.join(str(i) for i in range(11))):
             self.assertEqual(community_request(text, '/choose')['kind'], 'fixed')
 
@@ -144,7 +158,7 @@ class CommunityTests(unittest.TestCase):
         self.bot.handle(join)
         self.bot.handle(join)
         self.assertEqual(len(self.telegram.sent), 1)
-        self.assertIn('&lt;новый&gt;', self.telegram.sent[0][1])
+        self.assertIn('&lt;новий&gt;', self.telegram.sent[0][1])
         self.assertNotIn('ДругойБот', self.telegram.sent[0][1])
         self.store.set('greetings_enabled', False)
         join['message']['message_id'] = 2
@@ -236,7 +250,7 @@ class CommunityTests(unittest.TestCase):
         with patch('community.http_json', side_effect=APIError('timeout')), patch.object(self.bot, 'fallback_answer') as fallback:
             self.bot.process_job(self.job('/summary', 100))
         self.assertIn('&lt;исходное сообщение&gt;', self.telegram.sent[-1][1])
-        self.assertIn('Выдержки из истории вместо пересказа', self.telegram.sent[-1][1])
+        self.assertIn('Видержки из истории вместо пересказа', self.telegram.sent[-1][1])
         fallback.assert_not_called()
 
     def test_empty_summary_does_not_call_model_or_make_up_events(self):

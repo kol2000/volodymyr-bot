@@ -7,11 +7,12 @@ import time
 import uuid
 from contextlib import closing
 from pathlib import Path
+from currency_settings import DEFAULT_CURRENCIES, validate_currencies
 
 DEFAULT_TRIGGERS = ['бубуська','володька','рахиня','украина','война','киев','цаца','цацик',
                     'бубус','цацыг','хряк','свинья','сосатка','крым','крим','даг','москва',
                     'путин','путен','вова','свин','крым наш']
-DEFAULTS = {'trigger_words':DEFAULT_TRIGGERS,'reply_tone':'ironic','respond_questions':True,
+DEFAULTS = {'currencies':DEFAULT_CURRENCIES,'trigger_words':DEFAULT_TRIGGERS,'reply_tone':'ironic','respond_questions':True,
             'automatic':False,'activity_probability':0.03,'adaptive':True,
             'greetings_enabled':True,'rules':'','livefootball:enabled':False,
             'livefootball:videos:enabled':True}
@@ -22,7 +23,9 @@ def validate(values):
         raise ValueError('Неизвестные настройки')
     clean={}
     for key,value in values.items():
-        if key=='trigger_words':
+        if key=='currencies':
+            value=validate_currencies(value)
+        elif key=='trigger_words':
             if not isinstance(value,list) or len(value)>100:
                 raise ValueError('Укажи не более 100 слов или фраз')
             terms=[]

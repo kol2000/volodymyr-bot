@@ -83,6 +83,17 @@ class PanelTests(unittest.TestCase):
 
 
 class HTTPTests(PanelTests):
+    def test_currency_settings_round_trip_through_authenticated_api(self):
+        import copy
+        data=self.login()
+        prefs=copy.deepcopy(data['settings']['currencies'])
+        prefs['ETH']['aliases']=['эфир']
+        prefs['DOGE']['enabled']=False
+        code,_,saved=self.call('/api/settings',{'settings':{'currencies':prefs},'revision':data['revision']})
+        self.assertEqual(code,200)
+        self.assertEqual(saved['settings']['currencies'],prefs)
+        self.assertEqual(self.call('/api/settings')[2]['settings']['currencies'],prefs)
+
     def setUp(self):
         super().setUp()
         salt='12'*16

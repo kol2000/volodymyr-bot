@@ -32,6 +32,22 @@ class FakeTelegram:
 
 
 class BotTests(unittest.TestCase):
+    def test_currency_panel_changes_apply_to_next_message(self):
+        import copy
+        from currency_settings import DEFAULT_CURRENCIES
+        from panel_settings import SettingsDB
+        self.bind()
+        adapter=SettingsDB(self.database)
+        prefs=copy.deepcopy(DEFAULT_CURRENCIES)
+        prefs['BTC']['aliases']=['биткоин']
+        prefs['EUR']['enabled']=False
+        adapter.save({'currencies':prefs},adapter.read()['revision'])
+        self.bot.handle(self.update('116 EUR',user=7,number=901))
+        self.assertTrue(self.bot.utility_jobs.empty())
+        self.store.set('request:-100',0)
+        self.bot.handle(self.update('0,01 биткоин',user=7,number=902))
+        self.assertEqual(self.bot.utility_jobs.get_nowait()['utility']['amounts'],[{'amount':'0.01','unit':'BTC'}])
+
     def test_panel_triggers_apply_without_restarting_and_can_be_removed(self):
         from panel_settings import SettingsDB
         self.store.set('chat_id',-100)
@@ -450,7 +466,7 @@ class BotTests(unittest.TestCase):
             self.bot.process_job(job)
         self.assertEqual(request.call_count, 2)
         reply = self.telegram.sent[-1][1]
-        self.assertIn(reply, FALLBACK_REPLIES)
+        self.assertIn(reply, [value.replace('ы','и').replace('Ы','И') for value in FALLBACK_REPLIES])
         self.assertNotEqual(answer_key(reply), answer_key('а шо там хоть поменяли то'))
         self.assertEqual(self.store.counts().get('manual', 0), 1)
         self.assertEqual(self.store.recent_answers(-100)[-1], 'а шо там хоть поменяли то')
@@ -955,7 +971,7 @@ class BotTests(unittest.TestCase):
         self.assertIsNone(valid_answer('Хорошо, пользователь пишет про интернет'))
         self.assertIsNone(valid_answer('x' * 221))
         self.assertIsNone(valid_answer('<think>reason</think>ответ'))
-        self.assertIsNone(valid_answer('токен 123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef'))
+        self.assertIsNone(valid_answer('123456789:' + 'A' * 35))
         self.assertEqual(valid_answer('а шо там опять случилось))'), 'а шо там опять случилось))')
         self.assertEqual(valid_answer('я бот-пародия, ти шо))'), 'я бот-пародия, ти шо))')
 

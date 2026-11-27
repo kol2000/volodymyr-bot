@@ -14,6 +14,16 @@ from test_bot import FakeTelegram
 
 
 class SpeechTests(unittest.TestCase):
+    def test_y_is_always_i_in_authored_prose_and_utility_markup(self):
+        from common import surzhyk_text,bubus_spelling,HTMLMessage
+        self.assertEqual(bubus_spelling('выбирать ВЫБОР быстрый'),'вибирать ВИБОР бистрий')
+        value=HTMLMessage('<b>Случайный выбор</b> <i>ты попросил выбирать</i> <a href="https://x/ы">выход</a> <code>ы</code>')
+        result=bubus_spelling(value)
+        self.assertIsInstance(result,HTMLMessage)
+        self.assertEqual(result,'<b>Случайний вибор</b> <i>ти попросил вибирать</i> <a href="https://x/ы">виход</a> <code>ы</code>')
+        self.assertEqual(bubus_spelling(result),result)
+        self.assertTrue(repeated_answer('ти попросил выбирать',['ти попросил вибирать']))
+
     def test_genitive_spelling_is_a_replacement_and_not_an_added_catchphrase(self):
         for text,expected in [('чего тут непонятного','чего тут непонятново'),
                               ('ничего непонятного нет','ничего непонятново нет'),

@@ -126,6 +126,8 @@ class Telegram:
                        'link_preview_options': {'is_disabled': True}}
             if isinstance(text, HTMLMessage):
                 payload['parse_mode'] = 'HTML'
+            if getattr(text, 'reply_markup', None):
+                payload['reply_markup'] = text.reply_markup
             if reply_to:
                 payload['reply_parameters'] = {'message_id': reply_to,
                                                'allow_sending_without_reply': True}
@@ -232,6 +234,15 @@ def surzhyk_text(text):
     return re.sub(r'(^|[.!?\n]\s*)((?:(?:мне|нам|ему|ей|им|тут|здесь|сечас|пока)\s+){0,2})'
                   r'(непонятново)(?=\s*[,—:–-]?\s*(?:шо|что|как|где|куда|откуда|зачем|почему|когда|какой|какая|какие)\b)',
                   adverb,text,flags=re.I)
+
+
+def bubus_spelling(text):
+    """No ы in authored replies; leave markup, links and code intact."""
+    parts=re.split(r'(<(?:pre|code)\b[^>]*>[\s\S]*?</(?:pre|code)>|<[^>]+>|```[\s\S]*?```|`[^`\n]+`|https?://[^\s<]+)',str(text))
+    for i in range(0,len(parts),2):
+        parts[i]=parts[i].translate(str.maketrans({'ы':'и','Ы':'И'}))
+    result=''.join(parts)
+    return HTMLMessage(result) if isinstance(text,HTMLMessage) else result
 
 
 def parody_text(text):
