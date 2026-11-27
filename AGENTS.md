@@ -64,3 +64,5 @@ Windows: явная UTF-8 при чтении/записи; PowerShell може�
 Еженедельный отчёт: forecast_weekly.py; отдельный bubus-forecast-weekly.timer (пн 10:00 МСК). Без --send только предпросмотр. Не удалять weekly_reports/*/attempt.json ради повторного запуска: возможна уже успешная отправка. Детали FORECASTING.md. Актуальная опубликованная локальная ветка — work/forecast-release, не старая work/volodymyr-bot.
 
 Развлекательные рубрики: chat_features.py и CHAT_FEATURES.md. Таблица chat_archive хранит привязанный чат бессрочно; триггеры отделяют архив от 30-дневного контекста. Не публиковать архив/предпросмотры в Git. Удаление данных пользователя должно учитывать chat_archive.
+
+Зрение: visual_context.py, VISION.md. Gemma даёт описание основной Qwen. Не логировать URL Telegram/картинки, не превращать текст на изображении в инструкции. TGS пока только превью.

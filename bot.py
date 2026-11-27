@@ -1017,7 +1017,9 @@ class Bot:
             argument = parts[1] if len(parts) > 1 else ''
         else:
             argument = re.sub(r'@' + re.escape(self.username) + r'\b', '', text, flags=re.I).strip() if mentioned else text
-        if not self.store.add_message(dict(message, text=argument, _command=bool(command))):
+        from visual_context import select as select_visual
+        stored_argument = argument or ('[изображение или стикер]' if select_visual(message) else '')
+        if not self.store.add_message(dict(message, text=stored_argument, _command=bool(command))):
             if argument.strip() or not self.store.add_message(dict(message, _command=bool(command))):
                 return
         if owner and command == '/start':
@@ -1113,6 +1115,11 @@ class Bot:
             utility['owner'] = owner
         if not utility:
             utility = service_request(argument, command, self.store.get('currencies'))
+        from visual_context import request as visual_request
+        visual = visual_request(message, addressed or command == '/bubus' or bool(re.match(r'^\s*(?:бубус|бубс|володька|володя)\b', text, re.I)))
+        if visual and command in ('', '/bubus'):
+            utility = visual
+            argument = argument or 'Что на картинке или стикере?'
         if private or command in ('/bubus', '/more') or mentioned or reply_to_bot or triggers or utility or question_call or (session_id and followup) or pending_followup or control_call:
             self.store.set(f'last_direct:{chat_id}', time.time())
             LOG.info('Получено прямое обращение; ключевых совпадений=%s', len(triggers))
@@ -1621,7 +1628,7 @@ class Bot:
     def process_snapshot(self, job):
         started = time.monotonic()
         job['_metrics'] = {'queue_seconds': round(max(0, time.time() - job['queued_at']), 3)}
-        long_job = self.is_thoughtful(job) or (job.get('utility') or {}).get('kind') == 'factcheck'
+        long_job = self.is_thoughtful(job) or (job.get('utility') or {}).get('kind') in ('factcheck', 'visual')
         typing = (not job['automatic'] and self.allowed(job['chat_id']) and hasattr(self.telegram, 'typing')
                   and time.time() - job['queued_at'] <= (360 if long_job else 180))
         try:
@@ -1638,7 +1645,7 @@ class Bot:
     def _process_job(self, job):
         chat_id = job['chat_id']
         thoughtful = self.is_thoughtful(job)
-        lifetime = 360 if thoughtful or (job.get('utility') or {}).get('kind') == 'factcheck' else 180
+        lifetime = 360 if thoughtful or (job.get('utility') or {}).get('kind') in ('factcheck', 'visual') else 180
         if self.superseded(job):
             return
         if not self.allowed(chat_id) or time.time() - job['queued_at'] > lifetime:
@@ -1667,7 +1674,10 @@ class Bot:
         generation_started = time.monotonic()
         if utility:
             try:
-                if utility['kind'] == 'factcheck':
+                if utility['kind'] == 'visual':
+                    from visual_context import answer as visual_answer
+                    answer = visual_answer(self.config, self.telegram, utility['media'], job['text'])
+                elif utility['kind'] == 'factcheck':
                     if utility.get('automatic_lookup'):
                         answer = self.fact_checker.answer(utility['query'], self.config,
                                                           profile_for_request(utility['query']), question=True,
@@ -1816,7 +1826,7 @@ class Bot:
                 self.record_skip(chat_id, 'telegram_retry_after')
                 return None
             delay = max(0, (1 if fast else 15) - (now - self.store.last_send(chat_id)))
-            if now + delay - job['queued_at'] > (360 if self.is_thoughtful(job) or (job.get('utility') or {}).get('kind') == 'factcheck' else 180):
+            if now + delay - job['queued_at'] > (360 if self.is_thoughtful(job) or (job.get('utility') or {}).get('kind') in ('factcheck', 'visual') else 180):
                 self.record_skip(chat_id, 'job_expired')
                 return None
             if delay:
