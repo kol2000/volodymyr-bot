@@ -22,6 +22,11 @@ class ForecastTests(unittest.TestCase):
   r=self.forecast();self.assertEqual(r['method'],'model_estimate')
   with self.assertRaises(ValueError):service.validate(dict(r,created=r['kickoff']))
   with self.assertRaises(ValueError):service.validate(dict(r,probabilities=[float('nan'),0,1]))
+ def test_moscow_source_names(self):
+  from soccer365_football import identity
+  for name in ('ЦСКА','Спартак','Локомотив'):
+   self.assertEqual(identity(name+' Москва'),identity(name))
+  self.assertNotEqual(identity('Динамо Москва'),identity('Динамо Махачкала'))
  def test_unknown_and_youth(self):
   for c in ['Лига чемпионов женщины','Чемпионат Европы U21','Премьер-лига U-19','Клубный чемпионат мира']:
    self.assertIsNone(service.competition_kind(c))

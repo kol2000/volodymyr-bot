@@ -43,4 +43,4 @@ PYTHONPATH=.:tests python3 -B -m unittest discover -s tests -p test_forecast_ser
 PYTHONPATH=.:tests python3 -B -m unittest discover -s tests -p test_ligue1_rolling.py
 PYTHONPATH=.:tests python3 -B -m unittest test_football_predictions.PredictionTests test_prediction_fallback test_predictions_future.FutureTests test_prediction_buttons.ButtonTests
 ```
-8 новых тестов + 30 адресных регрессий. Проверяются все категории турниров, отсечение будущих результатов, исход за основное время, повреждение журнала, повторные записи, переносы, второй пакет Франции. Старые проблемы полного тестового набора перечислены в TODO.md; общую зелёную сборку не заявлять.
+9 новых тестов + 30 адресных регрессий. Проверяются все категории турниров, отсечение будущих результатов, исход за основное время, повреждение журнала, повторные записи, переносы, второй пакет Франции. Старые проблемы полного тестового набора перечислены в TODO.md; общую зелёную сборку не заявлять.

@@ -1,9 +1,15 @@
 {
   "date": "2026-11-27",
   "targeted_tests": 30,
-  "new_tests": 8,
+  "new_tests": 9,
   "live_model_dry_run": "passed; no Telegram publication",
   "original_ligue1_observations": 18,
   "legacy_full_suite": "known pre-existing failures; not claimed green",
-  "runtime_activation": "verified 2026-11-28 00:00 MSK: bot running, timer enabled/active"
+  "runtime_activation": "verified 2026-11-28 00:00 MSK: bot running, timer enabled/active",
+  "first_cycle": {
+    "registered": 20,
+    "deferred_limit": 19,
+    "source_errors": 3,
+    "source_errors_followup": "all three real fixture pages pass after Moscow club aliases"
+  }
 }
