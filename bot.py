@@ -183,6 +183,7 @@ COMMANDS = [('/bubus', 'случайная фраза; с текстом — о�
 
 from personal_memory import COMMANDS as PERSONAL_COMMANDS, RULES as PERSONAL_RULES
 import personal_memory
+import situational_activity
 
 
 class Store(FeatureStore, LearningStore, ParticipantStore):
@@ -1077,7 +1078,8 @@ class Bot:
         if not command and not mentioned and re.fullmatch(r'(?:@[a-z0-9_]*bot\s*)+', text.strip(), re.I):
             return
         triggers = trigger_matches(text,self.store.get('trigger_words'),TRIGGER_PATTERN,TRIGGER_FORMS)
-        question_call = self.store.get('respond_questions',True) and not command and ends_question(argument)
+        called = bool(re.match(r'^\s*(?:бубус|бубс|бубуська|володька|володько)\b', text, re.I))
+        question_call = self.store.get('respond_questions',True) and not command and called and ends_question(argument)
         session_id = self.store.session(chat_id, user_id)
         followup = bool(FOLLOWUP.match(FEATURE_CALL.sub('', argument)) or elliptical_followup(argument) or amendment_request(argument))
         if session_id and self.store.answer_mode(chat_id,session_id)=='football' and football_followup(argument):
@@ -1092,7 +1094,7 @@ class Bot:
             followup=followup or contextual_request(argument)
         explanation_reply = reply_to_bot and self.store.answer_mode(chat_id, reply.get('message_id')) in ('question', 'factcheck')
         dialogue_id = reply.get('message_id') if reply_to_bot else session_id if followup and not reply else None
-        addressed = private or mentioned or reply_to_bot or question_call or bool(session_id and followup) or pending_followup or control_call
+        addressed = private or mentioned or reply_to_bot or called or question_call or bool(session_id and followup) or pending_followup or control_call
         personal_memory.observe(self.store, chat_id, user_id, text, message['message_id'], addressed=addressed)
         prediction_context = self.store.get(f'prediction:context:{chat_id}:{dialogue_id}') if dialogue_id else None
         utility = prediction_request(argument, command, addressed=addressed, context=prediction_context)
@@ -1130,7 +1132,7 @@ class Bot:
         if visual and command in ('', '/bubus'):
             utility = visual
             argument = argument or 'Что на картинке или стикере?'
-        if private or command in ('/bubus', '/more') or mentioned or reply_to_bot or triggers or utility or question_call or (session_id and followup) or pending_followup or control_call:
+        if private or command in ('/bubus', '/more') or mentioned or reply_to_bot or called or utility or question_call or (session_id and followup) or pending_followup or control_call:
             self.store.set(f'last_direct:{chat_id}', time.time())
             LOG.info('Получено прямое обращение; ключевых совпадений=%s', len(triggers))
             if not self.enqueue(chat_id, argument, message['message_id'],
@@ -1144,8 +1146,6 @@ class Bot:
                                 force_thoughtful=bool(detailed or control or (dialogue_id and (explanation_reply or followup)))):
                 if owner and private:
                     self.notify(chat_id, 'Подожди немного: действует пауза или очередь заполнена.')
-        elif not private and self.random.random() < self.store.get('activity_probability', 0.03):
-            self.enqueue(chat_id, text, message['message_id'], automatic=True)
 
     def generate(self, job):
         clarification=short_topic_clarification(job['text']) if not job.get('automatic') and not job.get('utility') else None
@@ -1228,6 +1228,8 @@ class Bot:
                                           if key not in ('message_without_address', 'bot_alias', 'referenced_alias')}
             data['trigger_words'] = [word for word in data['trigger_words'] if word.casefold() not in BOT_ALIASES]
         data['request_updates'] = job.get('request_updates', [])
+        if job.get('situation'):
+            data['situational_reason'] = job['situation']
         data['participant_profiles'] = self.store.participant_profiles(job['chat_id'], job['text'])
         data['current_participant'] = personal_memory.context(self.store, job['chat_id'], job.get('user_id'), job['text'])
         data['approved_corrections'] = self.store.correction_examples(job['chat_id'], subject, 'parody',user_id=job.get('user_id'))
@@ -1243,6 +1245,8 @@ class Bot:
             prompt = self.manual_prompt + '\n' + data['reply_brief'] if direct_reply else self.prompt
             if data['current_participant']:
                 prompt += '\n' + PERSONAL_RULES
+            if job.get('situation'):
+                prompt += '\n' + situational_activity.RULES
             if direct_reply and tone == 'calm':
                 prompt += '\nСобеседник недоволен: ответь спокойно, без ругани, иронии и встречных обвинений. Уточни, что исправить, если это неясно.'
             elif direct_reply and tone == 'playful':
@@ -1670,6 +1674,8 @@ class Bot:
             return
         if job['automatic'] and not self.auto_eligible(chat_id):
             return
+        if job['automatic'] and not situational_activity.prepare(self, job):
+            return
         tease_target = job.get('tease_target')
         if tease_target and (not job['automatic'] or not self.tease_eligible(chat_id, tease_target)):
             return
@@ -1729,6 +1735,7 @@ class Bot:
                 LOG.warning('Футбольный ответ недоступен: причина=%s', error)
                 answer = football_error_reply()
             except FactError as error:
+                if job['automatic']:return
                 LOG.warning('Проверка фактов недоступна: причина=%s', error)
                 answer = 'подтвердить не могу доступных источников для проверки сечас нет'
         else:
@@ -1744,6 +1751,9 @@ class Bot:
             return
         if utility and utility['kind'] == 'factcheck':
             job['_metrics'].update(self.fact_checker.last_timings)
+        if job['automatic'] and utility and utility['kind']=='factcheck':
+            if not str(answer).startswith('<b>Найденные источники опровергают</b>'):
+                return
         if answer == '__SILENCE__':
             return
         if not answer:
@@ -1766,9 +1776,12 @@ class Bot:
             return
         if tease_target and not self.tease_eligible(chat_id, tease_target):
             return
+        if not situational_activity.still_relevant(self, job):
+            return
         kind = 'automatic' if job['automatic'] else 'manual'
-        send_id = self.reserve_utility_send(job) if utility or thoughtful else self.store.claim_send(
-            kind, chat_id, tease_user_id=tease_target['user_id'] if tease_target else None)
+        send_id = self.store.claim_send('automatic', chat_id) if job['automatic'] else (
+            self.reserve_utility_send(job) if utility or thoughtful else self.store.claim_send(
+                kind, chat_id, tease_user_id=tease_target['user_id'] if tease_target else None))
         if send_id is None:
             if not job['automatic'] and not utility:
                 self.record_skip(chat_id, 'send_cooldown')
@@ -1896,12 +1909,7 @@ class Bot:
             try:
                 now = time.time()
                 apply_football_request(self)
-                next_time = self.store.get('next_auto', now + 3600)
-                chat_id = self.store.get('chat_id')
-                if now >= next_time:
-                    self.store.set('next_auto', now + self.random.uniform(3600, 10800))
-                    if self.auto_eligible(chat_id):
-                        self.enqueue_scheduled(chat_id)
+                situational_activity.consider(self, now)
             except Exception as error:
                 LOG.error('Ошибка расписания: %s', type(error).__name__)
             time.sleep(10)

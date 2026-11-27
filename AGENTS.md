@@ -70,3 +70,5 @@ Windows: явная UTF-8 при чтении/записи; PowerShell може�
 Личная память: personal_memory.py, PERSONAL_MEMORY.md. По умолчанию off; profile/history/banter отдельно. Использовать только self-reported confirmed записи текущих chat_id/user_id. Не импортировать догадки/архив в факты и не публиковать личные данные в Git.
 
 Обновление по прямому указанию владельца: память/history теперь default-on. Используются observed с явной неопределённостью и confirmed с приоритетом; pending конфликты не используются. Явный opt-out сохраняется. PERSONAL_MEMORY.md содержит актуальные правила, прежний opt-in отменён.
+
+Ситуативная активность: situational_activity.py и SITUATIONAL_ACTIVITY.md. Не обходить auto_eligible/claim_send ради решения LLM. Автоматический factcheck также расходует автоматическую квоту; отсутствие проверенного опровержения означает молчание.
