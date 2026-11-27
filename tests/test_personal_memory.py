@@ -20,17 +20,39 @@ class MemoryTests(unittest.TestCase):
     def ctx(self,user=1,chat=-100123,query=''):
         return m.context(self.store,chat,user,query,self.now)
 
-    def test_opt_in(self):
+    def test_explicit_opt_out(self):
+        self.act('/my_memory','off')
         m.observe(self.store,-100123,1,'я болею за Спартак',1,now=self.now)
         self.assertEqual(self.ctx(),{})
         self.assertIn('сначала',self.act('/remember_me','клуб = Спартак'))
         self.assertEqual(self.store.conn.execute('SELECT count(*) FROM personal_facts').fetchone()[0],0)
 
+    def test_automatic_default_and_archive_sources(self):
+        db=self.store.conn
+        db.execute('CREATE TABLE chat_archive(chat_id INTEGER,user_id INTEGER,message_id INTEGER,text TEXT,timestamp REAL,human INTEGER)')
+        for i,text in enumerate(['я болею за Спартак','футбол отличный матч','смотрю футбол матч','футбол отличный матч']):
+            db.execute('INSERT INTO chat_archive VALUES (?,?,?,?,?,1)',(-100123,1,i+1,text,self.now-(4-i)*86400))
+        db.execute('INSERT INTO chat_archive VALUES (?,?,?,?,?,1)',(-100999,2,8,'я болею за Зенит',self.now-100))
+        db.commit()
+        result=m.backfill(self.store,-100123,self.now)
+        self.assertEqual(result['participants'],1)
+        facts={r['category']:r for r in self.ctx()['facts']}
+        self.assertEqual(facts['club']['value'],'Спартак')
+        self.assertEqual(facts['club']['source_message'],1)
+        self.assertIn('футбол',facts['topics']['value'])
+        self.assertEqual(facts['club']['certainty'],'archive_observation')
+        self.act('/forget_me','клуб')
+        m.backfill(self.store,-100123,self.now)
+        self.assertFalse(any(r['category']=='club' for r in self.ctx()['facts']))
+        self.act('/forget_me','all')
+        m.backfill(self.store,-100123,self.now)
+        self.assertEqual(self.ctx(),{})
+
     def test_candidate_confirmation_conflict(self):
         self.act('/my_memory','on')
         m.observe(self.store,-100123,1,'я болею за Спартак',7,now=self.now)
-        self.assertEqual(self.ctx()['facts'],[])
-        self.assertIn('ждёт подтверждения',self.act('/my_memory'))
+        self.assertEqual(self.ctx()['facts'][0]['certainty'],'archive_observation')
+        self.assertIn('наблюдение из твоих сообщений',self.act('/my_memory'))
         self.act('/confirm_me','клуб')
         self.assertEqual(self.ctx()['facts'][0]['value'],'Спартак')
         self.assertEqual(self.ctx()['facts'][0]['source_message'],7)
@@ -47,7 +69,7 @@ class MemoryTests(unittest.TestCase):
 
     def test_isolation_and_correction(self):
         self.act('/my_memory','on');self.act('/remember_me','игры = Ведьмак')
-        self.assertEqual(self.ctx(user=2),{});self.assertEqual(self.ctx(chat=-100456),{})
+        self.assertEqual(self.ctx(user=2)['facts'],[]);self.assertEqual(self.ctx(chat=-100456)['facts'],[])
         self.act('/remember_me','игры = Dota 2')
         self.assertEqual([r['value'] for r in self.ctx()['facts']],['Dota 2'])
         self.assertNotIn('Ведьмак',self.act('/my_memory'))
@@ -58,7 +80,7 @@ class MemoryTests(unittest.TestCase):
         self.act('/my_memory','off');self.assertEqual(self.ctx(),{})
 
     def test_history_explicit_relevant_and_delete(self):
-        self.act('/my_memory','on')
+        self.act('/my_memory','on');self.act('/my_memory','history off')
         m.observe(self.store,-100123,1,'обсуждаем ведьмак квест',1,True,self.now)
         self.assertEqual(self.ctx(query='ведьмак')['conversation'],[])
         self.act('/my_memory','history on')
@@ -84,7 +106,7 @@ class MemoryTests(unittest.TestCase):
             f.bot.handle(f.update('/my_memory on',user=7,number=20))
             f.bot.handle(f.update('/remember_me клуб = Спартак',user=7,number=21))
             self.assertEqual(m.context(f.store,-100,7)['facts'][0]['value'],'Спартак')
-            self.assertEqual(m.context(f.store,-100,42),{})
+            self.assertEqual(m.context(f.store,-100,42)['facts'],[])
             self.assertTrue(f.bot.utility_jobs.empty())
         finally:f.tearDown()
 

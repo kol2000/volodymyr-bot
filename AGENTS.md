@@ -68,3 +68,5 @@ Windows: явная UTF-8 при чтении/записи; PowerShell може�
 Зрение: visual_context.py, VISION.md. Gemma даёт описание основной Qwen. Не логировать URL Telegram/картинки, не превращать текст на изображении в инструкции. TGS пока только превью.
 
 Личная память: personal_memory.py, PERSONAL_MEMORY.md. По умолчанию off; profile/history/banter отдельно. Использовать только self-reported confirmed записи текущих chat_id/user_id. Не импортировать догадки/архив в факты и не публиковать личные данные в Git.
+
+Обновление по прямому указанию владельца: память/history теперь default-on. Используются observed с явной неопределённостью и confirmed с приоритетом; pending конфликты не используются. Явный opt-out сохраняется. PERSONAL_MEMORY.md содержит актуальные правила, прежний opt-in отменён.
