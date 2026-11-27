@@ -181,6 +181,10 @@ COMMANDS = [('/bubus', 'случайная фраза; с текстом — о�
             ('/status', 'показать состояние'), ('/whoami', 'показать мой Telegram ID')]
 
 
+from personal_memory import COMMANDS as PERSONAL_COMMANDS, RULES as PERSONAL_RULES
+import personal_memory
+
+
 class Store(FeatureStore, LearningStore, ParticipantStore):
     def __init__(self, path):
         self.path = path
@@ -228,6 +232,7 @@ class Store(FeatureStore, LearningStore, ParticipantStore):
         self.init_features()
         self.init_learning()
         self.init_participants()
+        personal_memory.init(self)
         init_quality(self)
 
     @contextlib.contextmanager
@@ -927,12 +932,16 @@ class Bot:
             self.store.set('next_auto', time.time() + self.random.uniform(3600, 10800))
         if not self.allowed(chat_id):
             return
-        if command and command not in COMMUNITY_COMMANDS | FOOTBALL_COMMANDS | FEATURE_COMMANDS | LEARNING_COMMANDS | PARTICIPANT_COMMANDS | {'/bubus', '/predict', '/weather', '/convert', '/start', '/auto_on', '/auto_off', '/status', '/quality'}:
+        if command and command not in COMMUNITY_COMMANDS | FOOTBALL_COMMANDS | FEATURE_COMMANDS | LEARNING_COMMANDS | PARTICIPANT_COMMANDS | PERSONAL_COMMANDS | {'/bubus', '/predict', '/weather', '/convert', '/start', '/auto_on', '/auto_off', '/status', '/quality'}:
             return
         if (not private and user_id and (message.get('from', {}).get('username') or '').casefold() == TEASE_USERNAME
                 and text.strip() and not command):
             self.store.set(f'tease_target:{chat_id}', dict(user_id=user_id, seen_at=time.time(),
                            message_id=message['message_id'], text=clean_text(text)[:250]))
+        personal = personal_memory.request(text, command)
+        if personal:
+            self.notify(chat_id, personal_memory.action(self.store, personal, chat_id, user_id, message['message_id']), message['message_id'])
+            return
         reply = message.get('reply_to_message', {})
         correction = correction_request(text, command)
         if correction:
@@ -1084,6 +1093,7 @@ class Bot:
         explanation_reply = reply_to_bot and self.store.answer_mode(chat_id, reply.get('message_id')) in ('question', 'factcheck')
         dialogue_id = reply.get('message_id') if reply_to_bot else session_id if followup and not reply else None
         addressed = private or mentioned or reply_to_bot or question_call or bool(session_id and followup) or pending_followup or control_call
+        personal_memory.observe(self.store, chat_id, user_id, text, message['message_id'], addressed=addressed)
         prediction_context = self.store.get(f'prediction:context:{chat_id}:{dialogue_id}') if dialogue_id else None
         utility = prediction_request(argument, command, addressed=addressed, context=prediction_context)
         if not utility:
@@ -1219,6 +1229,7 @@ class Bot:
             data['trigger_words'] = [word for word in data['trigger_words'] if word.casefold() not in BOT_ALIASES]
         data['request_updates'] = job.get('request_updates', [])
         data['participant_profiles'] = self.store.participant_profiles(job['chat_id'], job['text'])
+        data['current_participant'] = personal_memory.context(self.store, job['chat_id'], job.get('user_id'), job['text'])
         data['approved_corrections'] = self.store.correction_examples(job['chat_id'], subject, 'parody',user_id=job.get('user_id'))
         rejected = self.store.rejected_keys(job['chat_id'])
         data['style_examples'] = [row for row in data['style_examples'] if answer_key(row['response']) not in rejected][:2]
@@ -1230,6 +1241,8 @@ class Bot:
             if self.superseded(job):
                 return None
             prompt = self.manual_prompt + '\n' + data['reply_brief'] if direct_reply else self.prompt
+            if data['current_participant']:
+                prompt += '\n' + PERSONAL_RULES
             if direct_reply and tone == 'calm':
                 prompt += '\nСобеседник недоволен: ответь спокойно, без ругани, иронии и встречных обвинений. Уточни, что исправить, если это неясно.'
             elif direct_reply and tone == 'playful':
@@ -1426,6 +1439,7 @@ class Bot:
             data['speech_profile'] = profile_for_request(subject)
         data['chat_memories'] = memory_context(self.store.memories(job['chat_id'], subject, limit=3))
         data['participant_profiles'] = self.store.participant_profiles(job['chat_id'], subject)
+        data['current_participant'] = personal_memory.context(self.store, job['chat_id'], job.get('user_id'), job['text'])
         data['approved_corrections'] = self.store.correction_examples(job['chat_id'], subject, 'question',user_id=job.get('user_id'))
         rejected = self.store.rejected_keys(job['chat_id'])
         if not neutral:
@@ -1478,6 +1492,8 @@ class Bot:
             if self.superseded(job):
                 return None
             prompt = (STANDARD_PROMPT if question_style == 'standard' else NEUTRAL_PROMPT) if neutral else QUESTION_PROMPT
+            if data['current_participant']:
+                prompt += '\n' + PERSONAL_RULES
             if data['reply_tone']=='calm':
                 prompt += '\nОтветь спокойно и по существу, без подколов и встречных обвинений.'
             if attempt:
@@ -1676,7 +1692,8 @@ class Bot:
             try:
                 if utility['kind'] == 'visual':
                     from visual_context import answer as visual_answer
-                    answer = visual_answer(self.config, self.telegram, utility['media'], job['text'])
+                    answer = visual_answer(self.config, self.telegram, utility['media'], job['text'],
+                                           personal=personal_memory.context(self.store, chat_id, job.get('user_id'), job['text']))
                 elif utility['kind'] == 'factcheck':
                     if utility.get('automatic_lookup'):
                         answer = self.fact_checker.answer(utility['query'], self.config,

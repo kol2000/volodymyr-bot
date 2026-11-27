@@ -66,3 +66,5 @@ Windows: явная UTF-8 при чтении/записи; PowerShell може�
 Развлекательные рубрики: chat_features.py и CHAT_FEATURES.md. Таблица chat_archive хранит привязанный чат бессрочно; триггеры отделяют архив от 30-дневного контекста. Не публиковать архив/предпросмотры в Git. Удаление данных пользователя должно учитывать chat_archive.
 
 Зрение: visual_context.py, VISION.md. Gemma даёт описание основной Qwen. Не логировать URL Telegram/картинки, не превращать текст на изображении в инструкции. TGS пока только превью.
+
+Личная память: personal_memory.py, PERSONAL_MEMORY.md. По умолчанию off; profile/history/banter отдельно. Использовать только self-reported confirmed записи текущих chat_id/user_id. Не импортировать догадки/архив в факты и не публиковать личные данные в Git.
