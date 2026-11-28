@@ -66,5 +66,22 @@ class HealthTests(unittest.TestCase):
             metrics.telegram('sendMessage',True)
         write.assert_not_called()
 
+    def test_coverage_excludes_previous_day_but_reports_today(self):
+        from datetime import datetime
+        from types import SimpleNamespace
+        day=datetime(2026,11,28,tzinfo=h.MOSCOW).date()
+        row=dict(competition='Чемпионат Англии',home='A',away='B')
+        def match(d):return SimpleNamespace(kickoff=datetime(2026,11,d,23,tzinfo=h.MOSCOW).timestamp())
+        old=h.coverage([row],set(),day,lambda r:match(27))
+        self.assertNotEqual(old['status'],'warn');self.assertIn('другой даты исключены: 1',old['detail'])
+        current=h.coverage([row],set(),day,lambda r:match(28))
+        self.assertEqual(current['status'],'warn');self.assertIn('без записи прогноза: 1',current['detail'])
+
+    def test_coverage_unknown_date_is_not_success(self):
+        from datetime import datetime
+        def fail(row):raise ValueError('offline')
+        out=h.coverage([dict(competition='Чемпионат Англии',home='A',away='B')],set(),datetime.now(h.MOSCOW).date(),fail)
+        self.assertEqual(out['status'],'warn');self.assertIn('дата не подтверждена: 1',out['detail'])
+
 
 if __name__=='__main__':unittest.main()

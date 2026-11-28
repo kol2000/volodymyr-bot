@@ -104,6 +104,30 @@ def models(config,vision=False):
     return result('error' if not valid else 'warn' if seconds>60 else 'ok',f'Ответ за {seconds:.1f} с; '+('визуальная проба верна' if vision and valid else 'ответ получен' if valid else 'проба не пройдена'))
 
 
+def coverage(rows,known,today,load_match):
+    import soccer365_football as soccer
+    from forecast_service import competition_kind
+    expected=set();missing=set();other_day=0;unverified=0
+    for row in rows:
+        key=(competition_kind(row['competition']),soccer.identity(row['home']),soccer.identity(row['away']))
+        if not key[0]:continue
+        if key in known:
+            expected.add(key);continue
+        # Listing can retain yesterday's finished games after midnight.
+        # Only the individual match's timestamp establishes its calendar day.
+        try:
+            match=load_match(row)
+            if datetime.fromtimestamp(match.kickoff,MOSCOW).date()!=today:
+                other_day+=1;continue
+        except Exception:
+            unverified+=1;continue
+        expected.add(key);missing.add(key)
+    detail=f'Матчи сегодня: {len(expected)}; без записи прогноза: {len(missing)}; матчи другой даты исключены: {other_day}'
+    if missing:detail+='; исторические прогнозы не создаются'
+    if unverified:detail+=f'; дата не подтверждена: {unverified}'
+    return result('warn' if missing or unverified else 'ok' if expected else 'unknown',detail)
+
+
 def sources_and_coverage():
     import kulichki_football as fnk
     import soccer365_football as soccer
@@ -121,9 +145,8 @@ def sources_and_coverage():
                         r=read_observation(path)
                         if datetime.fromtimestamp(r['kickoff'],MOSCOW).date()==today:
                             known.add((r['kind'],soccer.identity(r['home']),soccer.identity(r['away'])))
-                    expected={(competition_kind(r['competition']),soccer.identity(r['home']),soccer.identity(r['away'])) for r in rows if competition_kind(r['competition'])}
-                    missing=expected-known
-                    out['Полнота прогнозов']=result('warn' if missing else 'ok' if expected else 'unknown',f'Календарь сегодня: {len(expected)}; без записи прогноза: {len(missing)}. Исторические прогнозы не создаются')
+                    out['Полнота прогнозов']=coverage(rows,known,today,
+                        lambda row:soccer.broadcast(soccer.fetch(row['url']),row))
                 except Exception as error:
                     out['Полнота прогнозов']=result('error',type(error).__name__+' при проверке журнала прогнозов')
         except Exception as error:out[name]=result('error',type(error).__name__+' при получении/разборе данных')
