@@ -31,7 +31,8 @@ if V8_MODE not in ("off", "shadow", "on"):
 
 def canonical(name):
     value = ' '.join(re.findall(r'\w+', name.casefold().replace('ё','е')))
-    return 'динамо' if value in ('динамо москва','динамо московское') else value
+    return {'динамо москва':'динамо','динамо московское':'динамо','цска москва':'цска',
+            'спартак москва':'спартак','локомотив москва':'локомотив'}.get(value,value)
 
 
 def followup(value):
@@ -145,7 +146,10 @@ def estimate(home, away, home_rows, away_rows):
     chances=[sum(p for (i,j),p in grid.items() if (i>j if k==0 else i==j if k==1 else i<j))/total for k in range(3)]
     rounded=[int(100*p) for p in chances]
     for k in sorted(range(3),key=lambda k:100*chances[k]-rounded[k],reverse=True)[:100-sum(rounded)]: rounded[k]+=1
-    return dict(probabilities=rounded,score=max(grid,key=grid.get),winner=max(range(3),key=lambda k:chances[k]))
+    winner=max(range(3),key=lambda k:chances[k])
+    scenarios={score:prob for score,prob in grid.items()
+               if (0 if score[0]>score[1] else 2 if score[0]<score[1] else 1)==winner}
+    return dict(probabilities=rounded,score=max(scenarios,key=scenarios.get),winner=winner)
 
 
 class Predictions:
@@ -292,7 +296,20 @@ class Predictions:
         if not selected and not re.search(r'куб|лига|чемпионат',query,re.I):
             words=canonical(re.sub(r'\bмю\b','манчестер юнайтед',re.sub(r'\bшахта\b','шахтер',query,flags=re.I),flags=re.I)).split()
             selected=[m for m in matches if all(all(w in words for w in canonical(t).split()) for t in (m.home,m.away)) and select_matches([m],'')]
-        if req.get('match_id'): selected=[m for m in selected if m.id==req['match_id']]
+        if req.get('match_id'):
+            exact=[m for m in selected if m.id==req['match_id']]
+            if not exact:
+                from soccer365_football import identity as team_identity
+                pair=re.split(r'\s+[—–-]\s+',query)
+                origin=req['match_id'].split(':')[0]
+                alternatives=[m for m in selected if len(pair)==2
+                    and {origin,m.id.split(':')[0]}=={'fnk','s365'}
+                    and (team_identity(m.home),team_identity(m.away))==tuple(team_identity(t) for t in pair)
+                    and datetime.fromtimestamp(m.kickoff,MOSCOW).date()==day]
+                # A source ID is not a global match ID. Accept only a unique,
+                # ordered team pair on the requested day across the two sources.
+                if len(alternatives)==1:exact=alternatives
+            selected=exact
         v8log.warning(
             'BUBUS_V8_TRACE_SELECTED count=%s ids=%s',
             len(selected), [m.id for m in selected[:12]])
