@@ -137,8 +137,10 @@ def render(record):
     label={'recent_form_poisson':'Расчёт по предыдущим матчам чемпионатов','national_elo':'Экспериментальный рейтинг сборных; место проведения не подтверждено','model_estimate':'Оценка модели без подтверждённой свежей статистики','neutral_prior':'Нейтральный базовый сценарий: статистика и модель недоступны'}[record['method']]
     lines=[f'⚽ <b>Прогноз: {escape(h)} — {escape(a)}</b>',datetime.fromtimestamp(record['kickoff'],MOSCOW).strftime('%d.%m %H:%M МСК'),'',f'Мой вариант по исходу: <b>{escape(pick)}</b>',f'Предполагаемый счёт: <b>{s[0]}:{s[1]}</b>']
     if p:lines+=['П1 {:.0f}% · Х {:.0f}% · П2 {:.0f}%'.format(*(x*100 for x in p))]
-    lines+=['','Основное время: 90 минут + добавленное. Не прогноз прохода и не серия пенальти.','',label+'. Точность ещё проверяется. Уверенность низкая. Без гарантий.']
+    footer_start=len(lines)
+    lines+=['',label+'. Точность ещё проверяется. Уверенность низкая. Без гарантий.']
     if record['kind'] in ('russian_cup','champions_league','europa_league'):lines+=['Составы, травмы, ротация и разница силы чемпионатов могут существенно изменить исход.']
+    lines=[('<i>'+line+'</i>') if i>=footer_start and line else line for i,line in enumerate(lines)]
     return bubus_spelling(HTMLMessage('\n'.join(lines)))
 
 

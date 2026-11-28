@@ -17,7 +17,7 @@ class ForecastTests(unittest.TestCase):
  def test_all_competitions(self):
   for c in ['Чемпионат Англии','Чемпионат Испании','Чемпионат Италии','Чемпионат Франции','Чемпионат Германии','Премьер-лига России','Премьер-лига, 15-й тур','Кубок России','Лига чемпионов УЕФА','Лига Европы УЕФА','Лига наций УЕФА','Товарищеские матчи (сборные)','Чемпионат мира - Квалификация']:
    with self.subTest(c=c),patch.object(service,'national_estimate',return_value=None):
-    r=self.forecast(c);self.assertEqual(r['score'],[2,1]);self.assertIn('90',str(service.render(r)));self.assertIsNone(r['probabilities'])
+    r=self.forecast(c);self.assertEqual(r['score'],[2,1]);self.assertNotIn('Основное время:',str(service.render(r)));self.assertIn('<i>',str(service.render(r)));self.assertIsNone(r['probabilities'])
  def test_no_fake_probabilities_or_future(self):
   r=self.forecast();self.assertEqual(r['method'],'model_estimate')
   with self.assertRaises(ValueError):service.validate(dict(r,created=r['kickoff']))

@@ -200,7 +200,7 @@ class Predictions:
         if match and (match.status!='scheduled' or self.clock()>=match.kickoff):
             note='Оценка по ходу матча без учёта текущего счёта.'
         return bubus_spelling(HTMLMessage(heading+f'\n\nМой вариант: <b>{escape(pick)}</b>\nПредполагаемий счёт: <b>{score[0]}:{score[1]}</b>\n\n'+
-            method+'. Уверенность низкая. Ето предположение без проверенной свежей форми и составов. Без гарантий.'+('\n\n'+note if note else '')))
+            '<i>'+method+'. Уверенность низкая. Ето предположение без проверенной свежей форми и составов. Без гарантий.</i>'+('\n\n<i>'+note+'</i>' if note else '')))
 
     def answer(self, req, model=None):
         import logging
