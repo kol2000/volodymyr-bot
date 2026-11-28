@@ -58,12 +58,12 @@ def desktop():
     from desktop_reader import OUTPUT,REQUESTS
     beat=read(OUTPUT/'heartbeat.json');age=time.time()-beat.get('checked',0)
     states=[unit(n) for n in ('bubus-telegram-desktop','bubus-desktop-worker','bubus-desktop-export')]
-    good=all(x=='active' for x in states) and 0<=age<600 and os.access(REQUESTS,os.W_OK)
+    good=all(x=='active' for x in states) and 0<=age<600 and os.access(REQUESTS,os.R_OK | os.X_OK)
     stalled=0
     for request in REQUESTS.glob('*.json'):
         if not 1800<time.time()-request.stat().st_mtime<7*86400:continue
         if not ((OUTPUT/(request.stem+'.json')).exists() and (OUTPUT/(request.stem+'.mp4')).exists()):stalled+=1
-    return result('error' if not good else 'warn' if stalled else 'ok',f'Службы {"/".join(states)}; heartbeat {int(age)} с; запросов без результата >30 мин: {stalled}; очередь доступна {os.access(REQUESTS,os.W_OK)}')
+    return result('error' if not good else 'warn' if stalled else 'ok',f'Службы {"/".join(states)}; heartbeat {int(age)} с; запросов без результата >30 мин: {stalled}; очередь читается {os.access(REQUESTS,os.R_OK | os.X_OK)}')
 
 
 def video_jobs():

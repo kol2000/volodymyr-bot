@@ -28,3 +28,5 @@ bubus-safe-recovery.timer запускает root-owned /usr/local/lib/bubus-saf
 Команды: `python3 -B health_monitor.py --deep`; `systemctl list-timers bubus-health.timer bubus-safe-recovery.timer`; `journalctl -u bubus-health -u bubus-safe-recovery --since today`. Не печатать state/config.json/содержимое бэкапов. Тесты: `PYTHONPATH=.:tests python3 -B -m unittest test_health_monitor`.
 
 Дополнительная проверка Desktop обнаружила 2 запроса за последнюю неделю без готового результата старше 30 минут. Автоматически не переотправляются.
+
+После установки подтверждены оба enabled/active таймера и успешный цикл. Исправлена проверка Desktop: монитор проверяет чтение каталога, а не запись, запрещённую его собственным ProtectSystem=strict. У основной службы отдельно подтверждён ReadWritePaths=/var/lib/bubus-desktop-requests. Telegram polling heartbeat свежий; отсутствие отправок после запуска не является ошибкой.
