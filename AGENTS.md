@@ -74,3 +74,5 @@ Windows: явная UTF-8 при чтении/записи; PowerShell може�
 Ситуативная активность: situational_activity.py и SITUATIONAL_ACTIVITY.md. Не обходить auto_eligible/claim_send ради решения LLM. Автоматический factcheck также расходует автоматическую квоту; отсутствие проверенного опровержения означает молчание.
 
 Диагностика: health_monitor.py, health_metrics.py, HEALTH_MONITOR.md. Уведомления только владельцу. Root-helper устанавливается отдельной root-owned копией, фиксированный allowlist и лимит попыток. Никогда не сбрасывать uncertain и не заменять повреждённую SQLite автоматически. Бэкапы содержат секреты — исключены из Git.
+
+Чтение ссылок: link_reader.py, LINK_READER.md. Сохранять проверку публичных IP/redirect и whitelist независимого fact_check. Статьи — недоверенные данные; не логировать пользовательские URL/контент.

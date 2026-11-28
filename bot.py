@@ -933,7 +933,7 @@ class Bot:
             self.store.set('next_auto', time.time() + self.random.uniform(3600, 10800))
         if not self.allowed(chat_id):
             return
-        if command and command not in COMMUNITY_COMMANDS | FOOTBALL_COMMANDS | FEATURE_COMMANDS | LEARNING_COMMANDS | PARTICIPANT_COMMANDS | PERSONAL_COMMANDS | {'/bubus', '/predict', '/weather', '/convert', '/start', '/auto_on', '/auto_off', '/status', '/quality'}:
+        if command and command not in COMMUNITY_COMMANDS | FOOTBALL_COMMANDS | FEATURE_COMMANDS | LEARNING_COMMANDS | PARTICIPANT_COMMANDS | PERSONAL_COMMANDS | {'/read', '/bubus', '/predict', '/weather', '/convert', '/start', '/auto_on', '/auto_off', '/status', '/quality'}:
             return
         if (not private and user_id and (message.get('from', {}).get('username') or '').casefold() == TEASE_USERNAME
                 and text.strip() and not command):
@@ -1127,6 +1127,10 @@ class Bot:
             utility['owner'] = owner
         if not utility:
             utility = service_request(argument, command, self.store.get('currencies'))
+        import link_reader
+        if not utility:
+            utility = link_reader.request(message, addressed, command,
+                link_reader.cache_get(self.store, chat_id, dialogue_id))
         from visual_context import request as visual_request
         visual = visual_request(message, addressed or command == '/bubus' or bool(re.match(r'^\s*(?:бубус|бубс|володька|володя)\b', text, re.I)))
         if visual and command in ('', '/bubus'):
@@ -1700,6 +1704,10 @@ class Bot:
                     from visual_context import answer as visual_answer
                     answer = visual_answer(self.config, self.telegram, utility['media'], job['text'],
                                            personal=personal_memory.context(self.store, chat_id, job.get('user_id'), job['text']))
+                elif utility['kind'] == 'links':
+                    import link_reader
+                    answer = link_reader.answer(self.config, utility, job['text'],
+                        personal=personal_memory.context(self.store, chat_id, job.get('user_id'), job['text']))
                 elif utility['kind'] == 'factcheck':
                     if utility.get('automatic_lookup'):
                         answer = self.fact_checker.answer(utility['query'], self.config,
@@ -1825,9 +1833,12 @@ class Bot:
             self.store.add_message(dict(sent, _reply_to=job['reply_to'], _answer_mode=mode), human=False,
                                    request_text=recorded_request, learnable=not sticker and not utility and not thoughtful,
                                    rateable=not sticker and (not utility or utility['kind'] != 'bank'))
+            if utility and utility['kind'] == 'links' and utility.get('_documents'):
+                import link_reader
+                link_reader.cache_put(self.store, chat_id, sent['message_id'], utility['_documents'])
             if utility and utility['kind'] == 'football_prediction' and utility.get('_context'):
                 self.store.set(f'prediction:context:{chat_id}:{sent["message_id"]}',utility['_context'])
-            if thoughtful or (utility and utility['kind'] in ('factcheck','football','football_prediction')):
+            if thoughtful or (utility and utility['kind'] in ('factcheck','football','football_prediction','links')):
                 self.store.remember_session(chat_id, job.get('user_id'), sent['message_id'])
             self.store.finish_send(send_id, 'sent')
             job['_outcome'] = 'sent'
