@@ -9,9 +9,9 @@ from pathlib import Path
 from bot import Bot, Store, answer_problem
 from common import APIError, CONFIG, MODEL, ROOT, http_json
 from answer_quality import banter_coherence_problem, banter_relation_problem, checked_concise_extract, concise_problem, concise_word_limit, grounding_problem, specific_clarification
-from conversation import ambiguous_subject, dialogue_roles, elliptical_followup, inline_control, missing_reference, response_control, verification_query
+from conversation import banter_request, ambiguous_subject, dialogue_roles, elliptical_followup, inline_control, missing_reference, response_control, verification_query
 from inference import generation_stats, runner_options
-from question_answers import ends_question, thoughtful_request
+from question_answers import ends_question, thoughtful_request, short_topic_clarification
 
 
 class NoTelegram:
@@ -20,11 +20,14 @@ class NoTelegram:
 
 
 def route(case):
+    if short_topic_clarification(case['request']):return 'question'
+    if banter_request(case['request']):return 'parody'
     thoughtful = bool(case.get('control') or case.get('dialogue') or case.get('updates') or thoughtful_request(case['request']))
     return 'web' if thoughtful and verification_query(case['request']) else 'question' if thoughtful else 'parody'
 
 
 def uses_model(case):
+    if short_topic_clarification(case['request']):return False
     if elliptical_followup(case['request']) == 'reverse_condition' or (elliptical_followup(case['request']) and not case.get('dialogue')):
         return False
     if route(case) == 'parody' and dialogue_roles(case['request'])['address_kind'] == 'bare_call':

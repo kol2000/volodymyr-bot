@@ -1,0 +1,11 @@
+[Unit]
+Description=Monday 10:00 Moscow forecast report
+
+[Timer]
+OnCalendar=Mon *-*-* 10:00:00 Europe/Moscow
+Persistent=true
+AccuracySec=1min
+Unit=bubus-forecast-weekly.service
+
+[Install]
+WantedBy=timers.target

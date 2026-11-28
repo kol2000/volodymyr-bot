@@ -1,0 +1,14 @@
+[Unit]
+Description=Bubus forecasts for leagues cups and national teams
+After=network-online.target
+[Service]
+Type=oneshot
+User=botadmin
+WorkingDirectory=/home/botadmin/volodymyr_bot
+ExecStart=/usr/bin/flock -n /home/botadmin/volodymyr_bot/state/football_forecast_cycle.lock /usr/bin/python3 -B forecast_cycle.py --days 3 --limit 20 --with-model --write
+TimeoutStartSec=45min
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/botadmin/volodymyr_bot/state
+PrivateTmp=true

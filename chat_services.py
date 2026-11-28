@@ -1,5 +1,6 @@
 """Currency amounts and current weather from public APIs, never from the LLM."""
 import json
+import logging
 from html import escape
 import re
 import time
@@ -21,8 +22,8 @@ RUBLE_UNIT = r'руб(?:лей|ля|ль|ли)?'
 BYN_UNIT = r'(?:BYN|белруб(?:ов|а)?|(?:белорусск(?:ий|их|ие|ого|ому|им|ими|ом)|бел\.?)\s+' + RUBLE_UNIT + r'\.?)'
 UAH_UNIT = r'(?:UAH|грн\.?|₴|грив(?:на|ны|ну|не|ной|нами|нам|нах|ен|ня|ні|ню|нею|нями|ням|нях|ень))'
 KZT_UNIT = r'(?:KZT|₸|(?:(?:казахстанск|казахск)(?:ий|их|ие|ого|ому|им|ими|ом)\s+)?(?:тенге|теңге))'
-UNIT = r'(?:' + BYN_UNIT + '|' + UAH_UNIT + '|' + KZT_UNIT + r'|USDT|USDC|USD|RUB|BTC|ETH|BNB|SOL|TON|DOGE|доллар(?:ов|а)?|бакс(?:ов|а)?|' + RUBLE_UNIT + r'|\$|₽)'
-AMOUNTS = re.compile(r'(?<![\w.,+\-])(?:(?P<prefix>\$|₽|₴|₸)\s*(?P<first>' + NUMBER +
+UNIT = r'(?:' + BYN_UNIT + '|' + UAH_UNIT + '|' + KZT_UNIT + r'|EUR|евро|€|USDT|USDC|USD|RUB|BTC|ETH|BNB|SOL|TON|DOGE|доллар(?:ов|а)?|бакс(?:ов|а)?|' + RUBLE_UNIT + r'|\$|₽)'
+AMOUNTS = re.compile(r'(?<![\w.,+\-])(?:(?P<prefix>\$|€|₽|₴|₸)\s*(?P<first>' + NUMBER +
                      r')|(?P<second>' + NUMBER + r')\s*(?P<unit>' + UNIT + r'))(?!\w)', re.I)
 CITY_ALIASES = {'орле': 'Орёл', 'орел': 'Орёл', 'орёл': 'Орёл',
                 'москве': 'Москва', 'петербурге': 'Санкт-Петербург',
@@ -88,16 +89,26 @@ def decimal_value(value, positive=False):
     return result
 
 
-def amounts_in(text):
+def amounts_in(text, currency_settings=None):
     # URLs, addresses and usernames are not currency amounts.
     text = re.sub(r'https?://\S+|\b0x[a-f0-9]+\b|@[\w]+', '', text, flags=re.I)
     result = []
-    for match in AMOUNTS.finditer(text[:1000]):
+    aliases = {}
+    if currency_settings:
+        aliases = {alias: code for code, row in currency_settings.items() for alias in row['aliases']}
+    pattern = AMOUNTS
+    if aliases:
+        extra = '|'.join(re.escape(a).replace(r'\ ', r'\s+') for a in sorted(aliases, key=len, reverse=True))
+        pattern = re.compile(AMOUNTS.pattern.replace(UNIT, '(?:' + extra + '|' + UNIT + ')'), re.I)
+    for match in pattern.finditer(text[:1000]):
         number = re.sub(r'[ \u00a0\u202f]', '', match['first'] or match['second']).replace(',', '.')
         amount = decimal_value(number)
         unit = (match['prefix'] or match['unit']).upper()
+        unit = aliases.get(' '.join(unit.casefold().split()), unit)
         if unit in ('$', 'USD') or unit.startswith(('ДОЛЛАР', 'БАКС')):
             unit = 'USD'
+        elif unit in ('EUR', 'ЕВРО', '€'):
+            unit = 'EUR'
         elif unit == 'BYN' or unit.startswith('БЕЛ'):
             unit = 'BYN'
         elif unit in ('UAH', '₴') or unit.startswith(('ГРИВ', 'ГРН')):
@@ -106,6 +117,8 @@ def amounts_in(text):
             unit = 'KZT'
         elif unit in ('₽', 'RUB') or unit.startswith('РУБ'):
             unit = 'RUB'
+        if currency_settings is not None and not currency_settings.get(unit, {}).get('enabled', True):
+            continue
         row = {'amount': str(amount), 'unit': unit}
         if 0 < amount <= Decimal('1000000000000') and row not in result:
             result.append(row)
@@ -114,7 +127,7 @@ def amounts_in(text):
     return result
 
 
-def service_request(text, command=''):
+def service_request(text, command='', currency_settings=None):
     if command == '/weather' or re.search(r'\b(?:какая|покажи|скажи|узнай)\b.*\bпогод[ауеы]\b', text, re.I) or re.match(r'^\s*(?:[\w@]+[, :]\s*)?погод[ауеы]\b', text, re.I):
         if re.search(r'\b(?:завтра|послезавтра|недел\w*)\b', text, re.I):
             return {'kind': 'weather', 'error': 'forecast_unsupported'}
@@ -132,7 +145,7 @@ def service_request(text, command=''):
         if len(city) > 80 or not re.fullmatch(r'[а-яёіїєґa-z ,\-]+', city, re.I):
             return {'kind': 'weather', 'error': 'city_not_found'}
         return {'kind': 'weather', 'city': city}
-    amounts = amounts_in(text)
+    amounts = amounts_in(text, currency_settings)
     if amounts or command == '/convert':
         return {'kind': 'currency', 'amounts': amounts}
     return None
@@ -140,21 +153,22 @@ def service_request(text, command=''):
 
 def get_data(url, xml=False):
     request = urllib.request.Request(url, headers={'User-Agent': 'volodymyr-bot/1.0'})
-    for attempt in range(2):
+    attempts = 1 if xml else 2
+    for attempt in range(attempts):
         try:
-            with urllib.request.urlopen(request, timeout=12) as response:
+            with urllib.request.urlopen(request, timeout=6 if xml else 12) as response:
                 body = response.read(262145)
             if len(body) > 262144:
                 raise ServiceError('response_too_large')
             return ET.fromstring(body) if xml else json.loads(body)
         except urllib.error.HTTPError as error:
-            if not attempt and error.code in (500, 502, 503, 504):
+            if attempt + 1 < attempts and error.code in (500, 502, 503, 504):
                 time.sleep(0.5)
                 continue
             raise ServiceError('rate_limited' if error.code == 429 else 'service_http_error') from None
         except (urllib.error.URLError, TimeoutError, OSError):
             # Retrying an idempotent data GET cannot duplicate a Telegram reply.
-            if not attempt:
+            if attempt + 1 < attempts:
                 time.sleep(0.5)
                 continue
             raise ServiceError('service_unavailable') from None
@@ -186,22 +200,42 @@ class ChatServices:
     def cbr(self):
         today = datetime.now(MOSCOW).date()
 
-        def fetch():
-            root = get_data('https://www.cbr.ru/scripts/XML_daily.asp?' +
-                            urllib.parse.urlencode({'date_req': today.strftime('%d/%m/%Y')}), xml=True)
+        def parse(root):
             date = datetime.strptime(root.attrib['Date'], '%d.%m.%Y').date()
             if not 0 <= (today - date).days <= 14:
                 raise ServiceError('stale_rates')
             rates = {}
             for row in root.findall('Valute'):
                 unit = row.findtext('CharCode')
-                if unit in ('USD', 'BYN', 'UAH', 'KZT'):
+                if unit in ('USD', 'EUR', 'BYN', 'UAH', 'KZT'):
                     rate = decimal_value(row.findtext('Value').replace(',', '.'), positive=True)
                     nominal = decimal_value(row.findtext('Nominal'), positive=True)
                     rates[unit] = rate / nominal
             if 'USD' not in rates:
                 raise ServiceError('missing_usd_rate')
             return rates, date.strftime('%d.%m.%Y')
+
+        def fetch():
+            sources = [
+                ('CBR', 'https://www.cbr.ru/scripts/XML_daily.asp?' +
+                 urllib.parse.urlencode({'date_req': today.strftime('%d/%m/%Y')})),
+                ('CBR-XML-Daily', 'https://www.cbr-xml-daily.com/daily_utf8.xml'),
+                ('CBR-XML-Daily', 'https://www.cbr-xml-daily.ru/daily_utf8.xml'),
+            ]
+            error = ServiceError('service_unavailable')
+            for name, url in sources:
+                try:
+                    value = parse(get_data(url, xml=True))
+                except ServiceError as exc:
+                    error = exc
+                except (KeyError, TypeError, ValueError, AttributeError, InvalidOperation):
+                    error = ServiceError('malformed_data')
+                else:
+                    self.cbr_source = name
+                    logging.info('Курсы валют получены: источник=%s; дата=%s', name, value[1])
+                    return value
+                logging.warning('Источник курсов недоступен: источник=%s; причина=%s', name, error)
+            raise error
 
         return self.cached(('cbr', today), 3600, fetch)
 
@@ -241,7 +275,7 @@ class ChatServices:
             elif unit == 'USD':
                 header = f'{money(amount)} USD'
                 results = [f'💰 <b>≈ {money(amount * rate)} RUB</b>']
-            elif unit in ('BYN', 'UAH', 'KZT'):
+            elif unit in ('EUR', 'BYN', 'UAH', 'KZT'):
                 if unit not in rates:
                     raise ServiceError('missing_fiat_rate')
                 rub = amount * rates[unit]
@@ -256,8 +290,10 @@ class ChatServices:
                 results = [f'💵 <b>≈ {money(usd)} USD</b>', f'💰 <b>≈ {money(usd * rate)} RUB</b>']
             blocks.append(f'💱 <b>{escape(header)}</b>\n' + '\n'.join(results))
         sources = f'RUB: курс ЦБ на {date}'
-        if any(row['unit'] in ('BYN', 'UAH', 'KZT') for row in amounts):
+        if any(row['unit'] in ('EUR', 'BYN', 'UAH', 'KZT') for row in amounts):
             sources = f'курс ЦБ на {date}'
+        if getattr(self, 'cbr_source', 'CBR') != 'CBR':
+            sources += ' · через CBR-XML-Daily'
         if coins:
             stamp = min(row[1] for row in coins.values())
             sources = 'CoinGecko: ' + datetime.fromtimestamp(stamp, MOSCOW).strftime('%d.%m %H:%M МСК') + '\n' + sources

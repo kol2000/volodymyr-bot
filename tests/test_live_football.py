@@ -302,7 +302,8 @@ class ParsingTests(unittest.TestCase):
                    home='&' * 80, away='<' * 80, extra='x' * 80, label='z' * 80) for number in range(16)]
         rendered = scoreboard_text(matches, DAY, START)
         self.assertLess(len(rendered), 4096)
-        self.assertIn('Ещё матчей:', rendered)
+        self.assertTrue(rendered.continuations)
+        self.assertTrue(all(len(page)<4096 for page in [rendered,*rendered.continuations]))
 
 
 class SourceTests(unittest.TestCase):

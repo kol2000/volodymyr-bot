@@ -39,8 +39,9 @@ def read_history(path, day):
         statuses = {}
         if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='goal_video_jobs'").fetchone():
             statuses = dict(db.execute('SELECT message_id,status FROM goal_video_jobs WHERE chat_id=?', (chat,)))
+    from soccer365_football import valid_url as soccer_url
     matches = [r for r in selected if start <= r.get('kickoff', 0) < start + 86400
-               and valid_url(r.get('url', ''))]
+               and (valid_url(r.get('url', '')) or soccer_url(r.get('url', '')))]
     return matches, posts, statuses
 
 
@@ -111,9 +112,13 @@ def run_replay(day, path, pages=4, download=False, team='', emit=print):
     matches, jobs, failed = [], [], False
     for row in selected:
         try:
-            selection = {k: row[k] for k in ('id', 'url', 'home', 'away', 'competition')}
+            selection = {k: row[k] for k in ('id', 'url', 'home', 'away', 'competition', 'kickoff')}
             selection['clock'] = datetime.fromtimestamp(row['kickoff'], MOSCOW).strftime('%H:%M')
-            match = parse_broadcast(fetch_html(row['url']), selection)
+            if selection['id'].startswith('s365:'):
+                from soccer365_football import fetch, broadcast
+                match = broadcast(fetch(row['url']), selection)
+            else:
+                match = parse_broadcast(fetch_html(row['url']), selection)
         except (FootballError, ValueError, KeyError, TypeError, AttributeError) as error:
             emit(f'{row["home"]} — {row["away"]}: ФНК недоступен ({type(error).__name__}: {error}).')
             failed = True

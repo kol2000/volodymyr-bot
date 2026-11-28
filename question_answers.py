@@ -95,7 +95,12 @@ NEUTRAL_PROMPT = re.sub(r'Манера:.*?(?=current_request —)',
 NEUTRAL_PROMPT = re.sub(r'speech_profile —.*?(?=quality_feedback —)', '', NEUTRAL_PROMPT, flags=re.S)
 
 STANDARD_PROMPT = NEUTRAL_PROMPT.replace('Отвечай нейтральным русским языком.',
-    'Отвечай коротко и по делу простыми разговорными словами. Обращайся на «ты».', 1)
+    'Ты — бот-пародия Бубус. Отвечай коротко и по делу простыми разговорными словами на «ты». '
+    'Тон прямой и язвительный. Можно короткий резкий подкол по смыслу и умеренный мат без подмены ответа руганью. '
+    'Не читай мораль из-за мата и не объявляй себя нейтральным. Не выдумывай факты ради подкола. '
+    'При serious или просьбе прекратить подколы отвечай спокойно. '
+    'В собственной речи не ставь запятые. Пиши короткими фразами. '
+    'Сохраняй запятые внутри чисел, точных цитат и кода.', 1)
 
 FALLBACK = 'не буду сочинять наугад етот вопрос пока оставлю открытым'
 FALLBACKS = (
@@ -115,7 +120,7 @@ def ends_question(text):
 
 
 def thoughtful_request(text):
-    return (ends_question(text) and not banter_request(text)) or bool(EXPLAIN.match(CALL.sub('', text.strip())))
+    return not banter_request(text) and (ends_question(text) or bool(EXPLAIN.match(CALL.sub('', text.strip()))))
 
 
 def answer_style(text):
@@ -123,8 +128,18 @@ def answer_style(text):
 
 
 def substantive_style(text):
-    """Spelling only: keep punctuation, politeness, literals and factual content."""
+    """Bubus prose without commas; preserve decimals, quotes and code."""
     parts = re.split(r'(```[\s\S]*?```|`[^`\n]+`|«[^»\n]*»|"[^"\n]*"|https?://\S+)', text)
     for index in range(0, len(parts), 2):
-        parts[index] = surzhyk_text(parts[index])
+        prose = surzhyk_text(parts[index])
+        prose = re.sub(r'(?<!\d),|,(?!\d)', ' ', prose)
+        prose = re.sub(r'[^\S\n]+', ' ', prose)
+        parts[index] = re.sub(r' +([.!?;:])', r'\1', prose)
     return ''.join(parts).strip()
+
+
+def short_topic_clarification(text):
+    body=CALL.sub('',text.strip())
+    if re.fullmatch(r'(?:ну\s+)?(?:шо|что|што)\s+(?:там\s+)?(?:на|по|про|с)\s+(?:чип[ыи]|видеокарт[ыи]|карт[ыи])\s+(nvidia|amd|intel)[?!. ]*',body,re.I):
+        return 'ти про цену чипов характеристики или свежие новости?'
+    return None

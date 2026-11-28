@@ -301,7 +301,7 @@ class ConversationTests(unittest.TestCase):
                 patch.object(self.bot, 'reserve_utility_send', side_effect=reserve):
             self.bot.process_job(root)
         self.assertEqual(len(reservations), 2)
-        self.assertEqual([row[1] for row in self.telegram.sent], ['новый ответ про копии'])
+        self.assertEqual([row[1] for row in self.telegram.sent], ['новий ответ про копии'])
 
     def test_revision_skips_retry_of_invalid_old_generation(self):
         self.bot.handle(self.update('Почему WiFi медленный?'))

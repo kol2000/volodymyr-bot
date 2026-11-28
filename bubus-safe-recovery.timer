@@ -1,0 +1,8 @@
+[Unit]
+Description=Check failed Bubus services every five minutes
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec=5min
+AccuracySec=30s
+[Install]
+WantedBy=timers.target

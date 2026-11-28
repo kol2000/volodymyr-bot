@@ -59,15 +59,16 @@ def decode_page(data, kind, limit):
     return data.decode(charset[1] if charset else 'utf-8', errors='replace')
 
 
-def fetch_public(url, limit=1_000_000, timeout=8):
+def fetch_public(url, limit=1_000_000, timeout=8, validator=None):
     """Resolve, validate and pin the actual TLS connection; validate redirects too."""
+    validate = validator or public_url
     deadline = time.monotonic() + timeout
     for _ in range(4):
         try:
-            parts = public_url(url)
+            parts = validate(url)
             # A configured proxy resolves hosts remotely. Only the fixed public
             # source allowlist is permitted; redirect targets get the same check.
-            if os.environ.get('HTTPS_PROXY') or os.environ.get('https_proxy'):
+            if validator is None and (os.environ.get('HTTPS_PROXY') or os.environ.get('https_proxy')):
                 opener = urllib.request.build_opener(PublicRedirect())
                 req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (compatible; BubusBot/1.0)',
                                                            'Accept-Encoding': 'identity'})

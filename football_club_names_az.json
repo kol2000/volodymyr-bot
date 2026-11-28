@@ -1,0 +1,5121 @@
+{
+  "source": "https://az.wikipedia.org/w/api.php",
+  "license": "CC BY-SA (Wikipedia article titles and interlanguage links)",
+  "category_count": 826,
+  "clubs": [
+    {
+      "id": 83417,
+      "az": "ANS Pivani Bakı FK",
+      "ru": "АНС Пивани",
+      "source": "https://az.wikipedia.org/?curid=83417"
+    },
+    {
+      "id": 83432,
+      "az": "Araz-Naxçıvan PFK",
+      "ru": "Араз-Нахчыван",
+      "source": "https://az.wikipedia.org/?curid=83432"
+    },
+    {
+      "id": 86472,
+      "az": "Aktobe FK",
+      "ru": "Актобе (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=86472"
+    },
+    {
+      "id": 86760,
+      "az": "Alaniya FK",
+      "ru": "Алания (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=86760"
+    },
+    {
+      "id": 86808,
+      "az": "Admira Vakker Mödlinq FK",
+      "ru": "Адмира Ваккер",
+      "source": "https://az.wikipedia.org/?curid=86808"
+    },
+    {
+      "id": 86951,
+      "az": "Adanaspor",
+      "ru": "Аданаспор",
+      "source": "https://az.wikipedia.org/?curid=86951"
+    },
+    {
+      "id": 86953,
+      "az": "Altay İK",
+      "ru": "Алтай (футбольный клуб, Измир)",
+      "source": "https://az.wikipedia.org/?curid=86953"
+    },
+    {
+      "id": 86955,
+      "az": "Antalyaspor",
+      "ru": "Антальяспор",
+      "source": "https://az.wikipedia.org/?curid=86955"
+    },
+    {
+      "id": 88363,
+      "az": "APOEL FK",
+      "ru": "АПОЭЛ (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=88363"
+    },
+    {
+      "id": 88365,
+      "az": "AEL Limasol FK",
+      "ru": "АЕЛ (футбольный клуб, Лимасол)",
+      "source": "https://az.wikipedia.org/?curid=88365"
+    },
+    {
+      "id": 88464,
+      "az": "Alemaniya Aaxen FK",
+      "ru": "Алеманния (футбольный клуб, Ахен)",
+      "source": "https://az.wikipedia.org/?curid=88464"
+    },
+    {
+      "id": 88529,
+      "az": "Arsenal FK",
+      "ru": "Арсенал (футбольный клуб, Лондон)",
+      "source": "https://az.wikipedia.org/?curid=88529"
+    },
+    {
+      "id": 92277,
+      "az": "Araz-Naxçıvan MFK",
+      "ru": "Араз (футзальный клуб)",
+      "source": "https://az.wikipedia.org/?curid=92277"
+    },
+    {
+      "id": 92585,
+      "az": "Anji Mahaçqala FK",
+      "ru": "Анжи",
+      "source": "https://az.wikipedia.org/?curid=92585"
+    },
+    {
+      "id": 95452,
+      "az": "AEK Afina FK",
+      "ru": "АЕК (футбольный клуб, Афины)",
+      "source": "https://az.wikipedia.org/?curid=95452"
+    },
+    {
+      "id": 280173,
+      "az": "Ararat Yerevan FK",
+      "ru": "Арарат (футбольный клуб, Ереван)",
+      "source": "https://az.wikipedia.org/?curid=280173"
+    },
+    {
+      "id": 296075,
+      "az": "Ankara Keçiörengücü İK",
+      "ru": "Кечиоренгюджю",
+      "source": "https://az.wikipedia.org/?curid=296075"
+    },
+    {
+      "id": 321962,
+      "az": "Akhisar Bələdiyyəspor",
+      "ru": "Акхисарспор",
+      "source": "https://az.wikipedia.org/?curid=321962"
+    },
+    {
+      "id": 322086,
+      "az": "Arceş Piteşti FK",
+      "ru": "Арджеш (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=322086"
+    },
+    {
+      "id": 326747,
+      "az": "Ağsu FK",
+      "ru": "Ахсу (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=326747"
+    },
+    {
+      "id": 367753,
+      "az": "07 Vestur",
+      "ru": "07 Вестур",
+      "source": "https://az.wikipedia.org/?curid=367753"
+    },
+    {
+      "id": 380340,
+      "az": "AİK FK",
+      "ru": "АИК (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=380340"
+    },
+    {
+      "id": 392644,
+      "az": "Altın Asır FK",
+      "ru": "Алтын Асыр (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=392644"
+    },
+    {
+      "id": 410404,
+      "az": "Amed İFK",
+      "ru": "Амед (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=410404"
+    },
+    {
+      "id": 413842,
+      "az": "Anderlext FK",
+      "ru": "Андерлехт (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=413842"
+    },
+    {
+      "id": 418008,
+      "az": "AEK Larnaka FK",
+      "ru": "АЕК (футбольный клуб, Ларнака)",
+      "source": "https://az.wikipedia.org/?curid=418008"
+    },
+    {
+      "id": 450109,
+      "az": "Ankaraspor",
+      "ru": "Анкараспор",
+      "source": "https://az.wikipedia.org/?curid=450109"
+    },
+    {
+      "id": 470174,
+      "az": "Altay Semey FK",
+      "ru": "Алтай (футбольный клуб, 2016)",
+      "source": "https://az.wikipedia.org/?curid=470174"
+    },
+    {
+      "id": 504512,
+      "az": "Alanyaspor",
+      "ru": "Аланьяспор",
+      "source": "https://az.wikipedia.org/?curid=504512"
+    },
+    {
+      "id": 514999,
+      "az": "Alaşkert FK",
+      "ru": "Алашкерт (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=514999"
+    },
+    {
+      "id": 574438,
+      "az": "Amkar Perm FK",
+      "ru": "Амкар",
+      "source": "https://az.wikipedia.org/?curid=574438"
+    },
+    {
+      "id": 586589,
+      "az": "Axmat FK",
+      "ru": "Ахмат (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=586589"
+    },
+    {
+      "id": 753207,
+      "az": "Almeriya (futbol klubu)",
+      "ru": "Альмерия (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=753207"
+    },
+    {
+      "id": 782053,
+      "az": "Arettso FK",
+      "ru": "Ареццо (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=782053"
+    },
+    {
+      "id": 815022,
+      "az": "Abşeron FK",
+      "ru": "Абшерон (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=815022"
+    },
+    {
+      "id": 815217,
+      "az": "Araz Saatlı FK",
+      "ru": "Араз Саатлы",
+      "source": "https://az.wikipedia.org/?curid=815217"
+    },
+    {
+      "id": 816775,
+      "az": "Altınordu FK",
+      "ru": "Алтынорду (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=816775"
+    },
+    {
+      "id": 825948,
+      "az": "Andorinha",
+      "ru": "Андоринья (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=825948"
+    },
+    {
+      "id": 828077,
+      "az": "Adana Dəmirspor",
+      "ru": "Адана Демирспор",
+      "source": "https://az.wikipedia.org/?curid=828077"
+    },
+    {
+      "id": 7978,
+      "az": "Barselona FK",
+      "ru": "Барселона (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=7978"
+    },
+    {
+      "id": 15869,
+      "az": "Ayntraxt Frankfurt FK",
+      "ru": "Айнтрахт (футбольный клуб, Франкфурт-на-Майне)",
+      "source": "https://az.wikipedia.org/?curid=15869"
+    },
+    {
+      "id": 22678,
+      "az": "Austriya Zalsburq FK",
+      "ru": "Аустрия (футбольный клуб, Зальцбург)",
+      "source": "https://az.wikipedia.org/?curid=22678"
+    },
+    {
+      "id": 39888,
+      "az": "Bakırköyspor",
+      "ru": "Бакыркёйспор",
+      "source": "https://az.wikipedia.org/?curid=39888"
+    },
+    {
+      "id": 71063,
+      "az": "Bakılı PFK",
+      "ru": "Бакылы (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=71063"
+    },
+    {
+      "id": 71077,
+      "az": "AZAL FK",
+      "ru": "Шувелян (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=71077"
+    },
+    {
+      "id": 83433,
+      "az": "Avey Ağstafa FK",
+      "ru": "Авей (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=83433"
+    },
+    {
+      "id": 83434,
+      "az": "Avtomobilçi Yevlax FK",
+      "ru": "Автомобилчи",
+      "source": "https://az.wikipedia.org/?curid=83434"
+    },
+    {
+      "id": 83436,
+      "az": "Azneftyağ FK",
+      "ru": "Азнефтьяг (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=83436"
+    },
+    {
+      "id": 83450,
+      "az": "Azəri Bakı FK",
+      "ru": "Азери (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=83450"
+    },
+    {
+      "id": 85182,
+      "az": "Banqor Siti FK",
+      "ru": "Бангор Сити",
+      "source": "https://az.wikipedia.org/?curid=85182"
+    },
+    {
+      "id": 85361,
+      "az": "Avanqard Kursk FK",
+      "ru": "Авангард (футбольный клуб, Курск)",
+      "source": "https://az.wikipedia.org/?curid=85361"
+    },
+    {
+      "id": 86767,
+      "az": "BATE Borisov FK",
+      "ru": "БАТЭ (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=86767"
+    },
+    {
+      "id": 88741,
+      "az": "B36 Torshavn FK",
+      "ru": "Б-36 (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=88741"
+    },
+    {
+      "id": 88744,
+      "az": "B68 Toftir FK",
+      "ru": "Б-68 (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=88744"
+    },
+    {
+      "id": 88746,
+      "az": "B71 Sandur FK",
+      "ru": "Б-71 (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=88746"
+    },
+    {
+      "id": 88808,
+      "az": "Atletiko Madrid FK",
+      "ru": "Атлетико Мадрид",
+      "source": "https://az.wikipedia.org/?curid=88808"
+    },
+    {
+      "id": 88810,
+      "az": "Atletik Bilbao FK",
+      "ru": "Атлетик Бильбао",
+      "source": "https://az.wikipedia.org/?curid=88810"
+    },
+    {
+      "id": 96955,
+      "az": "Atromitos Qeroskipu FK",
+      "ru": "Атромитос (футбольный клуб, Героскипу)",
+      "source": "https://az.wikipedia.org/?curid=96955"
+    },
+    {
+      "id": 97421,
+      "az": "Avenir Beggen FK",
+      "ru": "Авенир (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=97421"
+    },
+    {
+      "id": 210502,
+      "az": "Banqa Qarqjday FK",
+      "ru": "Банга (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=210502"
+    },
+    {
+      "id": 300108,
+      "az": "Balıkəsirspor",
+      "ru": "Балыкесирспор",
+      "source": "https://az.wikipedia.org/?curid=300108"
+    },
+    {
+      "id": 313059,
+      "az": "AZ Alkmaar FK",
+      "ru": "АЗ (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=313059",
+      "aliases": [
+        "AZ Alkmar",
+        "АЗ"
+      ],
+      "caption_sources": []
+    },
+    {
+      "id": 321943,
+      "az": "Baku United FC",
+      "ru": "Баку Юнайтед",
+      "source": "https://az.wikipedia.org/?curid=321943"
+    },
+    {
+      "id": 339754,
+      "az": "Baltika Kalininqrad FK",
+      "ru": "Балтика (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=339754"
+    },
+    {
+      "id": 348307,
+      "az": "Ayaks AFK",
+      "ru": "Аякс (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=348307"
+    },
+    {
+      "id": 382274,
+      "az": "Bayer 04 FK",
+      "ru": "Байер 04",
+      "source": "https://az.wikipedia.org/?curid=382274"
+    },
+    {
+      "id": 388941,
+      "az": "Aston Villa FK",
+      "ru": "Астон Вилла",
+      "source": "https://az.wikipedia.org/?curid=388941",
+      "aliases": [
+        "AstonVilla",
+        "Астон Вилла"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/4646"
+      ]
+    },
+    {
+      "id": 407678,
+      "az": "Bandırmaspor",
+      "ru": "Бандырмаспор",
+      "source": "https://az.wikipedia.org/?curid=407678"
+    },
+    {
+      "id": 413924,
+      "az": "Astana FK",
+      "ru": "Астана (футбольный клуб, 2009)",
+      "source": "https://az.wikipedia.org/?curid=413924"
+    },
+    {
+      "id": 413931,
+      "az": "Atırau FK",
+      "ru": "Атырау (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=413931"
+    },
+    {
+      "id": 414163,
+      "az": "Atlantas FK",
+      "ru": "Атлантас",
+      "source": "https://az.wikipedia.org/?curid=414163"
+    },
+    {
+      "id": 417906,
+      "az": "Austriya Vyana FK",
+      "ru": "Аустрия (футбольный клуб, Вена)",
+      "source": "https://az.wikipedia.org/?curid=417906"
+    },
+    {
+      "id": 478582,
+      "az": "Bataysk-2007 FK",
+      "ru": "Батайск-2007",
+      "source": "https://az.wikipedia.org/?curid=478582"
+    },
+    {
+      "id": 558493,
+      "az": "Avtomobilist Bakı FK",
+      "ru": "Автомобилист (футбольный клуб, Баку)",
+      "source": "https://az.wikipedia.org/?curid=558493"
+    },
+    {
+      "id": 587182,
+      "az": "Arsenal Tula FK",
+      "ru": "Арсенал (футбольный клуб, Тула)",
+      "source": "https://az.wikipedia.org/?curid=587182"
+    },
+    {
+      "id": 690413,
+      "az": "Atalanta FK",
+      "ru": "Аталанта (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=690413"
+    },
+    {
+      "id": 695208,
+      "az": "Bari FK",
+      "ru": "Бари (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=695208"
+    },
+    {
+      "id": 815218,
+      "az": "Baku Sportinq FK",
+      "ru": "Баку Спортинг",
+      "source": "https://az.wikipedia.org/?curid=815218"
+    },
+    {
+      "id": 825943,
+      "az": "Barselona B FK",
+      "ru": "Барселона Атлетик",
+      "source": "https://az.wikipedia.org/?curid=825943"
+    },
+    {
+      "id": 825944,
+      "az": "Barselona C FK",
+      "ru": "Барселона C",
+      "source": "https://az.wikipedia.org/?curid=825944"
+    },
+    {
+      "id": 976602,
+      "az": "Ballkani FK",
+      "ru": "Балкани (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=976602"
+    },
+    {
+      "id": 7939,
+      "az": "Beşiktaş Gimnastika Klubu",
+      "ru": "Бешикташ (спортивное общество)",
+      "source": "https://az.wikipedia.org/?curid=7939"
+    },
+    {
+      "id": 7984,
+      "az": "Çaykur Rizəspor",
+      "ru": "Ризеспор",
+      "source": "https://az.wikipedia.org/?curid=7984"
+    },
+    {
+      "id": 76415,
+      "az": "Çelsi FK",
+      "ru": "Челси (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=76415"
+    },
+    {
+      "id": 80250,
+      "az": "Çançun Yatay FK",
+      "ru": "Чанчунь Ятай",
+      "source": "https://az.wikipedia.org/?curid=80250"
+    },
+    {
+      "id": 82793,
+      "az": "Bucaspor",
+      "ru": "Буджаспор",
+      "source": "https://az.wikipedia.org/?curid=82793"
+    },
+    {
+      "id": 83101,
+      "az": "Bney Saxnin FK",
+      "ru": "Бней Сахнин",
+      "source": "https://az.wikipedia.org/?curid=83101"
+    },
+    {
+      "id": 83652,
+      "az": "Bney Yehuda Tel-Əviv FK",
+      "ru": "Бней Иегуда (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=83652"
+    },
+    {
+      "id": 84798,
+      "az": "Bərdə FK",
+      "ru": "АБН Барда",
+      "source": "https://az.wikipedia.org/?curid=84798"
+    },
+    {
+      "id": 85800,
+      "az": "Boz Qurd Samux FK",
+      "ru": "Боз Гурд (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=85800"
+    },
+    {
+      "id": 86430,
+      "az": "Bazel FK",
+      "ru": "Базель (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=86430"
+    },
+    {
+      "id": 86967,
+      "az": "Boluspor",
+      "ru": "Болуспор",
+      "source": "https://az.wikipedia.org/?curid=86967"
+    },
+    {
+      "id": 86969,
+      "az": "Bunyodkor FK",
+      "ru": "Бунёдкор (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=86969"
+    },
+    {
+      "id": 87328,
+      "az": "Bursaspor FK",
+      "ru": "Бурсаспор",
+      "source": "https://az.wikipedia.org/?curid=87328"
+    },
+    {
+      "id": 87476,
+      "az": "Borussiya Münhenqladbax FK",
+      "ru": "Боруссия (футбольный клуб, Мёнхенгладбах)",
+      "source": "https://az.wikipedia.org/?curid=87476",
+      "aliases": [
+        "Borussiya Mönhenqladbax",
+        "Borussiya Mönşenqladbax",
+        "Боруссия Мёнхенгладбах"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7856"
+      ]
+    },
+    {
+      "id": 87551,
+      "az": "Borussiya Dortmund FK",
+      "ru": "Боруссия (футбольный клуб, Дортмунд)",
+      "source": "https://az.wikipedia.org/?curid=87551",
+      "aliases": [
+        "Borusiya Dortmund",
+        "Боруссия Дортмунд"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/5010"
+      ]
+    },
+    {
+      "id": 88535,
+      "az": "Bayern Münxen FK",
+      "ru": "Бавария (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=88535"
+    },
+    {
+      "id": 88552,
+      "az": "Borats Çaçak FK",
+      "ru": "Борац (футбольный клуб, Чачак)",
+      "source": "https://az.wikipedia.org/?curid=88552"
+    },
+    {
+      "id": 88572,
+      "az": "Beytar Yerusəlim FK",
+      "ru": "Бейтар (футбольный клуб, Иерусалим)",
+      "source": "https://az.wikipedia.org/?curid=88572"
+    },
+    {
+      "id": 88772,
+      "az": "Botev Plovdiv PFK",
+      "ru": "Ботев (футбольный клуб, Пловдив)",
+      "source": "https://az.wikipedia.org/?curid=88772"
+    },
+    {
+      "id": 97460,
+      "az": "Buduçnost Banatski-Dvor FK",
+      "ru": "Будучност (футбольный клуб, Банатски-Двор)",
+      "source": "https://az.wikipedia.org/?curid=97460"
+    },
+    {
+      "id": 105868,
+      "az": "Benfika FK",
+      "ru": "Бенфика (футбольный клуб, Лиссабон)",
+      "source": "https://az.wikipedia.org/?curid=105868"
+    },
+    {
+      "id": 117160,
+      "az": "Buduçnost Podqoritsa FK",
+      "ru": "Будучност (футбольный клуб, Подгорица)",
+      "source": "https://az.wikipedia.org/?curid=117160"
+    },
+    {
+      "id": 216129,
+      "az": "Brügge FK",
+      "ru": "Брюгге (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=216129"
+    },
+    {
+      "id": 282706,
+      "az": "Bolton Uonderers FK",
+      "ru": "Болтон Уондерерс",
+      "source": "https://az.wikipedia.org/?curid=282706"
+    },
+    {
+      "id": 328941,
+      "az": "Beşiktaş PFK",
+      "ru": "Бешикташ (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=328941",
+      "aliases": [
+        "Beşiktaş",
+        "Бешикташ"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7702"
+      ]
+    },
+    {
+      "id": 338525,
+      "az": "Bordo FK",
+      "ru": "Бордо (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=338525"
+    },
+    {
+      "id": 413961,
+      "az": "Birkirkara FK",
+      "ru": "Биркиркара (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=413961"
+    },
+    {
+      "id": 417908,
+      "az": "Braqa FK",
+      "ru": "Брага (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=417908"
+    },
+    {
+      "id": 417910,
+      "az": "Birminhem Siti FK",
+      "ru": "Бирмингем Сити",
+      "source": "https://az.wikipedia.org/?curid=417910"
+    },
+    {
+      "id": 448725,
+      "az": "Belşina FK",
+      "ru": "Белшина (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=448725"
+    },
+    {
+      "id": 455041,
+      "az": "Bristol Siti FK",
+      "ru": "Бристоль Сити",
+      "source": "https://az.wikipedia.org/?curid=455041"
+    },
+    {
+      "id": 460471,
+      "az": "Boavişta FK",
+      "ru": "Боавишта (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=460471"
+    },
+    {
+      "id": 479989,
+      "az": "Blekbörn Rovers FK",
+      "ru": "Блэкберн Роверс",
+      "source": "https://az.wikipedia.org/?curid=479989"
+    },
+    {
+      "id": 480015,
+      "az": "Börnli FK",
+      "ru": "Бернли (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=480015"
+    },
+    {
+      "id": 543195,
+      "az": "Boka Xuniors FK",
+      "ru": "Бока Хуниорс",
+      "source": "https://az.wikipedia.org/?curid=543195"
+    },
+    {
+      "id": 610899,
+      "az": "Brondbü FK",
+      "ru": "Брондбю (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=610899"
+    },
+    {
+      "id": 693070,
+      "az": "Bolonya FK",
+      "ru": "Болонья (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=693070",
+      "aliases": [
+        "Balonya",
+        "Болонья"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/5089"
+      ]
+    },
+    {
+      "id": 743402,
+      "az": "Cenoa FK",
+      "ru": "Дженоа",
+      "source": "https://az.wikipedia.org/?curid=743402"
+    },
+    {
+      "id": 755945,
+      "az": "Bıtoviya İK",
+      "ru": "Бытовия",
+      "source": "https://az.wikipedia.org/?curid=755945"
+    },
+    {
+      "id": 778462,
+      "az": "Breşiya FK",
+      "ru": "Брешиа (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=778462"
+    },
+    {
+      "id": 797218,
+      "az": "Buriram Yunayted FK",
+      "ru": "Бурирам Юнайтед",
+      "source": "https://az.wikipedia.org/?curid=797218"
+    },
+    {
+      "id": 872087,
+      "az": "Budo-Qlimt FK",
+      "ru": "Будё-Глимт",
+      "source": "https://az.wikipedia.org/?curid=872087",
+      "aliases": [
+        "Bodo Qlimt",
+        "Bodo-Qlimt",
+        "Буде-Глимт"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7016",
+        "https://t.me/idmanvideo/7178"
+      ]
+    },
+    {
+      "id": 907174,
+      "az": "Bılis FK",
+      "ru": "Бюлис (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=907174"
+    },
+    {
+      "id": 988377,
+      "az": "Blau-Vays Lints FK",
+      "ru": "Блау-Вайсс (футбольный клуб, Линц)",
+      "source": "https://az.wikipedia.org/?curid=988377"
+    },
+    {
+      "id": 70360,
+      "az": "Dinamo (Bakı) FK",
+      "ru": "Баку (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=70360"
+    },
+    {
+      "id": 81185,
+      "az": "Dordoy Bişkek FK",
+      "ru": "Дордой (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=81185"
+    },
+    {
+      "id": 81867,
+      "az": "Dinamo Zaqreb FK",
+      "ru": "Динамо (футбольный клуб, Загреб)",
+      "source": "https://az.wikipedia.org/?curid=81867"
+    },
+    {
+      "id": 83435,
+      "az": "Daşqın Zaqatala FK",
+      "ru": "Дашгын (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=83435"
+    },
+    {
+      "id": 83440,
+      "az": "Çıraqqala Siyəzən FK",
+      "ru": "Чирагкала (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=83440"
+    },
+    {
+      "id": 83740,
+      "az": "Dənizlispor",
+      "ru": "Денизлиспор",
+      "source": "https://az.wikipedia.org/?curid=83740"
+    },
+    {
+      "id": 85174,
+      "az": "Dinamo Moskva FK",
+      "ru": "Динамо (футбольный клуб, Москва)",
+      "source": "https://az.wikipedia.org/?curid=85174"
+    },
+    {
+      "id": 86156,
+      "az": "Dinaburq FK",
+      "ru": "Динабург (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=86156"
+    },
+    {
+      "id": 86348,
+      "az": "Dinamo Tbilisi FK",
+      "ru": "Динамо (футбольный клуб, Тбилиси)",
+      "source": "https://az.wikipedia.org/?curid=86348"
+    },
+    {
+      "id": 86356,
+      "az": "Dinamo Kiyev FK",
+      "ru": "Динамо (футбольный клуб, Киев)",
+      "source": "https://az.wikipedia.org/?curid=86356"
+    },
+    {
+      "id": 86763,
+      "az": "Dinamo Minsk FK",
+      "ru": "Динамо (футбольный клуб, Минск)",
+      "source": "https://az.wikipedia.org/?curid=86763"
+    },
+    {
+      "id": 88473,
+      "az": "Dinamo Berlin FK",
+      "ru": "Динамо (футбольный клуб, Берлин)",
+      "source": "https://az.wikipedia.org/?curid=88473"
+    },
+    {
+      "id": 88538,
+      "az": "ÇSKA Moskva PFK",
+      "ru": "ЦСКА (футбольный клуб, Москва)",
+      "source": "https://az.wikipedia.org/?curid=88538"
+    },
+    {
+      "id": 88748,
+      "az": "EB/Streymur FK",
+      "ru": "ЭБ/Стреймур",
+      "source": "https://az.wikipedia.org/?curid=88748"
+    },
+    {
+      "id": 88751,
+      "az": "ÇFR Kluj FK",
+      "ru": "ЧФР (футбольный клуб, Клуж-Напока)",
+      "source": "https://az.wikipedia.org/?curid=88751"
+    },
+    {
+      "id": 88754,
+      "az": "Dinamo Buxarest FK",
+      "ru": "Динамо (футбольный клуб, Бухарест)",
+      "source": "https://az.wikipedia.org/?curid=88754"
+    },
+    {
+      "id": 97419,
+      "az": "Differdanj 03 FK",
+      "ru": "Дифферданж 03",
+      "source": "https://az.wikipedia.org/?curid=97419"
+    },
+    {
+      "id": 104008,
+      "az": "Dinamo Mahaçqala FK",
+      "ru": "Динамо (футбольный клуб, Махачкала)",
+      "source": "https://az.wikipedia.org/?curid=104008"
+    },
+    {
+      "id": 117622,
+      "az": "Deportivo La-Korunya FK",
+      "ru": "Депортиво Ла-Корунья",
+      "source": "https://az.wikipedia.org/?curid=117622"
+    },
+    {
+      "id": 125111,
+      "az": "Dukla Banska-Bistritsa FK",
+      "ru": "Дукла (футбольный клуб, Банска-Бистрица)",
+      "source": "https://az.wikipedia.org/?curid=125111"
+    },
+    {
+      "id": 339752,
+      "az": "Dinamo Stavropol FK",
+      "ru": "Динамо (футбольный клуб, Ставрополь, 1924)",
+      "source": "https://az.wikipedia.org/?curid=339752"
+    },
+    {
+      "id": 348151,
+      "az": "Droeda Yunayted FK",
+      "ru": "Дроэда Юнайтед",
+      "source": "https://az.wikipedia.org/?curid=348151"
+    },
+    {
+      "id": 405874,
+      "az": "Deportivo Armenio FK",
+      "ru": "Депортиво Арменио",
+      "source": "https://az.wikipedia.org/?curid=405874"
+    },
+    {
+      "id": 406172,
+      "az": "Dinamo FK (Bakı)",
+      "ru": "МЦОП «Динамо»",
+      "source": "https://az.wikipedia.org/?curid=406172"
+    },
+    {
+      "id": 413093,
+      "az": "Çixura FK",
+      "ru": "Чихура",
+      "source": "https://az.wikipedia.org/?curid=413093"
+    },
+    {
+      "id": 413918,
+      "az": "Dinamo Batumi FK",
+      "ru": "Динамо (футбольный клуб, Батуми)",
+      "source": "https://az.wikipedia.org/?curid=413918"
+    },
+    {
+      "id": 413920,
+      "az": "Dila Qori FK",
+      "ru": "Дила (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=413920"
+    },
+    {
+      "id": 414369,
+      "az": "Daçiya Kişinyov FK",
+      "ru": "Дачия (футбольный клуб, Кишинёв)",
+      "source": "https://az.wikipedia.org/?curid=414369"
+    },
+    {
+      "id": 436726,
+      "az": "Çonbuk Hyonde Motors FK",
+      "ru": "Чонбук Хёндэ Моторс",
+      "source": "https://az.wikipedia.org/?curid=436726"
+    },
+    {
+      "id": 445882,
+      "az": "Dalkurd FK",
+      "ru": "Далькурд",
+      "source": "https://az.wikipedia.org/?curid=445882"
+    },
+    {
+      "id": 472001,
+      "az": "Dinamo-Avto Tiraspol FK",
+      "ru": "Динамо-Авто",
+      "source": "https://az.wikipedia.org/?curid=472001"
+    },
+    {
+      "id": 500665,
+      "az": "Dərbənd FK",
+      "ru": "Дербент (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=500665"
+    },
+    {
+      "id": 513452,
+      "az": "Dinamo Kazan FK",
+      "ru": "Динамо (футбольный клуб, Казань)",
+      "source": "https://az.wikipedia.org/?curid=513452"
+    },
+    {
+      "id": 543224,
+      "az": "Departivo Markense FK",
+      "ru": "Депортиво Маркенсе",
+      "source": "https://az.wikipedia.org/?curid=543224"
+    },
+    {
+      "id": 554764,
+      "az": "Duvr Atletik FK",
+      "ru": "Дувр Атлетик",
+      "source": "https://az.wikipedia.org/?curid=554764"
+    },
+    {
+      "id": 596848,
+      "az": "Dandolk FK",
+      "ru": "Дандолк (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=596848"
+    },
+    {
+      "id": 737006,
+      "az": "DFK Daynava",
+      "ru": "ДФК Дайнава",
+      "source": "https://az.wikipedia.org/?curid=737006"
+    },
+    {
+      "id": 737007,
+      "az": "Djyuqas FK",
+      "ru": "Джюгас (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=737007"
+    },
+    {
+      "id": 788970,
+      "az": "Difai FK",
+      "ru": "Дифаи Ахсу",
+      "source": "https://az.wikipedia.org/?curid=788970"
+    },
+    {
+      "id": 909987,
+      "az": "Dinamo Siti FK",
+      "ru": "Динамо Сити",
+      "source": "https://az.wikipedia.org/?curid=909987"
+    },
+    {
+      "id": 7226,
+      "az": "Fənərbaxça FK",
+      "ru": "Фенербахче (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=7226",
+      "aliases": [
+        "Fənərbağça",
+        "Фенербахче"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7861"
+      ]
+    },
+    {
+      "id": 83136,
+      "az": "Fortaleza FK",
+      "ru": "Форталеза (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=83136"
+    },
+    {
+      "id": 83441,
+      "az": "Fərid FK",
+      "ru": "Фарид (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=83441"
+    },
+    {
+      "id": 83646,
+      "az": "Ekranas FK",
+      "ru": "Экранас",
+      "source": "https://az.wikipedia.org/?curid=83646"
+    },
+    {
+      "id": 86469,
+      "az": "Fiorentina FK",
+      "ru": "Фиорентина",
+      "source": "https://az.wikipedia.org/?curid=86469"
+    },
+    {
+      "id": 86700,
+      "az": "Fulhem FK",
+      "ru": "Фулхэм (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=86700"
+    },
+    {
+      "id": 88434,
+      "az": "Flora Tallin FK",
+      "ru": "Флора (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=88434"
+    },
+    {
+      "id": 88485,
+      "az": "Əl-Əhli İK",
+      "ru": "Аль-Ахли (футбольный клуб, Каир)",
+      "source": "https://az.wikipedia.org/?curid=88485"
+    },
+    {
+      "id": 88765,
+      "az": "FKSB",
+      "ru": "ФКСБ",
+      "source": "https://az.wikipedia.org/?curid=88765"
+    },
+    {
+      "id": 88806,
+      "az": "Enosis Neon Paralimni FK",
+      "ru": "Эносис (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=88806"
+    },
+    {
+      "id": 88840,
+      "az": "Eqaleo FK",
+      "ru": "Эгалео (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=88840"
+    },
+    {
+      "id": 92156,
+      "az": "Ədliyyə Bakı FK",
+      "ru": "Адлийя",
+      "source": "https://az.wikipedia.org/?curid=92156"
+    },
+    {
+      "id": 97992,
+      "az": "Əl-Əhli Dubay FK",
+      "ru": "Шабаб Аль-Ахли",
+      "source": "https://az.wikipedia.org/?curid=97992"
+    },
+    {
+      "id": 104412,
+      "az": "Everton FK",
+      "ru": "Эвертон (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=104412"
+    },
+    {
+      "id": 164174,
+      "az": "Everton Vinya-del-Mar FK",
+      "ru": "Эвертон (футбольный клуб, Винья-дель-Мар)",
+      "source": "https://az.wikipedia.org/?curid=164174"
+    },
+    {
+      "id": 295828,
+      "az": "Fatih Karagümrük İK",
+      "ru": "Фатих Карагюмрюк",
+      "source": "https://az.wikipedia.org/?curid=295828"
+    },
+    {
+      "id": 325872,
+      "az": "Gefle IF",
+      "ru": "Ефле (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=325872"
+    },
+    {
+      "id": 339753,
+      "az": "Fakel Voronej FK",
+      "ru": "Факел (футбольный клуб, Воронеж)",
+      "source": "https://az.wikipedia.org/?curid=339753"
+    },
+    {
+      "id": 342806,
+      "az": "Əskişəhərspor",
+      "ru": "Эскишехирспор",
+      "source": "https://az.wikipedia.org/?curid=342806"
+    },
+    {
+      "id": 377703,
+      "az": "Fulad FK",
+      "ru": "Фулад (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=377703"
+    },
+    {
+      "id": 414186,
+      "az": "Feyenoord FK",
+      "ru": "Фейеноорд",
+      "source": "https://az.wikipedia.org/?curid=414186"
+    },
+    {
+      "id": 417238,
+      "az": "Espanyol FK",
+      "ru": "Эспаньол",
+      "source": "https://az.wikipedia.org/?curid=417238"
+    },
+    {
+      "id": 451978,
+      "az": "F91 Düdelanj FK",
+      "ru": "Ф91 Дюделанж",
+      "source": "https://az.wikipedia.org/?curid=451978"
+    },
+    {
+      "id": 466898,
+      "az": "Etnikos Axna FK",
+      "ru": "Этникос (футбольный клуб, Ахна)",
+      "source": "https://az.wikipedia.org/?curid=466898"
+    },
+    {
+      "id": 504746,
+      "az": "Fola Eş FK",
+      "ru": "Фола (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=504746"
+    },
+    {
+      "id": 536579,
+      "az": "Elman FK",
+      "ru": "Элман (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=536579"
+    },
+    {
+      "id": 560338,
+      "az": "El Daxleya FK",
+      "ru": "Эль Дахлея",
+      "source": "https://az.wikipedia.org/?curid=560338"
+    },
+    {
+      "id": 577373,
+      "az": "Eybar FK",
+      "ru": "Эйбар (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=577373"
+    },
+    {
+      "id": 591367,
+      "az": "Fiorentsuola FK",
+      "ru": "Фьоренцуола",
+      "source": "https://az.wikipedia.org/?curid=591367"
+    },
+    {
+      "id": 695177,
+      "az": "Ferentsvaroş GK",
+      "ru": "Ференцварош (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=695177",
+      "aliases": [
+        "Ferentsvaroş",
+        "Ференцварош"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7623"
+      ]
+    },
+    {
+      "id": 724386,
+      "az": "Frayburq FK",
+      "ru": "Фрайбург (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=724386"
+    },
+    {
+      "id": 735722,
+      "az": "Flamenqo İK",
+      "ru": "Фламенго",
+      "source": "https://az.wikipedia.org/?curid=735722"
+    },
+    {
+      "id": 743988,
+      "az": "Empoli FK",
+      "ru": "Эмполи (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=743988"
+    },
+    {
+      "id": 798944,
+      "az": "Əl-İttihad FK",
+      "ru": "Аль-Иттихад (футбольный клуб, Джидда)",
+      "source": "https://az.wikipedia.org/?curid=798944"
+    },
+    {
+      "id": 799108,
+      "az": "Əl-Hilal FK",
+      "ru": "Аль-Хиляль (футбольный клуб, Эр-Рияд)",
+      "source": "https://az.wikipedia.org/?curid=799108"
+    },
+    {
+      "id": 824969,
+      "az": "Əl-Nəsr FK",
+      "ru": "Ан-Наср (футбольный клуб, Эр-Рияд)",
+      "source": "https://az.wikipedia.org/?curid=824969"
+    },
+    {
+      "id": 865862,
+      "az": "Eyüpspor FK",
+      "ru": "Эюпспор",
+      "source": "https://az.wikipedia.org/?curid=865862"
+    },
+    {
+      "id": 872075,
+      "az": "Elfsborq FK",
+      "ru": "Эльфсборг (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=872075"
+    },
+    {
+      "id": 905645,
+      "az": "Eqnatiya FK",
+      "ru": "Эгнатия (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=905645"
+    },
+    {
+      "id": 913503,
+      "az": "Flamurtari FK",
+      "ru": "Фламуртари (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=913503"
+    },
+    {
+      "id": 939844,
+      "az": "Fredrikstad FK",
+      "ru": "Фредрикстад (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=939844"
+    },
+    {
+      "id": 51355,
+      "az": "Xəzər Lənkəran FK",
+      "ru": "Хазар-Ленкорань",
+      "source": "https://az.wikipedia.org/?curid=51355"
+    },
+    {
+      "id": 79478,
+      "az": "Xəzər Sumqayıt FK",
+      "ru": "Хазар (футбольный клуб, Сумгаит)",
+      "source": "https://az.wikipedia.org/?curid=79478"
+    },
+    {
+      "id": 79981,
+      "az": "Xəzri Buzovna FK",
+      "ru": "Хазри Бузовна",
+      "source": "https://az.wikipedia.org/?curid=79981"
+    },
+    {
+      "id": 80461,
+      "az": "Gənclərbirliyi Sumqayıt FK",
+      "ru": "Гянджларбирлийи",
+      "source": "https://az.wikipedia.org/?curid=80461"
+    },
+    {
+      "id": 80648,
+      "az": "Hoffenhaym 1899 FK",
+      "ru": "Хоффенхайм (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=80648",
+      "aliases": [
+        "Hofenhaym",
+        "Хоффенхайм"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7246"
+      ]
+    },
+    {
+      "id": 85186,
+      "az": "Honka FK",
+      "ru": "Хонка (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=85186"
+    },
+    {
+      "id": 85770,
+      "az": "Göyəzən FK",
+      "ru": "Гёязань (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=85770"
+    },
+    {
+      "id": 86836,
+      "az": "Hayduk Split FK",
+      "ru": "Хайдук (футбольный клуб, Сплит)",
+      "source": "https://az.wikipedia.org/?curid=86836"
+    },
+    {
+      "id": 87324,
+      "az": "Gənclərbirliyi İdman Klubu",
+      "ru": "Генчлербирлиги",
+      "source": "https://az.wikipedia.org/?curid=87324",
+      "aliases": [
+        "Gənclərbirliyi",
+        "Генчлербирлиги"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7702"
+      ]
+    },
+    {
+      "id": 88548,
+      "az": "Hayduk Kula FK",
+      "ru": "Хайдук (футбольный клуб, Кула)",
+      "source": "https://az.wikipedia.org/?curid=88548"
+    },
+    {
+      "id": 88558,
+      "az": "Hapoel Tel-Əviv FK",
+      "ru": "Хапоэль (футбольный клуб, Тель-Авив)",
+      "source": "https://az.wikipedia.org/?curid=88558"
+    },
+    {
+      "id": 88560,
+      "az": "Hapoel Ramat-Qan FK",
+      "ru": "Хапоэль (футбольный клуб, Рамат-Ган)",
+      "source": "https://az.wikipedia.org/?curid=88560"
+    },
+    {
+      "id": 88562,
+      "az": "Hapoel Hayfa FK",
+      "ru": "Хапоэль (футбольный клуб, Хайфа)",
+      "source": "https://az.wikipedia.org/?curid=88562"
+    },
+    {
+      "id": 88564,
+      "az": "Hapoel Petah-Tikva FK",
+      "ru": "Хапоэль (футбольный клуб, Петах-Тиква)",
+      "source": "https://az.wikipedia.org/?curid=88564"
+    },
+    {
+      "id": 98437,
+      "az": "Helsinki FK",
+      "ru": "ХИК",
+      "source": "https://az.wikipedia.org/?curid=98437"
+    },
+    {
+      "id": 105867,
+      "az": "Hannover 96 FK",
+      "ru": "Ганновер 96",
+      "source": "https://az.wikipedia.org/?curid=105867"
+    },
+    {
+      "id": 108511,
+      "az": "Göstəriş Fulad FK",
+      "ru": "Гостареш Фулад",
+      "source": "https://az.wikipedia.org/?curid=108511"
+    },
+    {
+      "id": 333235,
+      "az": "Hapoel İroni Kiryat Şmona FK",
+      "ru": "Ирони (футбольный клуб, Кирьят-Шмона)",
+      "source": "https://az.wikipedia.org/?curid=333235"
+    },
+    {
+      "id": 413910,
+      "az": "Gent FK",
+      "ru": "Гент (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=413910"
+    },
+    {
+      "id": 413911,
+      "az": "Genk FK",
+      "ru": "Генк (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=413911"
+    },
+    {
+      "id": 413964,
+      "az": "Hibernians FK",
+      "ru": "Хибернианс",
+      "source": "https://az.wikipedia.org/?curid=413964"
+    },
+    {
+      "id": 449659,
+      "az": "Xücənd FK",
+      "ru": "Худжанд (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=449659"
+    },
+    {
+      "id": 455040,
+      "az": "Hall Siti FK",
+      "ru": "Халл Сити",
+      "source": "https://az.wikipedia.org/?curid=455040",
+      "aliases": [
+        "Hull Siti",
+        "Халл Сити"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/6345"
+      ]
+    },
+    {
+      "id": 456708,
+      "az": "Göteborq FK",
+      "ru": "Гётеборг (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=456708"
+    },
+    {
+      "id": 503235,
+      "az": "Genqam FK",
+      "ru": "Генгам (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=503235"
+    },
+    {
+      "id": 506536,
+      "az": "Xetafe FK",
+      "ru": "Хетафе (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=506536"
+    },
+    {
+      "id": 558510,
+      "az": "Gömrükçü FK",
+      "ru": "Гёмрюкчю",
+      "source": "https://az.wikipedia.org/?curid=558510"
+    },
+    {
+      "id": 560194,
+      "az": "Herta FK",
+      "ru": "Герта (футбольный клуб, Берлин)",
+      "source": "https://az.wikipedia.org/?curid=560194"
+    },
+    {
+      "id": 570498,
+      "az": "Havr FK",
+      "ru": "Гавр (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=570498"
+    },
+    {
+      "id": 589035,
+      "az": "Göztəpə İK",
+      "ru": "Гёзтепе (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=589035",
+      "aliases": [
+        "Göztepe",
+        "Гёзтепе"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7487"
+      ]
+    },
+    {
+      "id": 689217,
+      "az": "Hellas Verona FK",
+      "ru": "Эллас Верона",
+      "source": "https://az.wikipedia.org/?curid=689217"
+    },
+    {
+      "id": 737008,
+      "az": "Hegelmann FK",
+      "ru": "Хегельманн",
+      "source": "https://az.wikipedia.org/?curid=737008"
+    },
+    {
+      "id": 811751,
+      "az": "HB Torshavn",
+      "ru": "ХБ Торсхавн",
+      "source": "https://az.wikipedia.org/?curid=811751"
+    },
+    {
+      "id": 821755,
+      "az": "Gəncəbasar FK",
+      "ru": "Джабраил (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=821755"
+    },
+    {
+      "id": 868172,
+      "az": "Heidenheim FK",
+      "ru": "Хайденхайм (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=868172",
+      "aliases": [
+        "Heyndheym",
+        "Хайденхайм"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/4929"
+      ]
+    },
+    {
+      "id": 872339,
+      "az": "Xankəndi FK",
+      "ru": "Ханкенди (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=872339"
+    },
+    {
+      "id": 938178,
+      "az": "Huesca (futbol klubu)",
+      "ru": "Уэска (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=938178"
+    },
+    {
+      "id": 976600,
+      "az": "Hayvaliya FK",
+      "ru": "Хайвалия (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=976600"
+    },
+    {
+      "id": 74907,
+      "az": "Karvan-Yevlax FK",
+      "ru": "Карван",
+      "source": "https://az.wikipedia.org/?curid=74907"
+    },
+    {
+      "id": 80641,
+      "az": "İnter Turku FK",
+      "ru": "Интер (футбольный клуб, Турку)",
+      "source": "https://az.wikipedia.org/?curid=80641"
+    },
+    {
+      "id": 80810,
+      "az": "Kəpəz PFK",
+      "ru": "Кяпаз (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=80810"
+    },
+    {
+      "id": 83422,
+      "az": "İnşaatçı Bakı PİK",
+      "ru": "Иншаатчи (футбольный клуб, Баку)",
+      "source": "https://az.wikipedia.org/?curid=83422"
+    },
+    {
+      "id": 83429,
+      "az": "İnşaatçı Sabirabad FK",
+      "ru": "Иншаатчи (футбольный клуб, Сабирабад)",
+      "source": "https://az.wikipedia.org/?curid=83429"
+    },
+    {
+      "id": 86141,
+      "az": "Kayserispor",
+      "ru": "Кайсериспор",
+      "source": "https://az.wikipedia.org/?curid=86141"
+    },
+    {
+      "id": 86756,
+      "az": "Kaunas FBK",
+      "ru": "Каунас (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=86756"
+    },
+    {
+      "id": 86838,
+      "az": "Kamen İnqrad FK",
+      "ru": "Камен Инград",
+      "source": "https://az.wikipedia.org/?curid=86838"
+    },
+    {
+      "id": 86959,
+      "az": "İstanbulspor",
+      "ru": "Истанбулспор",
+      "source": "https://az.wikipedia.org/?curid=86959"
+    },
+    {
+      "id": 86961,
+      "az": "Kayseri Ərciyəsspor",
+      "ru": "Кайсери Эрджиесспор",
+      "source": "https://az.wikipedia.org/?curid=86961"
+    },
+    {
+      "id": 87356,
+      "az": "İnter Milan FK",
+      "ru": "Интернационале",
+      "source": "https://az.wikipedia.org/?curid=87356"
+    },
+    {
+      "id": 88477,
+      "az": "İnter Bratislava FK",
+      "ru": "Интер (футбольный клуб, Братислава)",
+      "source": "https://az.wikipedia.org/?curid=88477"
+    },
+    {
+      "id": 88479,
+      "az": "İnter Zapreşiç FK",
+      "ru": "Интер (футбольный клуб, Запрешич)",
+      "source": "https://az.wikipedia.org/?curid=88479"
+    },
+    {
+      "id": 88481,
+      "az": "Kardiff Paytaxt Universiteti FK",
+      "ru": "Кардифф Метрополитан Юниверсити",
+      "source": "https://az.wikipedia.org/?curid=88481"
+    },
+    {
+      "id": 88550,
+      "az": "Jeleznik FK",
+      "ru": "Железник (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=88550"
+    },
+    {
+      "id": 88579,
+      "az": "Kareda Kaunas FK",
+      "ru": "Кареда (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=88579"
+    },
+    {
+      "id": 126217,
+      "az": "İnkaras Kaunas FK",
+      "ru": "Инкарас",
+      "source": "https://az.wikipedia.org/?curid=126217"
+    },
+    {
+      "id": 126349,
+      "az": "İstiqlal FK",
+      "ru": "Эстегляль (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=126349"
+    },
+    {
+      "id": 338524,
+      "az": "Kann FK",
+      "ru": "Канн (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=338524"
+    },
+    {
+      "id": 404834,
+      "az": "Karpi FK",
+      "ru": "Карпи (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=404834"
+    },
+    {
+      "id": 413929,
+      "az": "Kayrat FK",
+      "ru": "Кайрат (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=413929"
+    },
+    {
+      "id": 414350,
+      "az": "Jelezniçar Sarayevo FK",
+      "ru": "Железничар (футбольный клуб, Сараево)",
+      "source": "https://az.wikipedia.org/?curid=414350"
+    },
+    {
+      "id": 414357,
+      "az": "İrtış Pavlodar FK",
+      "ru": "Иртыш (футбольный клуб, Павлодар)",
+      "source": "https://az.wikipedia.org/?curid=414357"
+    },
+    {
+      "id": 414377,
+      "az": "Jilina FK",
+      "ru": "Жилина (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=414377"
+    },
+    {
+      "id": 417301,
+      "az": "Jenis FK",
+      "ru": "Женис (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=417301"
+    },
+    {
+      "id": 451109,
+      "az": "Kalyari FK",
+      "ru": "Кальяри (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=451109",
+      "aliases": [
+        "Çayliari",
+        "Кальяри"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/4865"
+      ]
+    },
+    {
+      "id": 458914,
+      "az": "İpiranqa FK",
+      "ru": "Ипиранга (футбольный клуб, Эрешин)",
+      "source": "https://az.wikipedia.org/?curid=458914"
+    },
+    {
+      "id": 522797,
+      "az": "İverdon FK",
+      "ru": "Ивердон-Спорт",
+      "source": "https://az.wikipedia.org/?curid=522797"
+    },
+    {
+      "id": 580632,
+      "az": "Kauno Jalqiris FK",
+      "ru": "Кауно Жальгирис",
+      "source": "https://az.wikipedia.org/?curid=580632",
+      "aliases": [
+        "Kauno Jalgiris",
+        "Кауно Жальгирис"
+      ],
+      "caption_sources": []
+    },
+    {
+      "id": 580640,
+      "az": "Jalgiris FK",
+      "ru": "Жальгирис (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=580640"
+    },
+    {
+      "id": 674388,
+      "az": "İstanbul Başakşehir FK",
+      "ru": "Истанбул Башакшехир",
+      "source": "https://az.wikipedia.org/?curid=674388",
+      "aliases": [
+        "Başakşehir",
+        "Başakşəhər",
+        "Истанбул Башакшехир"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7325"
+      ]
+    },
+    {
+      "id": 727561,
+      "az": "Kataniya FK",
+      "ru": "Катания (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=727561"
+    },
+    {
+      "id": 743364,
+      "az": "Kazale FK",
+      "ru": "Казале (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=743364"
+    },
+    {
+      "id": 789282,
+      "az": "İmişli FK",
+      "ru": "Имишли (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=789282"
+    },
+    {
+      "id": 797097,
+      "az": "İrəvan FK",
+      "ru": "Иреван",
+      "source": "https://az.wikipedia.org/?curid=797097"
+    },
+    {
+      "id": 799379,
+      "az": "İnter Mayami FK",
+      "ru": "Интер Майами",
+      "source": "https://az.wikipedia.org/?curid=799379",
+      "aliases": [
+        "Inter Miami",
+        "İnter Miami",
+        "Интер Майами"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/6210",
+        "https://t.me/idmanvideo/6507"
+      ]
+    },
+    {
+      "id": 817579,
+      "az": "KAMAZ FK",
+      "ru": "КАМАЗ (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=817579"
+    },
+    {
+      "id": 837616,
+      "az": "Jirona FK",
+      "ru": "Жирона (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=837616"
+    },
+    {
+      "id": 887935,
+      "az": "Kaspiy FK",
+      "ru": "Каспий (футбольный клуб, Актау)",
+      "source": "https://az.wikipedia.org/?curid=887935"
+    },
+    {
+      "id": 924490,
+      "az": "Kasımpaşa SK",
+      "ru": "Касымпаша (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=924490",
+      "aliases": [
+        "Kasımpaşa",
+        "Касымпаша"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7528"
+      ]
+    },
+    {
+      "id": 6576,
+      "az": "Qalatasaray FK",
+      "ru": "Галатасарай (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=6576"
+    },
+    {
+      "id": 55278,
+      "az": "Kuban Krasnodar FK",
+      "ru": "Кубань (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=55278"
+    },
+    {
+      "id": 71002,
+      "az": "Qəbələ FK",
+      "ru": "Габала (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=71002"
+    },
+    {
+      "id": 71050,
+      "az": "Qarabağ FK",
+      "ru": "Карабах (футбольный клуб, Агдам)",
+      "source": "https://az.wikipedia.org/?curid=71050"
+    },
+    {
+      "id": 83431,
+      "az": "Kürmük Qax FK",
+      "ru": "Кюрмюк",
+      "source": "https://az.wikipedia.org/?curid=83431"
+    },
+    {
+      "id": 88462,
+      "az": "Kikkers Offenbax FK",
+      "ru": "Киккерс (футбольный клуб, Оффенбах)",
+      "source": "https://az.wikipedia.org/?curid=88462"
+    },
+    {
+      "id": 88770,
+      "az": "Krılya Sovetov FK",
+      "ru": "Крылья Советов (футбольный клуб, Самара)",
+      "source": "https://az.wikipedia.org/?curid=88770"
+    },
+    {
+      "id": 97462,
+      "az": "Qrasshopper Sürix FK",
+      "ru": "Грассхоппер",
+      "source": "https://az.wikipedia.org/?curid=97462"
+    },
+    {
+      "id": 97478,
+      "az": "Krivbas FK",
+      "ru": "Кривбасс (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=97478"
+    },
+    {
+      "id": 125116,
+      "az": "Kopenhagen FK",
+      "ru": "Копенгаген (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=125116"
+    },
+    {
+      "id": 289431,
+      "az": "Kruzeyro İK",
+      "ru": "Крузейро (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=289431"
+    },
+    {
+      "id": 308850,
+      "az": "Koritiba FK",
+      "ru": "Коритиба",
+      "source": "https://az.wikipedia.org/?curid=308850"
+    },
+    {
+      "id": 319665,
+      "az": "Kolo-Kolo FK",
+      "ru": "Коло-Коло",
+      "source": "https://az.wikipedia.org/?curid=319665"
+    },
+    {
+      "id": 338873,
+      "az": "Qaradağ Lökbatan FK",
+      "ru": "Карадаг (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=338873"
+    },
+    {
+      "id": 342804,
+      "az": "Kocaelispor FK",
+      "ru": "Коджаэлиспор",
+      "source": "https://az.wikipedia.org/?curid=342804"
+    },
+    {
+      "id": 355510,
+      "az": "Qancasar FK",
+      "ru": "Гандзасар (футбольный клуб, Капан)",
+      "source": "https://az.wikipedia.org/?curid=355510"
+    },
+    {
+      "id": 384964,
+      "az": "Kom FK",
+      "ru": "Ком (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=384964"
+    },
+    {
+      "id": 393970,
+      "az": "Korintian FK",
+      "ru": "Коринтиан (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=393970"
+    },
+    {
+      "id": 413846,
+      "az": "Koper FK",
+      "ru": "Копер (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=413846"
+    },
+    {
+      "id": 413960,
+      "az": "Kliftonvill FK",
+      "ru": "Клифтонвилл (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=413960"
+    },
+    {
+      "id": 414164,
+      "az": "Kukesi FK",
+      "ru": "Кукеси",
+      "source": "https://az.wikipedia.org/?curid=414164"
+    },
+    {
+      "id": 414970,
+      "az": "Qaziantepspor",
+      "ru": "Газиантепспор",
+      "source": "https://az.wikipedia.org/?curid=414970"
+    },
+    {
+      "id": 444050,
+      "az": "Kruoya Pakruoyis FK",
+      "ru": "Круоя (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=444050"
+    },
+    {
+      "id": 448370,
+      "az": "Ksanti FK",
+      "ru": "Ксанти (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=448370"
+    },
+    {
+      "id": 450068,
+      "az": "Qızılqum FK",
+      "ru": "Кызылкум (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=450068"
+    },
+    {
+      "id": 451228,
+      "az": "Qranada FK",
+      "ru": "Гранада (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=451228"
+    },
+    {
+      "id": 452095,
+      "az": "Kristal Pelas FK",
+      "ru": "Кристал Пэлас (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=452095",
+      "aliases": [
+        "KristalPalas",
+        "Кристал Пэлас"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/5055"
+      ]
+    },
+    {
+      "id": 467506,
+      "az": "Kokand 1912 FK",
+      "ru": "Коканд 1912",
+      "source": "https://az.wikipedia.org/?curid=467506"
+    },
+    {
+      "id": 521335,
+      "az": "Qaborone Yunayted İK",
+      "ru": "Габороне Юнайтед",
+      "source": "https://az.wikipedia.org/?curid=521335"
+    },
+    {
+      "id": 557160,
+      "az": "Koton Sport FK",
+      "ru": "Котон Спорт",
+      "source": "https://az.wikipedia.org/?curid=557160"
+    },
+    {
+      "id": 560652,
+      "az": "Koqe FK",
+      "ru": "Кёге (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=560652"
+    },
+    {
+      "id": 577457,
+      "az": "Qroningen FK",
+      "ru": "Гронинген (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=577457"
+    },
+    {
+      "id": 602012,
+      "az": "Krasnodar FK",
+      "ru": "Краснодар (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=602012"
+    },
+    {
+      "id": 755939,
+      "az": "Kotvitsa Kolobjeq FK",
+      "ru": "Котвица (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=755939"
+    },
+    {
+      "id": 791067,
+      "az": "Qaziantep FK",
+      "ru": "Газиантеп (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=791067"
+    },
+    {
+      "id": 802063,
+      "az": "Konyaspor",
+      "ru": "Коньяспор (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=802063"
+    },
+    {
+      "id": 811744,
+      "az": "Kİ Klaksvik",
+      "ru": "КИ Клаксвик",
+      "source": "https://az.wikipedia.org/?curid=811744"
+    },
+    {
+      "id": 896130,
+      "az": "Komo FK",
+      "ru": "Комо (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=896130"
+    },
+    {
+      "id": 988381,
+      "az": "QAK FK",
+      "ru": "ГАК (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=988381"
+    },
+    {
+      "id": 990240,
+      "az": "Krusaders FK",
+      "ru": "Крусейдерс (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=990240"
+    },
+    {
+      "id": 56944,
+      "az": "Liverpul FK",
+      "ru": "Ливерпуль (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=56944"
+    },
+    {
+      "id": 80691,
+      "az": "Lex Poznan FK",
+      "ru": "Лех (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=80691"
+    },
+    {
+      "id": 81122,
+      "az": "Makkabi Hayfa FK",
+      "ru": "Маккаби (футбольный клуб, Хайфа)",
+      "source": "https://az.wikipedia.org/?curid=81122"
+    },
+    {
+      "id": 83443,
+      "az": "Lokomotiv İmişli FK",
+      "ru": "Локомотив (футбольный клуб, Имишли)",
+      "source": "https://az.wikipedia.org/?curid=83443"
+    },
+    {
+      "id": 85188,
+      "az": "Levski Sofiya PFK",
+      "ru": "Левски (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=85188"
+    },
+    {
+      "id": 86420,
+      "az": "Latsio FK",
+      "ru": "Лацио (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=86420"
+    },
+    {
+      "id": 86758,
+      "az": "Lokomotiv Moskva FK",
+      "ru": "Локомотив (футбольный клуб, Москва)",
+      "source": "https://az.wikipedia.org/?curid=86758"
+    },
+    {
+      "id": 86769,
+      "az": "Lokomotiv Sofiya PFK",
+      "ru": "Локомотив (футбольный клуб, София)",
+      "source": "https://az.wikipedia.org/?curid=86769"
+    },
+    {
+      "id": 86829,
+      "az": "Lokomotiv Plovdiv PFK",
+      "ru": "Локомотив (футбольный клуб, Пловдив)",
+      "source": "https://az.wikipedia.org/?curid=86829"
+    },
+    {
+      "id": 88425,
+      "az": "Levadiya Tallin FK",
+      "ru": "ФКИ Левадия",
+      "source": "https://az.wikipedia.org/?curid=88425"
+    },
+    {
+      "id": 88436,
+      "az": "Lantana Tallin FK",
+      "ru": "Лантана (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=88436"
+    },
+    {
+      "id": 88475,
+      "az": "Lokomotiv Leypsiq FK",
+      "ru": "Локомотив (футбольный клуб, Лейпциг)",
+      "source": "https://az.wikipedia.org/?curid=88475"
+    },
+    {
+      "id": 88566,
+      "az": "Makkabi Netaniya FK",
+      "ru": "Маккаби (футбольный клуб, Нетания)",
+      "source": "https://az.wikipedia.org/?curid=88566"
+    },
+    {
+      "id": 88568,
+      "az": "Makkabi Petax-Tikva FK",
+      "ru": "Маккаби (футбольный клуб, Петах-Тиква)",
+      "source": "https://az.wikipedia.org/?curid=88568"
+    },
+    {
+      "id": 88570,
+      "az": "Makkabi Təl-Əviv FK",
+      "ru": "Маккаби (футбольный клуб, Тель-Авив)",
+      "source": "https://az.wikipedia.org/?curid=88570"
+    },
+    {
+      "id": 97508,
+      "az": "Lokomotiv Daşkənd FK",
+      "ru": "Локомотив (футбольный клуб, Ташкент)",
+      "source": "https://az.wikipedia.org/?curid=97508"
+    },
+    {
+      "id": 168729,
+      "az": "Qurnik Zabje FK",
+      "ru": "Гурник (футбольный клуб, Забже)",
+      "source": "https://az.wikipedia.org/?curid=168729"
+    },
+    {
+      "id": 338864,
+      "az": "Lokomotiv-Biləcəri FK",
+      "ru": "Локомотив-Баладжары",
+      "source": "https://az.wikipedia.org/?curid=338864"
+    },
+    {
+      "id": 413844,
+      "az": "Lodz FK",
+      "ru": "ЛКС (футбольный клуб, Лодзь)",
+      "source": "https://az.wikipedia.org/?curid=413844"
+    },
+    {
+      "id": 413946,
+      "az": "Linkoln FK",
+      "ru": "Линкольн Ред Импс",
+      "source": "https://az.wikipedia.org/?curid=413946"
+    },
+    {
+      "id": 413951,
+      "az": "Lusitanos FK",
+      "ru": "Лузитанс",
+      "source": "https://az.wikipedia.org/?curid=413951"
+    },
+    {
+      "id": 414167,
+      "az": "Laçi FK",
+      "ru": "Лачи (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=414167"
+    },
+    {
+      "id": 446744,
+      "az": "Lester Siti FK",
+      "ru": "Лестер Сити",
+      "source": "https://az.wikipedia.org/?curid=446744"
+    },
+    {
+      "id": 449821,
+      "az": "Legiya Varşava FK",
+      "ru": "Легия (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=449821"
+    },
+    {
+      "id": 452209,
+      "az": "La Fiorita FK",
+      "ru": "Ла Фиорита",
+      "source": "https://az.wikipedia.org/?curid=452209"
+    },
+    {
+      "id": 454287,
+      "az": "Lill FK",
+      "ru": "Лилль (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=454287"
+    },
+    {
+      "id": 455042,
+      "az": "Lids Yunayted FK",
+      "ru": "Лидс Юнайтед",
+      "source": "https://az.wikipedia.org/?curid=455042"
+    },
+    {
+      "id": 493794,
+      "az": "Libertad FK",
+      "ru": "Либертад (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=493794"
+    },
+    {
+      "id": 503129,
+      "az": "Lans FK",
+      "ru": "Ланс (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=503129"
+    },
+    {
+      "id": 510395,
+      "az": "Ludoqorets Razqrad PFK",
+      "ru": "Лудогорец",
+      "source": "https://az.wikipedia.org/?curid=510395"
+    },
+    {
+      "id": 554703,
+      "az": "Leninqrad FK",
+      "ru": "Ленинградец (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=554703"
+    },
+    {
+      "id": 560103,
+      "az": "Loryan FK",
+      "ru": "Лорьян (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=560103"
+    },
+    {
+      "id": 561098,
+      "az": "Los-Anceles Gelaksi FK",
+      "ru": "Лос-Анджелес Гэлакси",
+      "source": "https://az.wikipedia.org/?curid=561098"
+    },
+    {
+      "id": 576845,
+      "az": "Quanjou FK",
+      "ru": "Гуанчжоу (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=576845"
+    },
+    {
+      "id": 591361,
+      "az": "Qubbio FK",
+      "ru": "Губбио (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=591361"
+    },
+    {
+      "id": 597330,
+      "az": "Lokomotiv Tbilisi FK",
+      "ru": "Локомотив (футбольный клуб, Тбилиси)",
+      "source": "https://az.wikipedia.org/?curid=597330"
+    },
+    {
+      "id": 603690,
+      "az": "Mahaçqala FK",
+      "ru": "Махачкала (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=603690"
+    },
+    {
+      "id": 690302,
+      "az": "Livorno FK",
+      "ru": "Ливорно (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=690302"
+    },
+    {
+      "id": 755922,
+      "az": "Qurnik Valbjix İK",
+      "ru": "Гурник (футбольный клуб, Валбжих)",
+      "source": "https://az.wikipedia.org/?curid=755922"
+    },
+    {
+      "id": 906110,
+      "az": "Las Palmas (futbol klubu)",
+      "ru": "Лас-Пальмас (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=906110"
+    },
+    {
+      "id": 924676,
+      "az": "Lillestryom FK",
+      "ru": "Лиллестрём (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=924676"
+    },
+    {
+      "id": 976604,
+      "az": "Lokomotiva Zaqreb FK",
+      "ru": "Локомотива",
+      "source": "https://az.wikipedia.org/?curid=976604"
+    },
+    {
+      "id": 988385,
+      "az": "LASK FK",
+      "ru": "ЛАСК",
+      "source": "https://az.wikipedia.org/?curid=988385"
+    },
+    {
+      "id": 8004,
+      "az": "Mançester Yunayted FK",
+      "ru": "Манчестер Юнайтед",
+      "source": "https://az.wikipedia.org/?curid=8004"
+    },
+    {
+      "id": 79980,
+      "az": "Milan FK",
+      "ru": "Милан (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=79980"
+    },
+    {
+      "id": 80438,
+      "az": "MOİK",
+      "ru": "МОИК",
+      "source": "https://az.wikipedia.org/?curid=80438"
+    },
+    {
+      "id": 80904,
+      "az": "Manisaspor",
+      "ru": "Манисаспор",
+      "source": "https://az.wikipedia.org/?curid=80904"
+    },
+    {
+      "id": 83419,
+      "az": "Mingəçevir FK",
+      "ru": "Энергетик (футбольный клуб, Мингечевир)",
+      "source": "https://az.wikipedia.org/?curid=83419"
+    },
+    {
+      "id": 83469,
+      "az": "Muğan FK",
+      "ru": "Мугань (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=83469"
+    },
+    {
+      "id": 86949,
+      "az": "MKE Ankaragücü",
+      "ru": "Анкарагюджю (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=86949"
+    },
+    {
+      "id": 88439,
+      "az": "Narva Trans FK",
+      "ru": "Нарва-Транс",
+      "source": "https://az.wikipedia.org/?curid=88439"
+    },
+    {
+      "id": 88854,
+      "az": "Mançester Siti FK",
+      "ru": "Манчестер Сити",
+      "source": "https://az.wikipedia.org/?curid=88854",
+      "aliases": [
+        "Mançester City",
+        "Манчестер Сити"
+      ],
+      "caption_sources": []
+    },
+    {
+      "id": 88857,
+      "az": "MTK Budapeşt FK",
+      "ru": "МТК (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=88857"
+    },
+    {
+      "id": 97333,
+      "az": "Napoli FK",
+      "ru": "Наполи",
+      "source": "https://az.wikipedia.org/?curid=97333"
+    },
+    {
+      "id": 97472,
+      "az": "Metallurq Donetsk FK",
+      "ru": "Металлург (футбольный клуб, Донецк)",
+      "source": "https://az.wikipedia.org/?curid=97472"
+    },
+    {
+      "id": 97474,
+      "az": "Metallurq Zaporojye FK",
+      "ru": "Металлург (футбольный клуб, Запорожье)",
+      "source": "https://az.wikipedia.org/?curid=97474"
+    },
+    {
+      "id": 97480,
+      "az": "Metallist Xarkov FK",
+      "ru": "Металлист (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=97480"
+    },
+    {
+      "id": 101975,
+      "az": "Moskva FK",
+      "ru": "Москва (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=101975"
+    },
+    {
+      "id": 125115,
+      "az": "Monpelye FK",
+      "ru": "Монпелье (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=125115"
+    },
+    {
+      "id": 125119,
+      "az": "MüPa-47 FK",
+      "ru": "МюПа-47",
+      "source": "https://az.wikipedia.org/?curid=125119"
+    },
+    {
+      "id": 125120,
+      "az": "Metallurq Skopye FK",
+      "ru": "Металлург (футбольный клуб, Скопье)",
+      "source": "https://az.wikipedia.org/?curid=125120"
+    },
+    {
+      "id": 348314,
+      "az": "Malmö FK",
+      "ru": "Мальмё (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=348314"
+    },
+    {
+      "id": 369817,
+      "az": "Monako FK",
+      "ru": "Монако (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=369817"
+    },
+    {
+      "id": 413852,
+      "az": "Minsk FK",
+      "ru": "Минск (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=413852"
+    },
+    {
+      "id": 413861,
+      "az": "Mladost Podqoritsa FK",
+      "ru": "Титоград (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=413861"
+    },
+    {
+      "id": 413953,
+      "az": "Mika FK",
+      "ru": "Мика (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=413953"
+    },
+    {
+      "id": 448042,
+      "az": "Mançester 62 FK",
+      "ru": "Манчестер 62",
+      "source": "https://az.wikipedia.org/?curid=448042"
+    },
+    {
+      "id": 448395,
+      "az": "Milsami Orhey FK",
+      "ru": "Милсами",
+      "source": "https://az.wikipedia.org/?curid=448395"
+    },
+    {
+      "id": 451840,
+      "az": "Malaqa FK",
+      "ru": "Малага (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=451840"
+    },
+    {
+      "id": 454345,
+      "az": "Nant FK",
+      "ru": "Нант (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=454345"
+    },
+    {
+      "id": 456872,
+      "az": "Mauerverk FK",
+      "ru": "Мауэрверк",
+      "source": "https://az.wikipedia.org/?curid=456872"
+    },
+    {
+      "id": 458812,
+      "az": "Mayns 05 FK",
+      "ru": "Майнц 05",
+      "source": "https://az.wikipedia.org/?curid=458812"
+    },
+    {
+      "id": 478086,
+      "az": "Minnesota Yunayted FK",
+      "ru": "Миннесота Юнайтед",
+      "source": "https://az.wikipedia.org/?curid=478086"
+    },
+    {
+      "id": 478613,
+      "az": "Mintos FK",
+      "ru": "МИТОС (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=478613"
+    },
+    {
+      "id": 481526,
+      "az": "Maşın Sazi FK",
+      "ru": "Машин Сази",
+      "source": "https://az.wikipedia.org/?curid=481526"
+    },
+    {
+      "id": 485532,
+      "az": "Milluoll FK",
+      "ru": "Миллуолл (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=485532"
+    },
+    {
+      "id": 501643,
+      "az": "Mladost Luçani FK",
+      "ru": "Младост (футбольный клуб, Лучани)",
+      "source": "https://az.wikipedia.org/?curid=501643"
+    },
+    {
+      "id": 504516,
+      "az": "Maritimo FK",
+      "ru": "Маритиму",
+      "source": "https://az.wikipedia.org/?curid=504516"
+    },
+    {
+      "id": 521342,
+      "az": "Mpumalanqa Blək Eysiz FK",
+      "ru": "Мпумаланга Блэк Эйсиз",
+      "source": "https://az.wikipedia.org/?curid=521342"
+    },
+    {
+      "id": 523028,
+      "az": "Mets FK",
+      "ru": "Мец (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=523028"
+    },
+    {
+      "id": 577496,
+      "az": "Midlsbro FK",
+      "ru": "Мидлсбро (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=577496"
+    },
+    {
+      "id": 610496,
+      "az": "Molde FK",
+      "ru": "Молде (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=610496"
+    },
+    {
+      "id": 748187,
+      "az": "Nassaci Mazandaran FK",
+      "ru": "Нассаджи Мазандаран",
+      "source": "https://az.wikipedia.org/?curid=748187"
+    },
+    {
+      "id": 795819,
+      "az": "Mersin Talim Yurdu FK",
+      "ru": "Мерсин Идманюрду",
+      "source": "https://az.wikipedia.org/?curid=795819"
+    },
+    {
+      "id": 993658,
+      "az": "Nasional FK",
+      "ru": "Насьонал (футбольный клуб, Фуншал)",
+      "source": "https://az.wikipedia.org/?curid=993658"
+    },
+    {
+      "id": 8008,
+      "az": "Neftçi PFK",
+      "ru": "Нефтчи (футбольный клуб, Баку)",
+      "source": "https://az.wikipedia.org/?curid=8008"
+    },
+    {
+      "id": 41335,
+      "az": "Orduspor",
+      "ru": "Ордуспор",
+      "source": "https://az.wikipedia.org/?curid=41335"
+    },
+    {
+      "id": 80235,
+      "az": "Nitra FK",
+      "ru": "Нитра (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=80235"
+    },
+    {
+      "id": 81917,
+      "az": "Olimpik Marsel FK",
+      "ru": "Олимпик Марсель",
+      "source": "https://az.wikipedia.org/?curid=81917"
+    },
+    {
+      "id": 84210,
+      "az": "NSİ Runavik FK",
+      "ru": "НСИ (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=84210"
+    },
+    {
+      "id": 86827,
+      "az": "Neman Qrodno FK",
+      "ru": "Неман (футбольный клуб, Гродно)",
+      "source": "https://az.wikipedia.org/?curid=86827"
+    },
+    {
+      "id": 86964,
+      "az": "Paxtakor Daşkənd FK",
+      "ru": "Пахтакор",
+      "source": "https://az.wikipedia.org/?curid=86964"
+    },
+    {
+      "id": 86970,
+      "az": "Olimpiakos Pirey FK",
+      "ru": "Олимпиакос (футбольный клуб, Пирей)",
+      "source": "https://az.wikipedia.org/?curid=86970"
+    },
+    {
+      "id": 86973,
+      "az": "Neftçi Fərqanə FK",
+      "ru": "Нефтчи (футбольный клуб, Фергана)",
+      "source": "https://az.wikipedia.org/?curid=86973"
+    },
+    {
+      "id": 88354,
+      "az": "Omoniya Nikosiya FK",
+      "ru": "Омония (футбольный клуб, Никосия)",
+      "source": "https://az.wikipedia.org/?curid=88354"
+    },
+    {
+      "id": 88356,
+      "az": "Olimpiakos Nikosiya FK",
+      "ru": "Олимпиакос (футбольный клуб, Никосия)",
+      "source": "https://az.wikipedia.org/?curid=88356"
+    },
+    {
+      "id": 88554,
+      "az": "OFK Belqrad",
+      "ru": "ОФК (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=88554"
+    },
+    {
+      "id": 88804,
+      "az": "Nea Salamina Famaqusta FK",
+      "ru": "Неа Саламина (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=88804"
+    },
+    {
+      "id": 95785,
+      "az": "Neftçala FK",
+      "ru": "Нефтчала (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=95785"
+    },
+    {
+      "id": 97453,
+      "az": "Olimpiya Lyublyana FK",
+      "ru": "Олимпия (футбольный клуб, Любляна)",
+      "source": "https://az.wikipedia.org/?curid=97453"
+    },
+    {
+      "id": 97468,
+      "az": "Niva Vinnitsa PFK",
+      "ru": "Нива (футбольный клуб, Винница)",
+      "source": "https://az.wikipedia.org/?curid=97468"
+    },
+    {
+      "id": 98208,
+      "az": "Olimpiya Beltsı FK",
+      "ru": "Бэлць (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=98208"
+    },
+    {
+      "id": 166258,
+      "az": "Osasuna FK",
+      "ru": "Осасуна",
+      "source": "https://az.wikipedia.org/?curid=166258"
+    },
+    {
+      "id": 210542,
+      "az": "Nyukasl Yunayted FK",
+      "ru": "Ньюкасл Юнайтед",
+      "source": "https://az.wikipedia.org/?curid=210542"
+    },
+    {
+      "id": 306508,
+      "az": "Palestino FK",
+      "ru": "Палестино",
+      "source": "https://az.wikipedia.org/?curid=306508"
+    },
+    {
+      "id": 333233,
+      "az": "Nımme Kalyu FK",
+      "ru": "Нымме Калью",
+      "source": "https://az.wikipedia.org/?curid=333233"
+    },
+    {
+      "id": 378345,
+      "az": "Olimpik Lion FK",
+      "ru": "Олимпик Лион",
+      "source": "https://az.wikipedia.org/?curid=378345"
+    },
+    {
+      "id": 409312,
+      "az": "Paderborn 07 FK",
+      "ru": "Падерборн 07",
+      "source": "https://az.wikipedia.org/?curid=409312"
+    },
+    {
+      "id": 413909,
+      "az": "Panatinaikos FK",
+      "ru": "Панатинаикос (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=413909",
+      "aliases": [
+        "Panatinaykos",
+        "Панатинаикос"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/4175"
+      ]
+    },
+    {
+      "id": 413954,
+      "az": "Nyu Seynts FK",
+      "ru": "Нью-Сейнтс",
+      "source": "https://az.wikipedia.org/?curid=413954"
+    },
+    {
+      "id": 414176,
+      "az": "Olimpik Sarayevo FK",
+      "ru": "Олимпик (футбольный клуб, Сараево)",
+      "source": "https://az.wikipedia.org/?curid=414176"
+    },
+    {
+      "id": 414355,
+      "az": "Ordabası FK",
+      "ru": "Ордабасы",
+      "source": "https://az.wikipedia.org/?curid=414355"
+    },
+    {
+      "id": 414386,
+      "az": "NK Maribor",
+      "ru": "Марибор (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=414386"
+    },
+    {
+      "id": 418011,
+      "az": "Odense FK",
+      "ru": "Оденсе (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=418011"
+    },
+    {
+      "id": 448384,
+      "az": "Okjetpes FK",
+      "ru": "Окжетпес",
+      "source": "https://az.wikipedia.org/?curid=448384"
+    },
+    {
+      "id": 480175,
+      "az": "Nottinqem Forest FK",
+      "ru": "Ноттингем Форест",
+      "source": "https://az.wikipedia.org/?curid=480175",
+      "aliases": [
+        "Notinqem Forest",
+        "NottinqemForest",
+        "Ноттингем Форест"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/4178",
+        "https://t.me/idmanvideo/5897"
+      ]
+    },
+    {
+      "id": 503052,
+      "az": "Nitsa FK",
+      "ru": "Ницца (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=503052",
+      "aliases": [
+        "Nis",
+        "Ницца"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/5190"
+      ]
+    },
+    {
+      "id": 522253,
+      "az": "Oser FK",
+      "ru": "Осер (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=522253"
+    },
+    {
+      "id": 522255,
+      "az": "Nim Olimpik FK",
+      "ru": "Ним (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=522255"
+    },
+    {
+      "id": 548688,
+      "az": "Oleksandriya FK",
+      "ru": "Александрия (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=548688"
+    },
+    {
+      "id": 552457,
+      "az": "Palermo FK",
+      "ru": "Палермо (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=552457"
+    },
+    {
+      "id": 580623,
+      "az": "Panevejis FK",
+      "ru": "Паневежис (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=580623"
+    },
+    {
+      "id": 580627,
+      "az": "Palanqa FK",
+      "ru": "Паланга (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=580627"
+    },
+    {
+      "id": 587586,
+      "az": "Orenburq FK",
+      "ru": "Оренбург (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=587586"
+    },
+    {
+      "id": 737009,
+      "az": "Nevejis FK",
+      "ru": "Невежис (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=737009"
+    },
+    {
+      "id": 743513,
+      "az": "Noveze FK",
+      "ru": "Новезе (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=743513"
+    },
+    {
+      "id": 789064,
+      "az": "Nou Neym Klub",
+      "ru": "Ноу Нейм Килберн",
+      "source": "https://az.wikipedia.org/?curid=789064"
+    },
+    {
+      "id": 824964,
+      "az": "Nyuells Old Boyz FK",
+      "ru": "Ньюэллс Олд Бойз",
+      "source": "https://az.wikipedia.org/?curid=824964"
+    },
+    {
+      "id": 924665,
+      "az": "Olesunn FK",
+      "ru": "Олесунн (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=924665"
+    },
+    {
+      "id": 940855,
+      "az": "Odds Ballklubb FK",
+      "ru": "Одд (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=940855"
+    },
+    {
+      "id": 7976,
+      "az": "Real Madrid FK",
+      "ru": "Реал Мадрид (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=7976"
+    },
+    {
+      "id": 80164,
+      "az": "Rabotniçki FK",
+      "ru": "Работнички (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=80164"
+    },
+    {
+      "id": 83444,
+      "az": "Plastik Salyan FK",
+      "ru": "Пластик (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=83444"
+    },
+    {
+      "id": 86812,
+      "az": "Rapid Vyana FK",
+      "ru": "Рапид (футбольный клуб, Вена)",
+      "source": "https://az.wikipedia.org/?curid=86812"
+    },
+    {
+      "id": 88239,
+      "az": "Rəvan FK",
+      "ru": "Ряван",
+      "source": "https://az.wikipedia.org/?curid=88239"
+    },
+    {
+      "id": 88556,
+      "az": "Partizan Belqrad FK",
+      "ru": "Партизан (футбольный клуб, Белград)",
+      "source": "https://az.wikipedia.org/?curid=88556"
+    },
+    {
+      "id": 88574,
+      "az": "RFS FK",
+      "ru": "РФШ (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=88574"
+    },
+    {
+      "id": 88758,
+      "az": "Proqresul Buxarest FK",
+      "ru": "Прогресул (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=88758"
+    },
+    {
+      "id": 88761,
+      "az": "Petrolul Ployeşti FK",
+      "ru": "Петролул",
+      "source": "https://az.wikipedia.org/?curid=88761"
+    },
+    {
+      "id": 88763,
+      "az": "Rapid Buxarest FK",
+      "ru": "Рапид (футбольный клуб, Бухарест)",
+      "source": "https://az.wikipedia.org/?curid=88763"
+    },
+    {
+      "id": 88814,
+      "az": "Rayo Valyekano FK",
+      "ru": "Райо Вальекано",
+      "source": "https://az.wikipedia.org/?curid=88814"
+    },
+    {
+      "id": 97404,
+      "az": "Rasinq Lüksemburq FK",
+      "ru": "Расинг (футбольный клуб, Люксембург)",
+      "source": "https://az.wikipedia.org/?curid=97404"
+    },
+    {
+      "id": 97521,
+      "az": "Pusan Ay Park FK",
+      "ru": "Пусан Ай Парк",
+      "source": "https://az.wikipedia.org/?curid=97521"
+    },
+    {
+      "id": 103790,
+      "az": "Persepolis FK",
+      "ru": "Персеполис (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=103790"
+    },
+    {
+      "id": 125121,
+      "az": "Portadaun FK",
+      "ru": "Портадаун (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=125121"
+    },
+    {
+      "id": 180684,
+      "az": "Pro Verçelli 1892 FK",
+      "ru": "Про Верчелли",
+      "source": "https://az.wikipedia.org/?curid=180684"
+    },
+    {
+      "id": 273195,
+      "az": "Parma FK",
+      "ru": "Парма (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=273195"
+    },
+    {
+      "id": 291768,
+      "az": "Pari Sen-Jermen FK",
+      "ru": "Пари Сен-Жермен",
+      "source": "https://az.wikipedia.org/?curid=291768"
+    },
+    {
+      "id": 293087,
+      "az": "Portu FK",
+      "ru": "Порту (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=293087"
+    },
+    {
+      "id": 293718,
+      "az": "Real Sosyedad FK",
+      "ru": "Реал Сосьедад",
+      "source": "https://az.wikipedia.org/?curid=293718",
+      "aliases": [
+        "Real Soseydad",
+        "Реал Сосьедад"
+      ],
+      "caption_sources": []
+    },
+    {
+      "id": 295659,
+      "az": "PSV Eyndhoven FK",
+      "ru": "ПСВ (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=295659"
+    },
+    {
+      "id": 371913,
+      "az": "Red Bull Zalsburq FK",
+      "ru": "Ред Булл (футбольный клуб, Зальцбург)",
+      "source": "https://az.wikipedia.org/?curid=371913"
+    },
+    {
+      "id": 394503,
+      "az": "Partik Tisl FK",
+      "ru": "Партик Тисл",
+      "source": "https://az.wikipedia.org/?curid=394503"
+    },
+    {
+      "id": 394505,
+      "az": "Reyncers FK",
+      "ru": "Рейнджерс (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=394505"
+    },
+    {
+      "id": 413855,
+      "az": "Rid FK",
+      "ru": "Рид (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=413855"
+    },
+    {
+      "id": 413856,
+      "az": "Pünik FK",
+      "ru": "Пюник (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=413856"
+    },
+    {
+      "id": 413906,
+      "az": "Piast FK",
+      "ru": "Пяст (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=413906"
+    },
+    {
+      "id": 413969,
+      "az": "Partizani Tirana FK",
+      "ru": "Партизани (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=413969"
+    },
+    {
+      "id": 414159,
+      "az": "Renova FK",
+      "ru": "Ренова (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=414159"
+    },
+    {
+      "id": 417467,
+      "az": "PAOK FK",
+      "ru": "ПАОК (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=417467"
+    },
+    {
+      "id": 418006,
+      "az": "Renn FK",
+      "ru": "Ренн (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=418006"
+    },
+    {
+      "id": 448189,
+      "az": "Puertoyano FK",
+      "ru": "Пуэртояно (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=448189"
+    },
+    {
+      "id": 450285,
+      "az": "RB Omiya Ardiya",
+      "ru": "РБ Омия Ардия",
+      "source": "https://az.wikipedia.org/?curid=450285"
+    },
+    {
+      "id": 506167,
+      "az": "Real Madrid C FK",
+      "ru": "Реал Мадрид C",
+      "source": "https://az.wikipedia.org/?curid=506167"
+    },
+    {
+      "id": 508583,
+      "az": "RB Leypsiq FK",
+      "ru": "РБ Лейпциг",
+      "source": "https://az.wikipedia.org/?curid=508583"
+    },
+    {
+      "id": 550763,
+      "az": "Proqres Niderkorn FK",
+      "ru": "Прогрес (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=550763"
+    },
+    {
+      "id": 569532,
+      "az": "Real Valyadolid FK",
+      "ru": "Реал Вальядолид",
+      "source": "https://az.wikipedia.org/?curid=569532"
+    },
+    {
+      "id": 580637,
+      "az": "Riteryay FK",
+      "ru": "Ритеряй",
+      "source": "https://az.wikipedia.org/?curid=580637"
+    },
+    {
+      "id": 610900,
+      "az": "Real Betis FK",
+      "ru": "Реал Бетис",
+      "source": "https://az.wikipedia.org/?curid=610900"
+    },
+    {
+      "id": 695304,
+      "az": "Pyaçentsa FK",
+      "ru": "Пьяченца (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=695304"
+    },
+    {
+      "id": 738697,
+      "az": "Real Saraqosa FK",
+      "ru": "Реал Сарагоса",
+      "source": "https://az.wikipedia.org/?curid=738697"
+    },
+    {
+      "id": 803242,
+      "az": "Reggina",
+      "ru": "Реджо Калабрия (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=803242"
+    },
+    {
+      "id": 976599,
+      "az": "Priştina FK",
+      "ru": "Приштина (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=976599"
+    },
+    {
+      "id": 988392,
+      "az": "Rayndorf Altax FK",
+      "ru": "Райндорф Альтах",
+      "source": "https://az.wikipedia.org/?curid=988392"
+    },
+    {
+      "id": 71003,
+      "az": "Simurq PİK",
+      "ru": "Симург (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=71003"
+    },
+    {
+      "id": 80465,
+      "az": "Slaviya Praqa FK",
+      "ru": "Славия (футбольный клуб, Прага)",
+      "source": "https://az.wikipedia.org/?curid=80465"
+    },
+    {
+      "id": 80901,
+      "az": "Sivasspor",
+      "ru": "Сивасспор",
+      "source": "https://az.wikipedia.org/?curid=80901"
+    },
+    {
+      "id": 81673,
+      "az": "Rosenborq FK",
+      "ru": "Русенборг",
+      "source": "https://az.wikipedia.org/?curid=81673"
+    },
+    {
+      "id": 84464,
+      "az": "Sampdoriya FK",
+      "ru": "Сампдория",
+      "source": "https://az.wikipedia.org/?curid=84464"
+    },
+    {
+      "id": 86418,
+      "az": "Roma FK",
+      "ru": "Рома (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=86418"
+    },
+    {
+      "id": 86754,
+      "az": "Skonto FK",
+      "ru": "Сконто (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=86754"
+    },
+    {
+      "id": 86853,
+      "az": "Sakaryaspor",
+      "ru": "Сакарьяспор",
+      "source": "https://az.wikipedia.org/?curid=86853"
+    },
+    {
+      "id": 88533,
+      "az": "Rubin Kazan FK",
+      "ru": "Рубин (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=88533"
+    },
+    {
+      "id": 90484,
+      "az": "Sepahan FK",
+      "ru": "Сепахан",
+      "source": "https://az.wikipedia.org/?curid=90484"
+    },
+    {
+      "id": 92305,
+      "az": "Sevilya FK",
+      "ru": "Севилья (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=92305"
+    },
+    {
+      "id": 97456,
+      "az": "Rudar Velenye FK",
+      "ru": "Рудар (футбольный клуб, Веленье)",
+      "source": "https://az.wikipedia.org/?curid=97456"
+    },
+    {
+      "id": 97516,
+      "az": "Sidney FK",
+      "ru": "Сидней (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=97516"
+    },
+    {
+      "id": 97540,
+      "az": "Seul FK",
+      "ru": "Сеул (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=97540"
+    },
+    {
+      "id": 125124,
+      "az": "Sent-Trüyden FK",
+      "ru": "Сент-Трюйден (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=125124"
+    },
+    {
+      "id": 210594,
+      "az": "Sankt-Pauli FK",
+      "ru": "Санкт-Паули (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=210594"
+    },
+    {
+      "id": 215418,
+      "az": "San-Paulu FK",
+      "ru": "Сан-Паулу (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=215418"
+    },
+    {
+      "id": 260419,
+      "az": "Rostov FK",
+      "ru": "Ростов (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=260419"
+    },
+    {
+      "id": 323557,
+      "az": "Seltik FK",
+      "ru": "Селтик",
+      "source": "https://az.wikipedia.org/?curid=323557"
+    },
+    {
+      "id": 377159,
+      "az": "Sent-Etyen FK",
+      "ru": "Сент-Этьен (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=377159"
+    },
+    {
+      "id": 385449,
+      "az": "Samsunspor",
+      "ru": "Самсунспор",
+      "source": "https://az.wikipedia.org/?curid=385449"
+    },
+    {
+      "id": 411475,
+      "az": "Rudar Plevlya FK",
+      "ru": "Рудар (футбольный клуб, Плевля)",
+      "source": "https://az.wikipedia.org/?curid=411475"
+    },
+    {
+      "id": 413845,
+      "az": "Skenderbu Korça FK",
+      "ru": "Скендербеу",
+      "source": "https://az.wikipedia.org/?curid=413845"
+    },
+    {
+      "id": 413948,
+      "az": "Santa Koloma FK",
+      "ru": "Санта-Колома (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=413948"
+    },
+    {
+      "id": 414172,
+      "az": "Sarayevo FK",
+      "ru": "Сараево (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=414172"
+    },
+    {
+      "id": 414348,
+      "az": "Rudar Priyedor FK",
+      "ru": "Рудар (футбольный клуб, Приедор)",
+      "source": "https://az.wikipedia.org/?curid=414348"
+    },
+    {
+      "id": 414362,
+      "az": "Rustavi FK",
+      "ru": "Металлург (футбольный клуб, Рустави)",
+      "source": "https://az.wikipedia.org/?curid=414362"
+    },
+    {
+      "id": 414365,
+      "az": "Sioni Bolnisi FK",
+      "ru": "Сиони (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=414365"
+    },
+    {
+      "id": 452777,
+      "az": "Samtredia FK",
+      "ru": "Самтредиа (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=452777"
+    },
+    {
+      "id": 457583,
+      "az": "Serezo Osaka FK",
+      "ru": "Сересо Осака",
+      "source": "https://az.wikipedia.org/?curid=457583"
+    },
+    {
+      "id": 468082,
+      "az": "Roasso Kumamoto FK",
+      "ru": "Роассо Кумамото",
+      "source": "https://az.wikipedia.org/?curid=468082"
+    },
+    {
+      "id": 469906,
+      "az": "Səbail FK",
+      "ru": "Сабаил (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=469906"
+    },
+    {
+      "id": 479991,
+      "az": "Sauthempton FK",
+      "ru": "Саутгемптон (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=479991",
+      "aliases": [
+        "Southampton",
+        "Саутгемптон"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/4809"
+      ]
+    },
+    {
+      "id": 506280,
+      "az": "Santos FK",
+      "ru": "Сантос (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=506280"
+    },
+    {
+      "id": 521339,
+      "az": "Sanşayn Stars FK",
+      "ru": "Саншайн Старз",
+      "source": "https://az.wikipedia.org/?curid=521339"
+    },
+    {
+      "id": 555072,
+      "az": "Sabah FK",
+      "ru": "Сабах (футбольный клуб, Баку)",
+      "source": "https://az.wikipedia.org/?curid=555072"
+    },
+    {
+      "id": 568551,
+      "az": "Serro Porteno FK",
+      "ru": "Серро Портеньо",
+      "source": "https://az.wikipedia.org/?curid=568551"
+    },
+    {
+      "id": 591841,
+      "az": "Sassuolo FK",
+      "ru": "Сассуоло (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=591841"
+    },
+    {
+      "id": 597331,
+      "az": "Saburtalo Tbilisi FK",
+      "ru": "Иберия 1999",
+      "source": "https://az.wikipedia.org/?curid=597331"
+    },
+    {
+      "id": 684174,
+      "az": "SD Compostela",
+      "ru": "Компостела (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=684174"
+    },
+    {
+      "id": 755948,
+      "az": "Rux Zdzeşovitse FK",
+      "ru": "Рух (футбольный клуб, Здзешовице)",
+      "source": "https://az.wikipedia.org/?curid=755948"
+    },
+    {
+      "id": 778474,
+      "az": "Salernitana 1919 FK",
+      "ru": "Салернитана",
+      "source": "https://az.wikipedia.org/?curid=778474"
+    },
+    {
+      "id": 787698,
+      "az": "Santa Klara FK",
+      "ru": "Санта-Клара (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=787698"
+    },
+    {
+      "id": 863597,
+      "az": "Sent-Patriks Atletik FK",
+      "ru": "Сент-Патрикс Атлетик",
+      "source": "https://az.wikipedia.org/?curid=863597"
+    },
+    {
+      "id": 976615,
+      "az": "Slaven Belupo FK",
+      "ru": "Славен Белупо",
+      "source": "https://az.wikipedia.org/?curid=976615"
+    },
+    {
+      "id": 70975,
+      "az": "Şamaxı FK",
+      "ru": "Шамахы (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=70975"
+    },
+    {
+      "id": 80160,
+      "az": "Şahdağ Quba FK",
+      "ru": "Шахдаг (футбольный клуб, Губа)",
+      "source": "https://az.wikipedia.org/?curid=80160"
+    },
+    {
+      "id": 80631,
+      "az": "Şaxtyor Donetsk FK",
+      "ru": "Шахтёр (футбольный клуб, Донецк)",
+      "source": "https://az.wikipedia.org/?curid=80631"
+    },
+    {
+      "id": 81180,
+      "az": "Şerif Tiraspol FK",
+      "ru": "Шериф (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=81180"
+    },
+    {
+      "id": 83418,
+      "az": "Şəfa FK",
+      "ru": "Шафа (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=83418"
+    },
+    {
+      "id": 83471,
+      "az": "Standard Sumqayıt FK",
+      "ru": "Стандард (футбольный клуб, Сумгаит)",
+      "source": "https://az.wikipedia.org/?curid=83471"
+    },
+    {
+      "id": 83650,
+      "az": "Spartak Trnava FK",
+      "ru": "Спартак (футбольный клуб, Трнава)",
+      "source": "https://az.wikipedia.org/?curid=83650"
+    },
+    {
+      "id": 85615,
+      "az": "Slovan Bratislava FK",
+      "ru": "Слован (футбольный клуб, Братислава)",
+      "source": "https://az.wikipedia.org/?curid=85615"
+    },
+    {
+      "id": 86360,
+      "az": "Spartak Moskva FK",
+      "ru": "Спартак (футбольный клуб, Москва)",
+      "source": "https://az.wikipedia.org/?curid=86360"
+    },
+    {
+      "id": 86820,
+      "az": "Şaxtyor Soliqorsk FK",
+      "ru": "Шахтёр (футбольный клуб, Солигорск)",
+      "source": "https://az.wikipedia.org/?curid=86820"
+    },
+    {
+      "id": 86831,
+      "az": "Spartak Plovdiv FK",
+      "ru": "Спартак (футбольный клуб, Пловдив)",
+      "source": "https://az.wikipedia.org/?curid=86831"
+    },
+    {
+      "id": 86834,
+      "az": "Slaviya Sofiya PFK",
+      "ru": "Славия (футбольный клуб, София)",
+      "source": "https://az.wikipedia.org/?curid=86834"
+    },
+    {
+      "id": 88483,
+      "az": "Stok Siti FK",
+      "ru": "Сток Сити",
+      "source": "https://az.wikipedia.org/?curid=88483"
+    },
+    {
+      "id": 88531,
+      "az": "Standard Lyej FK",
+      "ru": "Стандард (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=88531"
+    },
+    {
+      "id": 88735,
+      "az": "Sparta Praqa FK",
+      "ru": "Спарта (футбольный клуб, Прага)",
+      "source": "https://az.wikipedia.org/?curid=88735"
+    },
+    {
+      "id": 88802,
+      "az": "Şahdağ Qusar FK",
+      "ru": "Шахдаг (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=88802"
+    },
+    {
+      "id": 88812,
+      "az": "Sportinq Xixon FK",
+      "ru": "Спортинг (футбольный клуб, Хихон)",
+      "source": "https://az.wikipedia.org/?curid=88812"
+    },
+    {
+      "id": 96520,
+      "az": "Srvena Zvezda FK",
+      "ru": "Црвена звезда (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=96520"
+    },
+    {
+      "id": 97458,
+      "az": "Smederevo FK",
+      "ru": "Смедерево (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=97458"
+    },
+    {
+      "id": 97464,
+      "az": "Sürix FK",
+      "ru": "Цюрих (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=97464"
+    },
+    {
+      "id": 97504,
+      "az": "Soqdiana Cizak FK",
+      "ru": "Согдиана (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=97504"
+    },
+    {
+      "id": 213928,
+      "az": "Sumqayıt FK",
+      "ru": "Сумгаит (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=213928"
+    },
+    {
+      "id": 284219,
+      "az": "Şalke 04 FK",
+      "ru": "Шальке 04",
+      "source": "https://az.wikipedia.org/?curid=284219"
+    },
+    {
+      "id": 333742,
+      "az": "Sportinq Lissabon FK",
+      "ru": "Спортинг (футбольный клуб, Лиссабон)",
+      "source": "https://az.wikipedia.org/?curid=333742"
+    },
+    {
+      "id": 413921,
+      "az": "Şaxtyor Qarağandı FK",
+      "ru": "Шахтёр (футбольный клуб, Караганда)",
+      "source": "https://az.wikipedia.org/?curid=413921"
+    },
+    {
+      "id": 414354,
+      "az": "Slaviya Sarayevo FK",
+      "ru": "Славия (футбольный клуб, Сараево)",
+      "source": "https://az.wikipedia.org/?curid=414354"
+    },
+    {
+      "id": 417472,
+      "az": "Şemrok Rovers FK",
+      "ru": "Шемрок Роверс",
+      "source": "https://az.wikipedia.org/?curid=417472"
+    },
+    {
+      "id": 445586,
+      "az": "Şanlıurfaspor",
+      "ru": "Шанлыурфаспор",
+      "source": "https://az.wikipedia.org/?curid=445586"
+    },
+    {
+      "id": 469866,
+      "az": "Şapekoense FK",
+      "ru": "Шапекоэнсе",
+      "source": "https://az.wikipedia.org/?curid=469866"
+    },
+    {
+      "id": 481246,
+      "az": "SV Real Rinkon",
+      "ru": "Реал Ринкон",
+      "source": "https://az.wikipedia.org/?curid=481246"
+    },
+    {
+      "id": 486946,
+      "az": "Spartak Subotiça FK",
+      "ru": "Спартак (футбольный клуб, Суботица)",
+      "source": "https://az.wikipedia.org/?curid=486946"
+    },
+    {
+      "id": 524943,
+      "az": "Soşo FK",
+      "ru": "Сошо (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=524943"
+    },
+    {
+      "id": 567680,
+      "az": "Şatoru FK",
+      "ru": "Шатору (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=567680"
+    },
+    {
+      "id": 576378,
+      "az": "Slovan Liberets FK",
+      "ru": "Слован (футбольный клуб, Либерец)",
+      "source": "https://az.wikipedia.org/?curid=576378"
+    },
+    {
+      "id": 580631,
+      "az": "Stumbras FK",
+      "ru": "Стумбрас (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=580631"
+    },
+    {
+      "id": 580635,
+      "az": "Suduva FK",
+      "ru": "Судува",
+      "source": "https://az.wikipedia.org/?curid=580635"
+    },
+    {
+      "id": 592712,
+      "az": "Sonqlam Nqean FK",
+      "ru": "Сонглам Нгеан",
+      "source": "https://az.wikipedia.org/?curid=592712"
+    },
+    {
+      "id": 710170,
+      "az": "Speziya FK",
+      "ru": "Специя (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=710170"
+    },
+    {
+      "id": 726062,
+      "az": "Soçi FK",
+      "ru": "Сочи (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=726062"
+    },
+    {
+      "id": 726142,
+      "az": "Sulori Vani FC",
+      "ru": "Сулори (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=726142"
+    },
+    {
+      "id": 921930,
+      "az": "Şelburn FK",
+      "ru": "Шелбурн",
+      "source": "https://az.wikipedia.org/?curid=921930"
+    },
+    {
+      "id": 20742,
+      "az": "Turan Tovuz FK",
+      "ru": "Туран (футбольный клуб, Товуз)",
+      "source": "https://az.wikipedia.org/?curid=20742"
+    },
+    {
+      "id": 83447,
+      "az": "Şirvan Şamaxı FK",
+      "ru": "Ширван (футбольный клуб, Шемаха)",
+      "source": "https://az.wikipedia.org/?curid=83447"
+    },
+    {
+      "id": 83448,
+      "az": "Şəmkir FK",
+      "ru": "Шамкир (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=83448"
+    },
+    {
+      "id": 86810,
+      "az": "Şturm Qrats FK",
+      "ru": "Штурм (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=86810",
+      "aliases": [
+        "Sturm",
+        "Sturm Graz",
+        "Штурм"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/5759",
+        "https://t.me/idmanvideo/5805"
+      ]
+    },
+    {
+      "id": 86814,
+      "az": "Tirol İnsbruk FK",
+      "ru": "Тироль (футбольный клуб, Инсбрук)",
+      "source": "https://az.wikipedia.org/?curid=86814"
+    },
+    {
+      "id": 88816,
+      "az": "Tampere Yunayted FK",
+      "ru": "Тампере Юнайтед",
+      "source": "https://az.wikipedia.org/?curid=88816"
+    },
+    {
+      "id": 89715,
+      "az": "Trabzonspor FK",
+      "ru": "Трабзонспор (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=89715"
+    },
+    {
+      "id": 92137,
+      "az": "Şirvan FK",
+      "ru": "Энергетик (футбольный клуб, Али-Байрамлы)",
+      "source": "https://az.wikipedia.org/?curid=92137"
+    },
+    {
+      "id": 92188,
+      "az": "Tobol Kostanay FK",
+      "ru": "Тобол (футбольный клуб, Костанай)",
+      "source": "https://az.wikipedia.org/?curid=92188"
+    },
+    {
+      "id": 97476,
+      "az": "Tavriya Simferopol İK",
+      "ru": "Таврия (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=97476"
+    },
+    {
+      "id": 97512,
+      "az": "Tomori Berat FK",
+      "ru": "Томори (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=97512"
+    },
+    {
+      "id": 97514,
+      "az": "Teuta Durres FK",
+      "ru": "Теута (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=97514"
+    },
+    {
+      "id": 97877,
+      "az": "Torpedo Kutaisi FK",
+      "ru": "Торпедо (футбольный клуб, Кутаиси)",
+      "source": "https://az.wikipedia.org/?curid=97877"
+    },
+    {
+      "id": 97988,
+      "az": "TP Mazembe FK",
+      "ru": "ТП Мазембе",
+      "source": "https://az.wikipedia.org/?curid=97988"
+    },
+    {
+      "id": 105866,
+      "az": "Tenerife FK",
+      "ru": "Тенерифе (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=105866"
+    },
+    {
+      "id": 130183,
+      "az": "Traktor FK",
+      "ru": "Трактор (футбольный клуб, Тебриз)",
+      "source": "https://az.wikipedia.org/?curid=130183"
+    },
+    {
+      "id": 166406,
+      "az": "Tottenhem Hotspur FK",
+      "ru": "Тоттенхэм Хотспур",
+      "source": "https://az.wikipedia.org/?curid=166406"
+    },
+    {
+      "id": 306936,
+      "az": "Torino FK",
+      "ru": "Торино",
+      "source": "https://az.wikipedia.org/?curid=306936"
+    },
+    {
+      "id": 333239,
+      "az": "Tromsö FK",
+      "ru": "Тромсё (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=333239"
+    },
+    {
+      "id": 338879,
+      "az": "Şuşa PFK",
+      "ru": "Шуша (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=338879"
+    },
+    {
+      "id": 379872,
+      "az": "Ştutqart FK",
+      "ru": "Штутгарт (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=379872",
+      "aliases": [
+        "Ştuttqart",
+        "Штутгарт"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7545"
+      ]
+    },
+    {
+      "id": 380665,
+      "az": "Turon FK",
+      "ru": "Турон (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=380665"
+    },
+    {
+      "id": 402264,
+      "az": "Tiraspol FK",
+      "ru": "Тирасполь (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=402264"
+    },
+    {
+      "id": 406171,
+      "az": "Temp FK (Bakı)",
+      "ru": "Строитель юга",
+      "source": "https://az.wikipedia.org/?curid=406171"
+    },
+    {
+      "id": 414160,
+      "az": "Şkendiya FK",
+      "ru": "Шкендия",
+      "source": "https://az.wikipedia.org/?curid=414160"
+    },
+    {
+      "id": 414166,
+      "az": "Tirana FK",
+      "ru": "Тирана (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=414166"
+    },
+    {
+      "id": 414182,
+      "az": "Şiroki Briyeq FK",
+      "ru": "Широки-Бриег (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=414182"
+    },
+    {
+      "id": 414359,
+      "az": "Taraz FK",
+      "ru": "Тараз (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=414359"
+    },
+    {
+      "id": 448727,
+      "az": "Tallin FKİ",
+      "ru": "ФКИ Таллинн",
+      "source": "https://az.wikipedia.org/?curid=448727"
+    },
+    {
+      "id": 460669,
+      "az": "Trençin FK",
+      "ru": "Тренчин (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=460669"
+    },
+    {
+      "id": 478542,
+      "az": "Torpedo Taqanroq FK",
+      "ru": "Торпедо (футбольный клуб, Таганрог)",
+      "source": "https://az.wikipedia.org/?curid=478542"
+    },
+    {
+      "id": 489761,
+      "az": "Tbilisi FK",
+      "ru": "Тбилиси (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=489761"
+    },
+    {
+      "id": 567241,
+      "az": "Tuluza FK",
+      "ru": "Тулуза (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=567241"
+    },
+    {
+      "id": 576364,
+      "az": "Trua FK",
+      "ru": "Труа (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=576364"
+    },
+    {
+      "id": 739922,
+      "az": "Şyaulyay FA",
+      "ru": "ФА Шяуляй",
+      "source": "https://az.wikipedia.org/?curid=739922"
+    },
+    {
+      "id": 838709,
+      "az": "Şəmkir PFK",
+      "ru": "ПФК Шамкир",
+      "source": "https://az.wikipedia.org/?curid=838709"
+    },
+    {
+      "id": 875451,
+      "az": "Şimal FK",
+      "ru": "Шимал (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=875451"
+    },
+    {
+      "id": 988353,
+      "az": "Şirak FK",
+      "ru": "Ширак (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=988353"
+    },
+    {
+      "id": 988398,
+      "az": "TSV Hartberq FK",
+      "ru": "Хартберг (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=988398"
+    },
+    {
+      "id": 988515,
+      "az": "Tirol FK",
+      "ru": "Тироль (футбольный клуб, Ваттенс)",
+      "source": "https://az.wikipedia.org/?curid=988515"
+    },
+    {
+      "id": 80246,
+      "az": "Vasluy FK",
+      "ru": "Васлуй (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=80246"
+    },
+    {
+      "id": 81321,
+      "az": "Volfsburq FK",
+      "ru": "Вольфсбург (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=81321"
+    },
+    {
+      "id": 81669,
+      "az": "Vorskla Poltava FK",
+      "ru": "Ворскла (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=81669"
+    },
+    {
+      "id": 83416,
+      "az": "Viləş PFK",
+      "ru": "Масаллы (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=83416"
+    },
+    {
+      "id": 83437,
+      "az": "Ümid Cəlilabad FK",
+      "ru": "Умид (футбольный клуб, Джалилабад)",
+      "source": "https://az.wikipedia.org/?curid=83437"
+    },
+    {
+      "id": 86438,
+      "az": "Tvente FK",
+      "ru": "Твенте (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=86438"
+    },
+    {
+      "id": 86475,
+      "az": "Ventspils FK",
+      "ru": "Вентспилс (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=86475"
+    },
+    {
+      "id": 86816,
+      "az": "Vakker İnsbruk FK",
+      "ru": "Ваккер (футбольный клуб, Инсбрук, 1915)",
+      "source": "https://az.wikipedia.org/?curid=86816"
+    },
+    {
+      "id": 88432,
+      "az": "TVMK Tallin FK",
+      "ru": "ТФМК (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=88432"
+    },
+    {
+      "id": 88441,
+      "az": "Vilyandi Tulevik FK",
+      "ru": "Тулевик",
+      "source": "https://az.wikipedia.org/?curid=88441"
+    },
+    {
+      "id": 88445,
+      "az": "Türkiyəmspor Berlin FK",
+      "ru": "Тюркиемспор (футбольный клуб, Берлин)",
+      "source": "https://az.wikipedia.org/?curid=88445"
+    },
+    {
+      "id": 88469,
+      "az": "Viktoriya Köln FK",
+      "ru": "Виктория (футбольный клуб, Кёльн)",
+      "source": "https://az.wikipedia.org/?curid=88469"
+    },
+    {
+      "id": 88576,
+      "az": "Vaduts FK",
+      "ru": "Вадуц (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=88576"
+    },
+    {
+      "id": 88581,
+      "az": "Vetra FK",
+      "ru": "Ветра (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=88581"
+    },
+    {
+      "id": 88818,
+      "az": "Turun Palloseura FK",
+      "ru": "ТПС (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=88818"
+    },
+    {
+      "id": 92426,
+      "az": "Vilyarreal FK",
+      "ru": "Вильярреал",
+      "source": "https://az.wikipedia.org/?curid=92426",
+      "aliases": [
+        "Vilyareal",
+        "Вильярреал"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7469"
+      ]
+    },
+    {
+      "id": 97401,
+      "az": "Union Lüksemburq FK",
+      "ru": "Унион (футбольный клуб, Люксембург)",
+      "source": "https://az.wikipedia.org/?curid=97401"
+    },
+    {
+      "id": 125123,
+      "az": "Visla Krakov FK",
+      "ru": "Висла (футбольный клуб, Краков)",
+      "source": "https://az.wikipedia.org/?curid=125123"
+    },
+    {
+      "id": 199708,
+      "az": "Valensiya FK",
+      "ru": "Валенсия (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=199708"
+    },
+    {
+      "id": 339755,
+      "az": "Volqar Həştərxan FK",
+      "ru": "Волгарь (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=339755"
+    },
+    {
+      "id": 413847,
+      "az": "Valletta FK",
+      "ru": "Валлетта (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=413847"
+    },
+    {
+      "id": 413968,
+      "az": "Vardar Skopye FK",
+      "ru": "Вардар (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=413968"
+    },
+    {
+      "id": 416346,
+      "az": "Udineze FK",
+      "ru": "Удинезе",
+      "source": "https://az.wikipedia.org/?curid=416346",
+      "aliases": [
+        "Udinese",
+        "Удинезе"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/6230"
+      ]
+    },
+    {
+      "id": 418119,
+      "az": "Viktoriya Plzen FK",
+      "ru": "Виктория (футбольный клуб, Пльзень)",
+      "source": "https://az.wikipedia.org/?curid=418119",
+      "aliases": [
+        "Viktoriya Pilzen",
+        "Виктория Пльзень"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/6527"
+      ]
+    },
+    {
+      "id": 444096,
+      "az": "Urartu FK",
+      "ru": "Урарту (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=444096"
+    },
+    {
+      "id": 448389,
+      "az": "Vitorul Konstanta FK",
+      "ru": "Вииторул (футбольный клуб, Констанца)",
+      "source": "https://az.wikipedia.org/?curid=448389"
+    },
+    {
+      "id": 448516,
+      "az": "Volın Lutsk FK",
+      "ru": "Волынь (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=448516"
+    },
+    {
+      "id": 452733,
+      "az": "Venus FK",
+      "ru": "Венюс",
+      "source": "https://az.wikipedia.org/?curid=452733"
+    },
+    {
+      "id": 490689,
+      "az": "Ufa FK",
+      "ru": "Уфа (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=490689"
+    },
+    {
+      "id": 529298,
+      "az": "Ural FK",
+      "ru": "Урал (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=529298"
+    },
+    {
+      "id": 558374,
+      "az": "Utrext FK",
+      "ru": "Утрехт (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=558374"
+    },
+    {
+      "id": 560621,
+      "az": "Vanlose FK",
+      "ru": "Ванлёсе (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=560621"
+    },
+    {
+      "id": 588176,
+      "az": "Vest Bromviç Albion FK",
+      "ru": "Вест Бромвич Альбион",
+      "source": "https://az.wikipedia.org/?curid=588176"
+    },
+    {
+      "id": 596908,
+      "az": "Universitatya Krayova FK",
+      "ru": "Университатя (футбольный клуб, Крайова)",
+      "source": "https://az.wikipedia.org/?curid=596908"
+    },
+    {
+      "id": 695077,
+      "az": "Viçentsa FK",
+      "ru": "Виченца (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=695077"
+    },
+    {
+      "id": 757414,
+      "az": "Vidzev Lodz FK",
+      "ru": "Видзев (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=757414"
+    },
+    {
+      "id": 912373,
+      "az": "Verder Bremen FK",
+      "ru": "Вердер (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=912373"
+    },
+    {
+      "id": 912929,
+      "az": "Vllaznia Şkoder FK",
+      "ru": "Влазния (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=912929"
+    },
+    {
+      "id": 988349,
+      "az": "Van FK",
+      "ru": "Ван (футбольный клуб, Чаренцаван)",
+      "source": "https://az.wikipedia.org/?curid=988349"
+    },
+    {
+      "id": 988495,
+      "az": "Volfsberger FK",
+      "ru": "Вольфсберг (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=988495"
+    },
+    {
+      "id": 1005624,
+      "az": "Vikinq FK",
+      "ru": "Викинг (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=1005624"
+    },
+    {
+      "id": 81832,
+      "az": "Yuventus FK",
+      "ru": "Ювентус",
+      "source": "https://az.wikipedia.org/?curid=81832"
+    },
+    {
+      "id": 88466,
+      "az": "Yunion Berlin FK",
+      "ru": "Унион (футбольный клуб, Берлин)",
+      "source": "https://az.wikipedia.org/?curid=88466"
+    },
+    {
+      "id": 89718,
+      "az": "Zenit Sankt-Peterburq FK",
+      "ru": "Зенит (футбольный клуб, Санкт-Петербург)",
+      "source": "https://az.wikipedia.org/?curid=89718"
+    },
+    {
+      "id": 89861,
+      "az": "Zimbru Kişinyov FK",
+      "ru": "Зимбру (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=89861"
+    },
+    {
+      "id": 125118,
+      "az": "Yablonets FK",
+      "ru": "Яблонец (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=125118"
+    },
+    {
+      "id": 126218,
+      "az": "Zaqlembe Lyubin FK",
+      "ru": "Заглембе (футбольный клуб, Любин)",
+      "source": "https://az.wikipedia.org/?curid=126218"
+    },
+    {
+      "id": 126421,
+      "az": "Zob Ahən FK",
+      "ru": "Зоб Ахан",
+      "source": "https://az.wikipedia.org/?curid=126421"
+    },
+    {
+      "id": 301164,
+      "az": "Yagelloniya Belostok FK",
+      "ru": "Ягеллония",
+      "source": "https://az.wikipedia.org/?curid=301164"
+    },
+    {
+      "id": 333237,
+      "az": "Zestafoni FK",
+      "ru": "Зестафони (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=333237"
+    },
+    {
+      "id": 355617,
+      "az": "Zəngəzur Gorus FK",
+      "ru": "Зангезур (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=355617"
+    },
+    {
+      "id": 374771,
+      "az": "Voyvodina FK",
+      "ru": "Воеводина (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=374771"
+    },
+    {
+      "id": 389270,
+      "az": "Zirə FK",
+      "ru": "Зиря (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=389270"
+    },
+    {
+      "id": 448318,
+      "az": "Zaqatala PFK",
+      "ru": "Загатала (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=448318",
+      "aliases": [
+        "Zaqatala",
+        "Закатала"
+      ],
+      "caption_sources": []
+    },
+    {
+      "id": 450262,
+      "az": "Yadanarbon FK",
+      "ru": "Яданабоун",
+      "source": "https://az.wikipedia.org/?curid=450262"
+    },
+    {
+      "id": 497967,
+      "az": "Yanq-Boyz FK",
+      "ru": "Янг Бойз",
+      "source": "https://az.wikipedia.org/?curid=497967"
+    },
+    {
+      "id": 548651,
+      "az": "Zarya Luqansk FK",
+      "ru": "Заря (футбольный клуб, Луганск)",
+      "source": "https://az.wikipedia.org/?curid=548651"
+    },
+    {
+      "id": 574606,
+      "az": "Zrinski Mostar FK",
+      "ru": "Зриньски",
+      "source": "https://az.wikipedia.org/?curid=574606"
+    },
+    {
+      "id": 580647,
+      "az": "Yonava FK",
+      "ru": "Ионава (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=580647"
+    },
+    {
+      "id": 587694,
+      "az": "Yenisey FK",
+      "ru": "Енисей (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=587694"
+    },
+    {
+      "id": 611490,
+      "az": "Yurqorden FK",
+      "ru": "Юргорден (футбольный клуб)",
+      "source": "https://az.wikipedia.org/?curid=611490"
+    },
+    {
+      "id": 617951,
+      "az": "Vulverhempton Uonderers FK",
+      "ru": "Вулверхэмптон Уондерерс",
+      "source": "https://az.wikipedia.org/?curid=617951"
+    },
+    {
+      "id": "verified:venezia-fc",
+      "ru": "Венеция",
+      "az": "Venesiya",
+      "aliases": [
+        "Venesia",
+        "Venetsia",
+        "Venezia",
+        "Венеция"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/6333"
+      ]
+    },
+    {
+      "id": "channel:sanderlend",
+      "ru": "Сандерленд",
+      "az": "Sanderlend",
+      "aliases": [
+        "Sanderlend",
+        "Сандерленд"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7677"
+      ]
+    },
+    {
+      "id": "channel:bornmut",
+      "ru": "Борнмут",
+      "az": "Bornmut",
+      "aliases": [
+        "Bornmut",
+        "Борнмут"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7397"
+      ]
+    },
+    {
+      "id": "channel:alaves",
+      "ru": "Алавес",
+      "az": "Alaves",
+      "aliases": [
+        "Alaves",
+        "Алавес"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7508"
+      ]
+    },
+    {
+      "id": "channel:brayton",
+      "ru": "Брайтон",
+      "az": "Brayton",
+      "aliases": [
+        "Brayton",
+        "Брайтон"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7477"
+      ]
+    },
+    {
+      "id": "channel:nyukasl",
+      "ru": "Ньюкасл",
+      "az": "Nyukasl",
+      "aliases": [
+        "Nyukasl",
+        "Ньюкасл"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7868"
+      ]
+    },
+    {
+      "id": "channel:selta",
+      "ru": "Сельта",
+      "az": "Selta Viqo",
+      "aliases": [
+        "Selta Viqo",
+        "Сельта"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7877"
+      ]
+    },
+    {
+      "id": "channel:levante",
+      "ru": "Леванте",
+      "az": "Levante",
+      "aliases": [
+        "Levante",
+        "Леванте"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7473"
+      ]
+    },
+    {
+      "id": "channel:ipsvich",
+      "ru": "Ипсвич",
+      "az": "İpsiviç",
+      "aliases": [
+        "İpsiviç",
+        "İpsiviç Taun",
+        "İpsviç Taun",
+        "Ипсвич"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/6353",
+        "https://t.me/idmanvideo/7066",
+        "https://t.me/idmanvideo/7259"
+      ]
+    },
+    {
+      "id": "channel:marsel",
+      "ru": "Марсель",
+      "az": "Marsel",
+      "aliases": [
+        "Marsel",
+        "Марсель"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/6621"
+      ]
+    },
+    {
+      "id": "channel:lion",
+      "ru": "Лион",
+      "az": "Lion",
+      "aliases": [
+        "Lion",
+        "Лион"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7625"
+      ]
+    },
+    {
+      "id": "channel:brentford",
+      "ru": "Брентфорд",
+      "az": "Brentford",
+      "aliases": [
+        "Brenford",
+        "Brentford",
+        "Брентфорд"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7401"
+      ]
+    },
+    {
+      "id": "channel:elche",
+      "ru": "Эльче",
+      "az": "Elçe",
+      "aliases": [
+        "Elçe",
+        "Эльче"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/6557"
+      ]
+    },
+    {
+      "id": "channel:lids",
+      "ru": "Лидс",
+      "az": "Lids",
+      "aliases": [
+        "Leeds",
+        "Lids",
+        "Лидс"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/6856",
+        "https://t.me/idmanvideo/7641"
+      ]
+    },
+    {
+      "id": "channel:maynts",
+      "ru": "Майнц",
+      "az": "Maynts",
+      "aliases": [
+        "Maynts",
+        "Майнц"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7642"
+      ]
+    },
+    {
+      "id": "channel:norvich",
+      "ru": "Норвич",
+      "az": "Norviç Siti",
+      "aliases": [
+        "Norviç Siti",
+        "Норвич"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/6510"
+      ]
+    },
+    {
+      "id": "channel:nek",
+      "ru": "НЕК",
+      "az": "Nek Neymegen",
+      "aliases": [
+        "Nek Neymegen",
+        "Nek Neymeqen",
+        "НЕК"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/5997",
+        "https://t.me/idmanvideo/6513"
+      ]
+    },
+    {
+      "id": "channel:lechche",
+      "ru": "Лечче",
+      "az": "Leççe",
+      "aliases": [
+        "Leççe",
+        "Лечче"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7849"
+      ]
+    },
+    {
+      "id": "channel:tottenhem",
+      "ru": "Тоттенхэм",
+      "az": "Totenhem",
+      "aliases": [
+        "Totenhem",
+        "Тоттенхэм"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7144"
+      ]
+    },
+    {
+      "id": "channel:strasbur",
+      "ru": "Страсбур",
+      "az": "Strasburq",
+      "aliases": [
+        "Strasburq",
+        "Strazburq",
+        "Страсбур"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7082"
+      ]
+    },
+    {
+      "id": "channel:zaltsburg",
+      "ru": "Зальцбург",
+      "az": "Salzburq",
+      "aliases": [
+        "Salzburq",
+        "Зальцбург"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7025"
+      ]
+    },
+    {
+      "id": "channel:le man",
+      "ru": "Ле-Ман",
+      "az": "Le Mans",
+      "aliases": [
+        "Le Mans",
+        "Ле-Ман"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/6885"
+      ]
+    },
+    {
+      "id": "channel:verona",
+      "ru": "Верона",
+      "az": "Verona",
+      "aliases": [
+        "Verona",
+        "Верона"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/5252"
+      ]
+    },
+    {
+      "id": "channel:montsa",
+      "ru": "Монца",
+      "az": "Monza",
+      "aliases": [
+        "Monza",
+        "Монца"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7406"
+      ]
+    },
+    {
+      "id": "channel:koventri siti",
+      "ru": "Ковентри Сити",
+      "az": "Koventri Siti",
+      "aliases": [
+        "Koventri",
+        "Koventri Siti",
+        "Ковентри Сити"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7144",
+        "https://t.me/idmanvideo/7637"
+      ]
+    },
+    {
+      "id": "channel:augsburg",
+      "ru": "Аугсбург",
+      "az": "Auqsburq",
+      "aliases": [
+        "Auqsburq",
+        "Аугсбург"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/6860"
+      ]
+    },
+    {
+      "id": "channel:elversberg",
+      "ru": "Эльверсберг",
+      "az": "Elvesberq",
+      "aliases": [
+        "Elvesberq",
+        "Elvesburq",
+        "Эльверсберг"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/6390",
+        "https://t.me/idmanvideo/7649"
+      ]
+    },
+    {
+      "id": "channel:brest",
+      "ru": "Брест",
+      "az": "Brest",
+      "aliases": [
+        "Brest",
+        "Брест"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/6399"
+      ]
+    },
+    {
+      "id": "channel:paderborn",
+      "ru": "Падерборн",
+      "az": "Paderborn",
+      "aliases": [
+        "Paderborn",
+        "Падерборн"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/6343"
+      ]
+    },
+    {
+      "id": "channel:erzurumspor",
+      "ru": "Эрзурумспор",
+      "az": "Erzurumspor",
+      "aliases": [
+        "Erzurumspor",
+        "Эрзурумспор"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/6327"
+      ]
+    },
+    {
+      "id": "channel:keln",
+      "ru": "Кёльн",
+      "az": "Köln",
+      "aliases": [
+        "Köln",
+        "Кёльн"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7832"
+      ]
+    },
+    {
+      "id": "channel:parizh",
+      "ru": "Париж",
+      "az": "Paris",
+      "aliases": [
+        "Paris",
+        "Paris FC",
+        "Париж"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/5172",
+        "https://t.me/idmanvideo/7531"
+      ]
+    },
+    {
+      "id": "channel:bayer",
+      "ru": "Байер",
+      "az": "Bayer Leverkusen",
+      "aliases": [
+        "Bayer Leverkusen",
+        "Байер"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7478"
+      ]
+    },
+    {
+      "id": "channel:frozinone",
+      "ru": "Фрозиноне",
+      "az": "Frozinone",
+      "aliases": [
+        "Frosinone",
+        "Frozinone",
+        "Фрозиноне"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7443"
+      ]
+    },
+    {
+      "id": "channel:torreense",
+      "ru": "Торреенсе",
+      "az": "Torreense",
+      "aliases": [
+        "Torreense",
+        "Торреенсе"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7036"
+      ]
+    },
+    {
+      "id": "channel:neshvill",
+      "ru": "Нэшвилл",
+      "az": "Naşvil",
+      "aliases": [
+        "Naşvil",
+        "Нэшвилл"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/6377"
+      ]
+    },
+    {
+      "id": "channel:chorum",
+      "ru": "Чорум",
+      "az": "Çorum",
+      "aliases": [
+        "Çorum",
+        "Чорум"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7679"
+      ]
+    },
+    {
+      "id": "channel:norshellann",
+      "ru": "Норшелланн",
+      "az": "Norşellan",
+      "aliases": [
+        "Norşellan",
+        "Норшелланн"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7635"
+      ]
+    },
+    {
+      "id": "channel:magdeburg",
+      "ru": "Магдебург",
+      "az": "Maqdeburq",
+      "aliases": [
+        "Maqdeburq",
+        "Магдебург"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7386"
+      ]
+    },
+    {
+      "id": "channel:flitvud taun",
+      "ru": "Флитвуд Таун",
+      "az": "Flitvud",
+      "aliases": [
+        "Flitvud",
+        "Флитвуд Таун"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7360"
+      ]
+    },
+    {
+      "id": "channel:omoniya",
+      "ru": "Омония",
+      "az": "Omoniya",
+      "aliases": [
+        "Omonia",
+        "Omoniya",
+        "Омония"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/6463",
+        "https://t.me/idmanvideo/7249"
+      ]
+    },
+    {
+      "id": "channel:harts",
+      "ru": "Хартс",
+      "az": "Harts",
+      "aliases": [
+        "Harts",
+        "Хартс",
+        "Харт оф Мидлотиан",
+        "Hart of Midlotian"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7230"
+      ],
+      "source": "https://az.wikipedia.org/?curid=1007441"
+    },
+    {
+      "id": "channel:kups",
+      "ru": "КуПС",
+      "az": "KUPS",
+      "aliases": [
+        "KUPS",
+        "КуПС"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/7030"
+      ]
+    },
+    {
+      "id": "channel:olimpiakos",
+      "ru": "Олимпиакос",
+      "az": "Olimpiakos",
+      "aliases": [
+        "Olimpiakos",
+        "Олимпиакос"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/6476"
+      ]
+    },
+    {
+      "id": "channel:vulverhempton",
+      "ru": "Вулверхэмптон",
+      "az": "Vulverhempton",
+      "aliases": [
+        "Volves",
+        "Vulverhempton",
+        "Вулверхэмптон"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/3990"
+      ]
+    },
+    {
+      "id": "channel:krus asul",
+      "ru": "Крус Асуль",
+      "az": "Cruz Azul",
+      "aliases": [
+        "Cruz Azul",
+        "Крус Асуль"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/6507"
+      ]
+    },
+    {
+      "id": "channel:piza",
+      "ru": "Пиза",
+      "az": "Piza",
+      "aliases": [
+        "Pisa",
+        "Piza",
+        "Пиза"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/5151",
+        "https://t.me/idmanvideo/6456"
+      ]
+    },
+    {
+      "id": "channel:al ayn",
+      "ru": "Аль-Айн",
+      "az": "Əl Ayn",
+      "aliases": [
+        "Əl Ayn",
+        "Аль-Айн"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/6436"
+      ]
+    },
+    {
+      "id": "channel:abha",
+      "ru": "Абха",
+      "az": "Abha",
+      "aliases": [
+        "Abha",
+        "Абха"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/6271"
+      ]
+    },
+    {
+      "id": "channel:monreal",
+      "ru": "Монреаль",
+      "az": "Monreal",
+      "aliases": [
+        "Monreal",
+        "Монреаль"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/6097"
+      ]
+    },
+    {
+      "id": 560070,
+      "ru": "Ганза (футбольный клуб)",
+      "az": "Hanza Rostok FK",
+      "source": "https://az.wikipedia.org/?curid=560070"
+    },
+    {
+      "id": 1008764,
+      "ru": "Анкона (футбольный клуб)",
+      "az": "SSC Ankona FK",
+      "source": "https://az.wikipedia.org/?curid=1008764"
+    },
+    {
+      "id": "channel:kremoneze",
+      "ru": "Кремонезе",
+      "az": "Kremoneze",
+      "aliases": [
+        "Kremoneze",
+        "Кремонезе"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/4982"
+      ]
+    },
+    {
+      "id": "channel:rekshem",
+      "ru": "Рексхэм",
+      "az": "Rekshem",
+      "aliases": [
+        "Rekshem",
+        "Рексхэм"
+      ],
+      "caption_sources": []
+    },
+    {
+      "id": "channel:orhus",
+      "ru": "Орхус",
+      "az": "Orhus",
+      "aliases": [
+        "Orhus",
+        "Орхус"
+      ],
+      "caption_sources": []
+    },
+    {
+      "id": "channel:payde",
+      "ru": "Пайде",
+      "az": "Payde",
+      "aliases": [
+        "Payde",
+        "Пайде"
+      ],
+      "caption_sources": []
+    },
+    {
+      "id": "channel:luton taun",
+      "ru": "Лутон Таун",
+      "az": "Luton Taun",
+      "aliases": [
+        "Luton Taun",
+        "Лутон Таун"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/6033"
+      ]
+    },
+    {
+      "id": "channel:uimbldon",
+      "ru": "Уимблдон",
+      "az": "Uimbldon",
+      "aliases": [
+        "Uimbldon",
+        "Уимблдон"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/6035"
+      ]
+    },
+    {
+      "id": "channel:dzhohor darul takzim",
+      "ru": "Джохор Дарул Такзим",
+      "az": "Johor Darul Takzim FC",
+      "aliases": [
+        "Johor Darul Takzim FC",
+        "Джохор Дарул Такзим"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/5785"
+      ]
+    },
+    {
+      "id": "channel:chikago fayr",
+      "ru": "Чикаго Файр",
+      "az": "Çikaqo Fayr",
+      "aliases": [
+        "Çikaqo Fayr",
+        "Чикаго Файр"
+      ],
+      "caption_sources": []
+    },
+    {
+      "id": "channel:sharlott",
+      "ru": "Шарлотт",
+      "az": "Şarlott",
+      "aliases": [
+        "Şarlott",
+        "Шарлотт"
+      ],
+      "caption_sources": []
+    },
+    {
+      "id": "channel:anzhe",
+      "ru": "Анже",
+      "az": "Anje",
+      "aliases": [
+        "Anje",
+        "Анже"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/4812"
+      ]
+    },
+    {
+      "id": "channel:midtyullann",
+      "ru": "Мидтьюлланн",
+      "az": "Midtyulland",
+      "aliases": [
+        "Midtyulland",
+        "Мидтьюлланн"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/4178"
+      ]
+    },
+    {
+      "id": "channel:real ovedo",
+      "ru": "Реал Овьедо",
+      "az": "Real Oveido",
+      "aliases": [
+        "Real Oveido",
+        "Реал Овьедо"
+      ],
+      "caption_sources": [
+        "https://t.me/idmanvideo/3945"
+      ]
+    }
+  ],
+  "channel_alias_review": "2026-11-22"
+}

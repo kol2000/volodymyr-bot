@@ -1,0 +1,17 @@
+[Unit]
+Description=Bubus subsystem diagnostics and owner alerts
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=botadmin
+WorkingDirectory=/home/botadmin/volodymyr_bot
+ExecStart=/usr/bin/flock -n /home/botadmin/volodymyr_bot/state/health-monitor.lock /usr/bin/python3 -B health_monitor.py --write
+TimeoutStartSec=5min
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/botadmin/volodymyr_bot/state
+PrivateTmp=true

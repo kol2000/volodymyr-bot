@@ -78,7 +78,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self.access():return
         path=urlsplit(self.path).path
-        assets={'/':('index.html','text/html; charset=utf-8'),'/panel.css':('panel.css','text/css; charset=utf-8'),
+        assets={'/favicon.svg':('favicon.svg','image/svg+xml'),'/':('index.html','text/html; charset=utf-8'),'/panel.css':('panel.css','text/css; charset=utf-8'),
                 '/panel.js':('panel.js','text/javascript; charset=utf-8')}
         if path in assets:
             name,mime=assets[path];return self.send(200,(ROOT/'web_panel'/name).read_bytes(),mime)

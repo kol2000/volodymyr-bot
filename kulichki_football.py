@@ -22,11 +22,17 @@ PATH = re.compile(r'/trans/(20\d{2})/(\d+)-[A-Za-z0-9-]+\.htm$')
 
 
 def valid_url(url):
+    from soccer365_football import valid_url as supplemental_url
+    if supplemental_url(url):
+        return True
     parts = urlsplit(url)
     return parts.scheme == 'https' and parts.netloc == 'football.kulichki.net' and PATH.fullmatch(parts.path)
 
 
 def fetch_html(url):
+    from soccer365_football import valid_url as supplemental_url, fetch as supplemental_fetch
+    if supplemental_url(url):
+        return supplemental_fetch(url)
     parts = urlsplit(url)
     if parts.scheme != 'https' or parts.netloc != 'football.kulichki.net' or not (parts.path == '/' or PATH.fullmatch(parts.path)):
         raise FootballError('invalid_match_url')
@@ -57,9 +63,11 @@ def fetch_html(url):
 
 def parse_home(html):
     root = Document(html).root
+    def daily_heading(value):
+        return bool(re.fullmatch(r'Онлайн трансляци[яи]\.?', value.strip(), re.I))
     # Pick the smallest table headed exactly this way, never navigation/news links.
     tables = [n for n in root.walk() if n.tag == 'table' and any(
-        x.tag == 'th' and text(x) == 'Онлайн трансляции.' for x in n.walk())]
+        x.tag == 'th' and daily_heading(text(x)) for x in n.walk())]
     if not tables:
         raise FootballError('missing_daily_selection')
     table = min(tables, key=lambda n: len(list(n.walk())))
@@ -68,7 +76,7 @@ def parse_home(html):
         headings = [n for n in row.children if isinstance(n, Node) and n.tag == 'th']
         if headings:
             heading = text(headings[0])
-            if heading != 'Онлайн трансляции.':
+            if not daily_heading(heading):
                 competition = heading[:120]
             continue
         cells = [n for n in row.children if isinstance(n, Node) and n.tag == 'td']
@@ -99,6 +107,9 @@ def parse_home(html):
 
 
 def parse_broadcast(html, selected):
+    from soccer365_football import valid_url as supplemental_url, broadcast
+    if supplemental_url(selected.get('url','')):
+        return broadcast(html,selected)
     root = Document(html).root
     title = next((text(n) for n in root.walk() if n.tag == 'title'), '')
     title_match = re.fullmatch(r'Онлайн трансляция матча (.+?) - (.+?): (\d{1,2}) ([а-я]+) (20\d{2}), .+', title)
@@ -136,10 +147,16 @@ def parse_broadcast(html, selected):
         timed = re.fullmatch(r'\d{1,3}(?:\+\d{1,2})?|\+\d{1,2}', clock)
         # FNK also posts period whistles with an empty minute cell.
         description = text(cells[2])
+        if not timed and '0.gif' in icons:
+            continue  # FNK pre-match editorial, including recaps of cancelled goals.
         if not timed and not (clock in ('', '-', '—') and
                               (phase_icons.intersection(icons) or cancelled_goal(description))):
             continue
         events.append((clock if timed else '', icons, description))
+    # Untimed cancellations can be part of a pre-match recap of older games.
+    # Keep them only when this feed also has actual match-time/period evidence.
+    if not any(clock or phase_icons.intersection(icons) for clock, icons, _ in events):
+        events = []
     # A stale/mislabelled end1 icon must not reopen halftime after the second
     # half. Use source markers/minutes, never elapsed wall time or score alone.
     second_half = any('2t.gif' in icons or
@@ -304,7 +321,8 @@ class KulichkiScoreboard:
                 self.store.set(PREFIX + 'fnk_selection', [dict(id=m.id, competition=m.competition,
                     home=m.home, away=m.away, kickoff=m.kickoff, status=m.status, label=m.label,
                     home_score=m.home_score, away_score=m.away_score, url=m.url, source=NAME, checked=m.checked)
-                    for m in self.matches.values()])
+                    for m in self.matches.values()] + [r for r in self.store.get(PREFIX + 'fnk_selection', [])
+                        if r.get('id','').startswith('s365:')])
             result = sorted((m for key, m in self.matches.items() if key not in failed and
                              datetime.fromtimestamp(m.kickoff, MOSCOW).date() == day),
                             key=lambda m: (m.kickoff, m.id))
