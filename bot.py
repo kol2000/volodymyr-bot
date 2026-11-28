@@ -1841,6 +1841,7 @@ class Bot:
                 self.store.set(f'prediction:context:{chat_id}:{sent["message_id"]}',utility['_context'])
             if thoughtful or (utility and utility['kind'] in ('factcheck','football','football_prediction','links')):
                 self.store.remember_session(chat_id, job.get('user_id'), sent['message_id'])
+            self.send_schedule_continuations(chat_id, answer, job['reply_to'])
             self.store.finish_send(send_id, 'sent')
             job['_outcome'] = 'sent'
             LOG.info('Реплика отправлена, режим=%s', kind)
@@ -1926,6 +1927,16 @@ class Bot:
                 LOG.error('Ошибка расписания: %s', type(error).__name__)
             time.sleep(10)
 
+    def send_schedule_continuations(self, chat_id, answer, reply_to=None):
+        from prediction_buttons import remember
+        for page in getattr(answer,'continuations',[]):
+            time.sleep(1)
+            if not self.allowed(chat_id):
+                raise APIError('chat changed during schedule delivery')
+            sent=self.telegram.send(chat_id,page,reply_to)
+            self.store.add_message(dict(sent,_answer_mode='football'),human=False,learnable=False,rateable=False)
+            if getattr(page,'prediction_buttons',None):remember(self.store,chat_id,sent['message_id'],page)
+
     def send_football(self, chat_id, answer):
         if not self.allowed(chat_id) or chat_id != self.store.get('chat_id'):
             return
@@ -1933,6 +1944,7 @@ class Bot:
             started = time.monotonic()
             sent = self.telegram.send(chat_id, answer)
             self.store.add_message(dict(sent,_answer_mode='football'), human=False, learnable=False, rateable=False)
+            self.send_schedule_continuations(chat_id, answer)
             LOG.info('Футбольное уведомление отправлено: Telegram=%s; отправка=%.3f сек.',
                      datetime.fromtimestamp(sent.get('date', time.time()), MOSCOW).isoformat(),
                      time.monotonic() - started)

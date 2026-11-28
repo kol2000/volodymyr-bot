@@ -644,23 +644,27 @@ def scoreboard_text(matches, day, checked, query='', goal_links=None):
     if not selected:
         lines.append(f'По запросу «{escape(query)}» на эту дату в доступной выборке подходящих матчей нет.' if query
                      else 'В доступной выборке нет матчей на эту дату.')
-    displayed = 0
-    for match in selected[:12]:
-        line = f'\n{escape(match.competition)}\n{match_line(match)}'
-        if match.status == 'finished' and (goal_links or {}).get(match.id):
-            line += '\n' + goal_links[match.id]
-        if len('\n'.join(lines)) + len(line) > 3500:
-            break
-        lines.append(line)
-        displayed += 1
-    if len(selected) > displayed:
-        lines.append(f'\nЕщё матчей: {len(selected) - displayed}. Уточни команду: /football Ростов')
+    from prediction_buttons import decorate
     stamp = datetime.fromtimestamp(checked, MOSCOW).strftime('%H:%M:%S МСК')
     source = ' + '.join(dict.fromkeys(m.source for m in selected)) if selected else 'Футбол на Куличках'
-    lines.append(f'\n<i>Источник: {escape(source)} · проверено {stamp}</i>')
-    answer = HTMLMessage('\n'.join(lines))
-    from prediction_buttons import decorate
-    return decorate(answer, selected[:displayed], day)
+    footer=f'\n<i>Источник: {escape(source)} · проверено {stamp}</i>'
+    groups=[];blocks=[];shown=[]
+    for match in selected:
+        line=f'\n{escape(match.competition)}\n{match_line(match)}'
+        if match.status=='finished' and (goal_links or {}).get(match.id):line+='\n'+goal_links[match.id]
+        size=len(('\n'.join(lines+blocks+[line,footer])).encode('utf-16-le'))//2
+        if blocks and (len(shown)>=12 or size>3400):
+            groups.append((blocks,shown));blocks=[];shown=[]
+        blocks.append(line);shown.append(match)
+    groups.append((blocks,shown))
+    pages=[]
+    for index,(blocks,shown) in enumerate(groups,1):
+        heading=lines.copy()
+        if len(groups)>1:heading[0]+=f' · {index}/{len(groups)}'
+        pages.append(decorate(HTMLMessage('\n'.join(heading+blocks+[footer])),shown,day))
+    answer=pages[0];answer.continuations=pages[1:]
+    return answer
+
 
 
 def changes(previous, match, now):
@@ -788,10 +792,13 @@ class Football:
                                    {m.id: remembered_state(previous.get(m.id), m, checked) for m in matches})
                 self.store.set(PREFIX + 'enabled', True)
                 self.store.set(PREFIX + 'next_poll', 0)
-            return HTMLMessage('⚽ <b>Уведомления включены в подключённой группе</b>\n'
+            schedule=scoreboard_text(matches, day, checked)
+            answer=HTMLMessage('⚽ <b>Уведомления включены в подключённой группе</b>\n'
                                'Начало, изменение счета, перерыв и финал.\n'
                                'Матчи ФНК и дополнение крупных турниров из Soccer365; /football_off — выключить.\n\n'
-                               + scoreboard_text(matches, day, checked))
+                               + schedule)
+            answer.__dict__.update(schedule.__dict__)
+            return answer
         from prediction_buttons import completed_goal_links
         return scoreboard_text(matches, day, checked, request.get('filter', ''),
                                completed_goal_links(self.store, chat_id, matches))
