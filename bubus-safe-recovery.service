@@ -1,0 +1,13 @@
+[Unit]
+Description=Bounded recovery of failed Bubus services
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -B /usr/local/lib/bubus-safe-recovery.py
+StateDirectory=bubus-watchdog
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+TimeoutStartSec=90s

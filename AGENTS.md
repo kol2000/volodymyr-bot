@@ -72,3 +72,5 @@ Windows: явная UTF-8 при чтении/записи; PowerShell може�
 Обновление по прямому указанию владельца: память/history теперь default-on. Используются observed с явной неопределённостью и confirmed с приоритетом; pending конфликты не используются. Явный opt-out сохраняется. PERSONAL_MEMORY.md содержит актуальные правила, прежний opt-in отменён.
 
 Ситуативная активность: situational_activity.py и SITUATIONAL_ACTIVITY.md. Не обходить auto_eligible/claim_send ради решения LLM. Автоматический factcheck также расходует автоматическую квоту; отсутствие проверенного опровержения означает молчание.
+
+Диагностика: health_monitor.py, health_metrics.py, HEALTH_MONITOR.md. Уведомления только владельцу. Root-helper устанавливается отдельной root-owned копией, фиксированный allowlist и лимит попыток. Никогда не сбрасывать uncertain и не заменять повреждённую SQLite автоматически. Бэкапы содержат секреты — исключены из Git.

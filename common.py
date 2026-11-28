@@ -110,11 +110,17 @@ class Telegram:
         self.last_send = 0
 
     def call(self, method, **payload):
-        result = http_json(self.base + method, payload, timeout=60)
-        if not result.get('ok'):
-            raise APIError(f'Telegram API {result.get("error_code", "error")}',
-                           result.get('error_code', 0),
-                           result.get('parameters', {}).get('retry_after', 0), unchanged_message(result))
+        from health_metrics import telegram as health_telegram
+        try:
+            result = http_json(self.base + method, payload, timeout=60)
+            if not result.get('ok'):
+                raise APIError(f'Telegram API {result.get("error_code", "error")}',
+                               result.get('error_code', 0),
+                               result.get('parameters', {}).get('retry_after', 0), unchanged_message(result))
+        except APIError:
+            health_telegram(method, False)
+            raise
+        health_telegram(method, True)
         return result['result']
 
     def send(self, chat_id, text, reply_to=None):
