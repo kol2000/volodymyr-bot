@@ -73,3 +73,21 @@ class LinkTests(unittest.TestCase):
             f.bot.handle(update)
             job=f.bot.utility_jobs.get_nowait();self.assertEqual(job['utility']['documents'],docs)
         finally:f.tearDown()
+
+    def test_summarize_article_priority_and_chat_command(self):
+        import test_bot
+        for text,reply,expected in [
+            ('бубус перескажи ету статью: https://oreltimes.ru/news/test/',None,'links'),
+            ('бубус перескажи эту статью',{'text':'https://example.org'},'links'),
+            ('/summary https://example.org',None,'summary'),
+            ('бубус перескажи чат',None,'summary')]:
+            with self.subTest(text=text):
+                f=test_bot.BotTests();f.setUp()
+                try:
+                    f.bind();f.bot.pending_requests.clear()
+                    update=f.update(text,number=30)
+                    if reply:update['message']['reply_to_message']=reply
+                    f.bot.handle(update)
+                    queue=f.bot.jobs if expected=='summary' else f.bot.utility_jobs
+                    self.assertEqual(queue.get_nowait()['utility']['kind'],expected)
+                finally:f.tearDown()

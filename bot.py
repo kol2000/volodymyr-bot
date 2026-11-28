@@ -1097,7 +1097,12 @@ class Bot:
         addressed = private or mentioned or reply_to_bot or called or question_call or bool(session_id and followup) or pending_followup or control_call
         personal_memory.observe(self.store, chat_id, user_id, text, message['message_id'], addressed=addressed)
         prediction_context = self.store.get(f'prediction:context:{chat_id}:{dialogue_id}') if dialogue_id else None
-        utility = prediction_request(argument, command, addressed=addressed, context=prediction_context)
+        # Explicit source content takes precedence over generic chat-summary keywords.
+        import link_reader
+        utility = link_reader.request(message, addressed, command,
+            link_reader.cache_get(self.store, chat_id, dialogue_id))
+        if not utility:
+            utility = prediction_request(argument, command, addressed=addressed, context=prediction_context)
         if not utility:
             utility = football_request(argument, command, addressed=addressed)
         if not utility:
@@ -1127,10 +1132,6 @@ class Bot:
             utility['owner'] = owner
         if not utility:
             utility = service_request(argument, command, self.store.get('currencies'))
-        import link_reader
-        if not utility:
-            utility = link_reader.request(message, addressed, command,
-                link_reader.cache_get(self.store, chat_id, dialogue_id))
         from visual_context import request as visual_request
         visual = visual_request(message, addressed or command == '/bubus' or bool(re.match(r'^\s*(?:бубус|бубс|володька|володя)\b', text, re.I)))
         if visual and command in ('', '/bubus'):
